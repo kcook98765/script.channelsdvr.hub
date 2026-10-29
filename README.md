@@ -47,5 +47,7 @@ old operations and establish an exclusive writer before any Hub writes.
 - [Development](docs/DEVELOPMENT.md): source layout and offline-test scope.
 - [Limitations](docs/LIMITATIONS.md): unsupported features and acceptance gaps.
 - [Identity](docs/IDENTITY.md): separate profile and reconciliation boundaries.
+- [Alpha readiness](docs/ALPHA-READINESS.md): release blockers and Kodi Lab acceptance gates.
+- [Alpha testing](docs/ALPHA-TESTING.md): secondary DVR isolation and tester checklist.
 
 Keep secrets out of Git. Licensed under the [MIT license](LICENSE).

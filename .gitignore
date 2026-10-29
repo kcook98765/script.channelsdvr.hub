@@ -22,15 +22,19 @@
 !/tests/test_artwork_native.py
 !/tests/test_native_playback.py
 !/tests/test_series_manager.py
+!/tests/test_release_builder.py
 !/tools/
 /tools/*
 !/tools/test_offline.py
+!/tools/build_alpha.py
 !/docs/
 /docs/*
 !/docs/USERGUIDE.md
 !/docs/DEVELOPMENT.md
 !/docs/LIMITATIONS.md
 !/docs/IDENTITY.md
+!/docs/ALPHA-READINESS.md
+!/docs/ALPHA-TESTING.md
 
 # Defense in depth, including anything accidentally created within the package.
 AGENTS.md
