@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<window>
+  <defaultcontrol always="true">202</defaultcontrol>
+  <controls>
+    <control type="image"><left>0</left><top>0</top><width>1920</width><height>1080</height><texture>background.png</texture></control>
+    <control type="label" id="200"><left>80</left><top>45</top><width>1760</width><height>60</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
+    <!-- Native pagecontrol owns its rendered range; Python only requests the
+         initial top. Explicit false overrides any skin textbox autoscroll default. -->
+    <control type="textbox" id="201"><left>80</left><top>120</top><width>1690</width><height>790</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label><pagecontrol>202</pagecontrol><autoscroll>false</autoscroll></control>
+    <control type="scrollbar" id="202">
+      <left>1800</left><top>120</top><width>40</width><height>790</height>
+      <orientation>vertical</orientation><showonepage>true</showonepage>
+      <texturesliderbackground>gap.png</texturesliderbackground>
+      <texturesliderbar>cell.png</texturesliderbar><texturesliderbarfocus>selected.png</texturesliderbarfocus>
+      <textureslidernib></textureslidernib><textureslidernibfocus></textureslidernibfocus>
+      <onup>202</onup><ondown>202</ondown><onleft>100</onleft><onright>100</onright>
+    </control>
+    <control type="button" id="100">
+      <left>80</left><top>940</top><width>1760</width><height>65</height>
+      <font>font13</font><textcolor>FFFFFFFF</textcolor><focusedcolor>FFFFD080</focusedcolor>
+      <!-- Owner onInit sets the captured localized Close + instructions. -->
+      <label>Close</label>
+      <texturefocus>background.png</texturefocus><texturenofocus>background.png</texturenofocus>
+      <onleft>202</onleft><onright>202</onright><onup>202</onup><ondown>202</ondown>
+    </control>
+  </controls>
+</window>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<addon id="script.channelsdvr.hub" name="Channels DVR Hub" version="0.1.0" provider-name="Local development">
+  <requires>
+    <import addon="xbmc.python" version="3.0.1"/>
+  </requires>
+  <extension point="xbmc.python.script" library="default.py"/>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_GB">Channels DVR Hub: Dashboard, guide, recordings and passes for Kodi</summary>
+    <description lang="en_GB">Channels DVR Hub is a pre-release Kodi client for the configured development Channels DVR. Its Program entry opens a Dashboard with Guide, Recordings, Scheduled, Pass list, Search and Connection navigation. Explicit Play hands completed DVR recordings and advertised live channels to Kodi's native player; OK keeps opening details. Live tuning requires confirmation because shared tuner availability is unknown. Schedule future recordings and manage programme-only and Series passes with separate confirmations and verified local consent. Series management supports Name, pause/resume and removal, including explicit adoption of existing supported passes. Advanced rule editing, DVR resume/watched synchronization and native PVR replacement are not provided. Historical native results apply to the old EPG identity; the new Hub identity has not been installed or natively accepted.</description>
+    <disclaimer lang="en_GB">Unofficial pre-release add-on. Not affiliated with Channels. Only the approved development DVR and required build are supported. Channels DVR may use another available source. Preview matches do not guarantee future coverage. Saved rules stay on the DVR after you exit Kodi. Private operation history is retained; no automatic changes or retries.</disclaimer>
+    <platform>all</platform>
+    <license>MIT</license>
+    <assets>
+      <icon>resources/icon.png</icon>
+    </assets>
+    <news>0.1.0 pre-release: local Channels DVR Hub identity alignment with a separate Kodi add-on/profile identity. Dashboard, guide, recording management, explicit native Play and programme-only/Series pass management retained. Hub installation and native acceptance pending; old EPG results remain historical.</news>
+  </extension>
+</addon>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<colors>
+  <color name="ChannelsText">FFFFFFFF</color>
+  <color name="ChannelsMuted">FFB6C8DB</color>
+  <color name="ChannelsBackground">FF0E1723</color>
+  <color name="ChannelsSelection">FF1374A9</color>
+</colors>

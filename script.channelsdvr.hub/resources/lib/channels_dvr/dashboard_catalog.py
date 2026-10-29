@@ -1,0 +1,21 @@
+"""Dashboard copy; IDs are permanent even after retirement."""
+ROWS = (
+    ('dashboard', 30900, 'Dashboard'),
+    ('passes', 30901, 'Pass list'),
+    ('actions', 30902, 'Actions'),
+    ('back', 30909, 'Back'),
+    ('open', 30910, 'Open'),
+    ('details', 30911, 'Details'),
+    ('schedule_short', 30912, 'Schedule'),
+    ('watch_short', 30913, 'Watch live now'),
+    ('play_short', 30914, 'Play recording'),
+    ('dashboard_configure', 30916, 'Configure'),
+    ('dashboard_duration', 30917, '{days}d {hours}h {minutes}m {seconds}s'),
+    ('dashboard_activity', 30915, 'Reported activity\nStreams: {streams} · Recordings: {recordings}\nWorkers: {workers} · Other: {other}\nNot a free-tuner check\n{age}'),
+    ('dashboard_server', 30903, 'DVR server\nVersion: {version}\nOS / architecture: {os} / {arch}\nServer running time: {running}\n{age}'),
+    ('dashboard_dvr', 30904, 'DVR reported · Enabled: {enabled} · Busy: {busy}\nFiles: {files} · Total: {total} · Jobs: {jobs}\nRules: {rules} · Groups: {groups}\nStorage used: {storage}%\n{age}'),
+    ('dashboard_sources', 30905, 'Sources: {sources}\nReported tuners: {tuners}\nReporting sources: {reporting} · Unknown: {unknown}\nAvailability is unknown\n{age}'),
+    ('dashboard_passes', 30906, 'Pass list: {total}\nPaused: {paused} · Active: {active}\nPause state unknown: {unknown}\nIncludes advanced passes\n{age}'),
+    ('dashboard_loaded', 30907, 'Channels: {channels} · Hidden: {hidden}\nGuide programmes: {events}\nWindow: {start}\nUntil: {end}\nRecordings loaded (complete scan): {recordings}'),
+    ('dashboard_hint', 30908, 'Back: actions / Dashboard / exit · Down: content · Actions: more options'),
+)

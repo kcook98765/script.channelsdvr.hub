@@ -1,0 +1,2014 @@
+msgid ""
+msgstr ""
+"Language: en_GB\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgctxt "#30000"
+msgid "Connection"
+msgstr ""
+
+msgctxt "#30001"
+msgid "DVR address"
+msgstr ""
+
+msgctxt "#30002"
+msgid "Enter only the approved development DVR address, without credentials or a path. Leave blank until configured."
+msgstr ""
+
+msgctxt "#30003"
+msgid "Minimum supported DVR version"
+msgstr ""
+
+msgctxt "#30004"
+msgid "DVR versions 2026.08.07.0346 and newer are accepted. The minimum is fixed by this add-on; the saved legacy build value is retained but does not change it. API changes require manual testing and an add-on update if needed. Development DVR only; no account or production-server access."
+msgstr ""
+
+msgctxt "#30005"
+msgid "Connect when the guide opens"
+msgstr ""
+
+msgctxt "#30006"
+msgid "Load listings from the configured DVR when the guide opens. Turning this off leaves the guide disconnected. Scheduling and pass changes always need separate confirmation; existing DVR rules keep running."
+msgstr ""
+
+#. Developer visibility is not a backend permission.
+msgctxt "#30100"
+msgid "Developer tools"
+msgstr ""
+
+msgctxt "#30101"
+msgid "Show developer tools"
+msgstr ""
+
+msgctxt "#30102"
+msgid "Show demo listings and fixed diagnostic tools. Does not change connection permissions or recording safeguards. Demo listings open only when you choose Open demo guide."
+msgstr ""
+
+msgctxt "#30106"
+msgid "Guide"
+msgstr ""
+
+msgctxt "#30107"
+msgid "Recordings"
+msgstr ""
+
+msgctxt "#30108"
+msgid "Scheduled"
+msgstr ""
+
+msgctxt "#30109"
+msgid "Search programmes"
+msgstr ""
+
+msgctxt "#30110"
+msgid "Recording tools"
+msgstr ""
+
+msgctxt "#30111"
+msgid "Channel collection"
+msgstr ""
+
+msgctxt "#30112"
+msgid "Now"
+msgstr ""
+
+msgctxt "#30113"
+msgid "Date and time"
+msgstr ""
+
+msgctxt "#30114"
+msgid "Previous hour"
+msgstr ""
+
+msgctxt "#30115"
+msgid "Next hour"
+msgstr ""
+
+msgctxt "#30116"
+msgid "Schedule selected programme"
+msgstr ""
+
+msgctxt "#30117"
+msgid "Recording status and cancel"
+msgstr ""
+
+msgctxt "#30118"
+msgid "Programme pass tools"
+msgstr ""
+
+msgctxt "#30119"
+msgid "Settings"
+msgstr ""
+
+msgctxt "#30120"
+msgid "Exit"
+msgstr ""
+
+msgctxt "#30121"
+msgid "Configure DVR address"
+msgstr ""
+
+msgctxt "#30122"
+msgid "Connect"
+msgstr ""
+
+msgctxt "#30123"
+msgid "Refresh listings"
+msgstr ""
+
+msgctxt "#30124"
+msgid "Connection status"
+msgstr ""
+
+msgctxt "#30125"
+msgid "Disconnect"
+msgstr ""
+
+msgctxt "#30126"
+msgid "Connection settings"
+msgstr ""
+
+msgctxt "#30127"
+msgid "Connect to your DVR first."
+msgstr ""
+
+msgctxt "#30128"
+msgid "Configure an approved DVR address, then choose Connect."
+msgstr ""
+
+msgctxt "#30129"
+msgid "Not connected"
+msgstr ""
+
+msgctxt "#30130"
+msgid "Connect to your DVR to load listings. Open Connection to configure an approved DVR address and connect."
+msgstr ""
+
+msgctxt "#30131"
+msgid "Disconnecting this guide does not stop DVR recordings or remove saved passes."
+msgstr ""
+
+#. View is a localized display label, never an internal view identifier.
+msgctxt "#30132"
+msgid "Channels DVR Hub | {view}"
+msgstr ""
+
+msgctxt "#30133"
+msgid "Demo guide"
+msgstr ""
+
+msgctxt "#30135"
+msgid "DVR listings • [?] End time unknown • Times include UTC offset"
+msgstr ""
+
+msgctxt "#30136"
+msgid "Sample listings — not your DVR"
+msgstr ""
+
+msgctxt "#30137"
+msgid "No listings loaded"
+msgstr ""
+
+msgctxt "#30138"
+msgid "Preparing guide…"
+msgstr ""
+
+msgctxt "#30139"
+msgid "Guide unavailable"
+msgstr ""
+
+msgctxt "#30140"
+msgid "No listings in the last successful update"
+msgstr ""
+
+msgctxt "#30141"
+msgid "{view}: {status}"
+msgstr ""
+
+msgctxt "#30142"
+msgid "Menu: Connection → Refresh listings."
+msgstr ""
+
+msgctxt "#30143"
+msgid "Developer tools → Demo data status → Recover. OK explains this Demo state."
+msgstr ""
+
+msgctxt "#30144"
+msgid "Search"
+msgstr ""
+
+msgctxt "#30145"
+msgid "Recent recordings"
+msgstr ""
+
+msgctxt "#30146"
+msgid "Movies"
+msgstr ""
+
+msgctxt "#30147"
+msgid "Open demo guide"
+msgstr ""
+
+msgctxt "#30148"
+msgid "Close demo guide"
+msgstr ""
+
+msgctxt "#30149"
+msgid "Demo data status"
+msgstr ""
+
+msgctxt "#30150"
+msgid "Demo guide stress test / restore"
+msgstr ""
+
+msgctxt "#30151"
+msgid "Fixed UI exercises"
+msgstr ""
+
+msgctxt "#30152"
+msgid "Guide index status"
+msgstr ""
+
+msgctxt "#30153"
+msgid "UI timing diagnostics"
+msgstr ""
+
+msgctxt "#30154"
+msgid "Detailed connection diagnostics"
+msgstr ""
+
+msgctxt "#30155"
+msgid "Open a demo guide from Developer tools to use sample scenarios and exercises."
+msgstr ""
+
+msgctxt "#30156"
+msgid "All channels"
+msgstr ""
+
+msgctxt "#30157"
+msgid "Visible channels"
+msgstr ""
+
+msgctxt "#30158"
+msgid "Favourites"
+msgstr ""
+
+msgctxt "#30159"
+msgid "Station details unavailable"
+msgstr ""
+
+msgctxt "#30160"
+msgid "Station details blank"
+msgstr ""
+
+msgctxt "#30161"
+msgid "General"
+msgstr ""
+
+msgctxt "#30162"
+msgid "Empty demo collection"
+msgstr ""
+
+msgctxt "#30163"
+msgid "Channels: {channels}; programmes: {events}\nRecordings: {recordings}; scheduled items: {jobs}"
+msgstr ""
+
+msgctxt "#30164"
+msgid "Listings were read in parts and may have changed during loading."
+msgstr ""
+
+msgctxt "#30165"
+msgid "Enter search text…"
+msgstr ""
+
+msgctxt "#30166"
+msgid "Previous results"
+msgstr ""
+
+msgctxt "#30167"
+msgid "Clear search"
+msgstr ""
+
+msgctxt "#30168"
+msgid "Search programmes (up to 128 characters)"
+msgstr ""
+
+msgctxt "#30169"
+msgid "Use up to 128 characters for your search."
+msgstr ""
+
+msgctxt "#30170"
+msgid "Choose date and hour"
+msgstr ""
+
+msgctxt "#30171"
+msgid "Earliest listing time"
+msgstr ""
+
+msgctxt "#30172"
+msgid "Latest listing time"
+msgstr ""
+
+msgctxt "#30173"
+msgid "Date and hour (with UTC offset)"
+msgstr ""
+
+msgctxt "#30174"
+msgid "Preview matching airings"
+msgstr ""
+
+msgctxt "#30175"
+msgid "Saved passes for this series (read only)"
+msgstr ""
+
+msgctxt "#30176"
+msgid "Prepare programme pass"
+msgstr ""
+
+msgctxt "#30177"
+msgid "Programme pass status and remove"
+msgstr ""
+
+msgctxt "#30178"
+msgid "Saved operation history (read only)"
+msgstr ""
+
+#. Saved history is never fresh ownership or absence proof.
+msgctxt "#30179"
+msgid "Saved local history, not the DVR's current state. It does not prove ownership or allow changes. Archived records cannot Save or Remove. No automatic changes or retries."
+msgstr ""
+
+msgctxt "#30180"
+msgid "This view uses the worker's last saved copy. Reopening it does not read the DVR or reload history from disk."
+msgstr ""
+
+msgctxt "#30181"
+msgid "Archived"
+msgstr ""
+
+msgctxt "#30182"
+msgid "Current saved record"
+msgstr ""
+
+msgctxt "#30183"
+msgid "Unavailable"
+msgstr ""
+
+msgctxt "#30184"
+msgid "Not recorded"
+msgstr ""
+
+msgctxt "#30185"
+msgid "#{sequence} {location} | Saved status: {state} | {title}"
+msgstr ""
+
+msgctxt "#30186"
+msgid "Operation #{sequence} — {location}\nSaved status: {state}\nSelected programme: {title}\nStart: {start}\nEnd: {end}\nProgramme-only identifiers: EQ.SeriesID + EQ.ProgramID (private values not shown)\nDVR returned an identifier: {returned}\nSaved removal check: {proof}; not a current absence check.\n\n{local}\n\n{warning}"
+msgstr ""
+
+msgctxt "#30187"
+msgid "No local history is present in this saved copy. This does not prove that the DVR has no rules."
+msgstr ""
+
+msgctxt "#30188"
+msgid "Time unavailable (outside the supported range)"
+msgstr ""
+
+msgctxt "#30189"
+msgid "Creation not confirmed"
+msgstr ""
+
+msgctxt "#30190"
+msgid "Verified at the saved observation"
+msgstr ""
+
+msgctxt "#30191"
+msgid "Removal not confirmed"
+msgstr ""
+
+msgctxt "#30192"
+msgid "Removal saved"
+msgstr ""
+
+msgctxt "#30193"
+msgid "Yes"
+msgstr ""
+
+msgctxt "#30194"
+msgid "No"
+msgstr ""
+
+#. Operational dialogs. Identifiers and provider values are format values only.
+msgctxt "#30200"
+msgid "Recording"
+msgstr ""
+
+msgctxt "#30201"
+msgid "Programme pass"
+msgstr ""
+
+msgctxt "#30202"
+msgid "Programme pass status"
+msgstr ""
+
+msgctxt "#30203"
+msgid "Programme pass stopped"
+msgstr ""
+
+msgctxt "#30204"
+msgid "Recording status"
+msgstr ""
+
+msgctxt "#30205"
+msgid "Recording history"
+msgstr ""
+
+msgctxt "#30206"
+msgid "Recording details (read only)"
+msgstr ""
+
+msgctxt "#30207"
+msgid "Programme pass details (read only)"
+msgstr ""
+
+msgctxt "#30208"
+msgid "Programme details"
+msgstr ""
+
+msgctxt "#30209"
+msgid "Programme details unavailable"
+msgstr ""
+
+msgctxt "#30210"
+msgid "Programme details could not be displayed. Return to the guide and open the details again."
+msgstr ""
+
+msgctxt "#30211"
+msgid "Untitled programme"
+msgstr ""
+
+msgctxt "#30212"
+msgid "Unknown"
+msgstr ""
+
+msgctxt "#30213"
+msgid "Unknown (end time not supplied)"
+msgstr ""
+
+msgctxt "#30214"
+msgid "{count} seconds"
+msgstr ""
+
+msgctxt "#30215"
+msgid "{title}\nStart: {start}\nEnd: {end}\nDuration: {duration}\nChannel: {channel}\nSource: {source}\n\nFull title: {full_title}\n\n{description}\n\n{notice}"
+msgstr ""
+
+msgctxt "#30216"
+msgid "No description supplied."
+msgstr ""
+
+msgctxt "#30217"
+msgid "Programme details only. Opening this view does not start playback or recording."
+msgstr ""
+
+msgctxt "#30218"
+msgid "One future recording, with no extra time before or after. The source above identifies the listings. Channels DVR may use another available source. Timing and recording checks run again before scheduling. Closing these details does not schedule anything."
+msgstr ""
+
+msgctxt "#30219"
+msgid "Back or Close returns to a separate confirmation, with No selected. Closing this information is not approval."
+msgstr ""
+
+msgctxt "#30220"
+msgid "An operation is pending. Wait for its result."
+msgstr ""
+
+msgctxt "#30221"
+msgid "Private operation history is unavailable. Changes are blocked."
+msgstr ""
+
+msgctxt "#30222"
+msgid "Select a future programme in the current connected guide first."
+msgstr ""
+
+msgctxt "#30223"
+msgid "The selection changed. Check the selected programme again before scheduling."
+msgstr ""
+
+msgctxt "#30224"
+msgid "Recording details could not be displayed. Check the programme again before scheduling."
+msgstr ""
+
+msgctxt "#30225"
+msgid "Schedule recording?"
+msgstr ""
+
+msgctxt "#30226"
+msgid "{title}\n{start}\nSchedule this one recording? No extra time is added. Channels DVR may use another available source."
+msgstr ""
+
+msgctxt "#30227"
+msgid "Cancel this recording?"
+msgstr ""
+
+msgctxt "#30228"
+msgid "Cancel only this add-on's verified future recording? No other recording will be cancelled."
+msgstr ""
+
+msgctxt "#30229"
+msgid "Cancel this recording"
+msgstr ""
+
+msgctxt "#30230"
+msgid "Check status (read only)"
+msgstr ""
+
+msgctxt "#30231"
+msgid "Outcome not confirmed — do not repeat"
+msgstr ""
+
+msgctxt "#30232"
+msgid "The recording may already have been created. Its outcome is not confirmed. Check status before any further change; do not try again."
+msgstr ""
+
+msgctxt "#30233"
+msgid "Cancellation may already have happened. Check status; do not repeat it."
+msgstr ""
+
+msgctxt "#30234"
+msgid "The pass may already have been created. Its outcome is not confirmed. Check status before any further change; do not try again."
+msgstr ""
+
+msgctxt "#30235"
+msgid "Removal may already have happened. Check status; do not repeat it."
+msgstr ""
+
+#. Storage uncertainty blocks every follow-up action; never imply a failed write.
+msgctxt "#30236"
+msgid "Unable to save the operation history. The write may have succeeded. Check status; controls are blocked."
+msgstr ""
+
+msgctxt "#30237"
+msgid "The operation could not be verified. Check status before making changes."
+msgstr ""
+
+msgctxt "#30238"
+msgid "{message}\nStatus: {state}."
+msgstr ""
+
+msgctxt "#30239"
+msgid "Channels DVR may use another available source."
+msgstr ""
+
+#. Owned button100, set on every onInit with captured strings; no built-in IDs.
+msgctxt "#30240"
+msgid "Close"
+msgstr ""
+
+msgctxt "#30241"
+msgid "{close} | Up/Down: scroll | Left/Right: Scroll or Close | Back: close"
+msgstr ""
+
+msgctxt "#30242"
+msgid "Cancellation record saved"
+msgstr ""
+
+msgctxt "#30243"
+msgid "Prepare for another recording"
+msgstr ""
+
+msgctxt "#30244"
+msgid "Prepare for another recording?"
+msgstr ""
+
+msgctxt "#30245"
+msgid "Check the DVR and both scheduled lists, then archive the cancellation record? All history is kept. Scheduling still needs a new programme selection and a separate confirmation."
+msgstr ""
+
+msgctxt "#30246"
+msgid "History: {count} archived records"
+msgstr ""
+
+msgctxt "#30247"
+msgid "Archived cancellation records: {count}. The current cancellation record is also kept. History cannot be used to cancel recordings. Recording history is limited to 32 archived records and 131072 bytes; nothing is removed or reset."
+msgstr ""
+
+msgctxt "#30248"
+msgid "Ready to check a new future programme. Select it in the guide before scheduling."
+msgstr ""
+
+msgctxt "#30249"
+msgid "No recording is recorded as this add-on's in this profile."
+msgstr ""
+
+msgctxt "#30250"
+msgid "This recording cannot safely be cancelled here. Changes are unavailable."
+msgstr ""
+
+msgctxt "#30251"
+msgid "The saved operation record is kept. Changes are unavailable."
+msgstr ""
+
+msgctxt "#30252"
+msgid "Cancellation unavailable: {reason}."
+msgstr ""
+
+msgctxt "#30253"
+msgid "Too close to the start or outside the allowed future time"
+msgstr ""
+
+msgctxt "#30254"
+msgid "Managed by a saved DVR rule"
+msgstr ""
+
+msgctxt "#30255"
+msgid "May be active or no longer a future recording"
+msgstr ""
+
+msgctxt "#30256"
+msgid "Current recording details do not verify ownership"
+msgstr ""
+
+msgctxt "#30257"
+msgid "Current recording details are unavailable"
+msgstr ""
+
+#. Programme-only identifiers and raw option values retain their exact meanings.
+msgctxt "#30258"
+msgid "This pass is for the selected programme, not every episode of the series.\nPrepare this pass 1–48 hours before the programme starts, including either limit.\nThe rule matches exact series and programme identifiers (EQ.SeriesID + EQ.ProgramID). It has no Time condition.\nNo extra recording time. DVR values: KeepOnly is empty; KeepNum is 0; Rerecord is false; Limit is 0. These values are not given additional meanings here.\nThe preview has exactly one matching future airing. Later matches are not guaranteed.\nChannels DVR may use another available source.\nThe rule stays on the DVR after you exit Kodi.\nOnly this profile's pass, independently verified as this add-on's, can be removed.\nPreparing another pass requires verified removal of the previous pass. History is limited to 32 archived records and 8 MiB total.\nOnly Save archives the previous unchanged record together with the new operation record.\nOperation history is never removed or reset. No automatic Save, Remove or repeated change attempts."
+msgstr ""
+
+msgctxt "#30259"
+msgid "Current saved record: #{current}; archived records: {count}/32.\nProspective Save #{sequence}; archived records would be {prospective}/32.\nSave remains conditional on fresh checks and capacity. Cancel keeps the current record and history; preparation does not archive.\n"
+msgstr ""
+
+msgctxt "#30260"
+msgid "Saved operation #{sequence}; archived records: {count}/32.\n"
+msgstr ""
+
+msgctxt "#30261"
+msgid "Prospective next #{sequence} is conditional; it would require {count}/32 archived records within 8 MiB total.\n"
+msgstr ""
+
+msgctxt "#30262"
+msgid "Operation history is limited to 32 archived records and 8 MiB total. Nothing is removed or reset.\n"
+msgstr ""
+
+msgctxt "#30263"
+msgid "Another Prepare requires fresh checks and available history capacity.\n"
+msgstr ""
+
+msgctxt "#30264"
+msgid "Another Prepare is unavailable while an operation is active, unconfirmed or history is full.\n"
+msgstr ""
+
+msgctxt "#30265"
+msgid "Selected programme: {title}\nStart: {start}\nEnd: {end}\n{lifecycle}\n{scope}\n\n{confirmation}"
+msgstr ""
+
+msgctxt "#30266"
+msgid "This selection is unavailable. Select a programme starting 1–48 hours from now."
+msgstr ""
+
+msgctxt "#30267"
+msgid "Pass details could not be displayed."
+msgstr ""
+
+msgctxt "#30268"
+msgid "The message could not be displayed."
+msgstr ""
+
+msgctxt "#30269"
+msgid "Changes blocked; no automatic retry."
+msgstr ""
+
+msgctxt "#30270"
+msgid "Back or Close returns to the guide or the previous controls."
+msgstr ""
+
+msgctxt "#30271"
+msgid "Save programme pass?"
+msgstr ""
+
+msgctxt "#30272"
+msgid "Save this programme-only rule? Channels DVR may use another available source. The rule stays on the DVR after you exit Kodi."
+msgstr ""
+
+msgctxt "#30273"
+msgid "Programme pass #{sequence} | History {count}/32"
+msgstr ""
+
+msgctxt "#30274"
+msgid "Remove this verified programme pass"
+msgstr ""
+
+msgctxt "#30275"
+msgid "Remove this programme pass?"
+msgstr ""
+
+msgctxt "#30276"
+msgid "Remove only this profile's verified future rule? No unrelated pass is changed and this action does not directly cancel individual recordings."
+msgstr ""
+
+msgctxt "#30277"
+msgid "Programme pass outcome not confirmed"
+msgstr ""
+
+msgctxt "#30278"
+msgid "Unconfirmed record #{sequence} | History {count}/32 | Do not repeat"
+msgstr ""
+
+msgctxt "#30279"
+msgid "No programme pass is recorded as this add-on's. Select a supported future programme and choose Prepare."
+msgstr ""
+
+msgctxt "#30280"
+msgid "Removal saved in this profile. This is a saved result, not a fresh DVR check. It does not prove current DVR absence or ownership. This status does not allow another change. A new pass needs its own checks and confirmation; history is not reset."
+msgstr ""
+
+msgctxt "#30281"
+msgid "The saved pass is kept. Removal is unavailable; status only: {reason}"
+msgstr ""
+
+msgctxt "#30282"
+msgid "Saved local history is unavailable. Its storage or DVR identity could not be verified."
+msgstr ""
+
+msgctxt "#30283"
+msgid "This history request did not check the DVR or make a control change."
+msgstr ""
+
+msgctxt "#30284"
+msgid "Saved operation details (read only)"
+msgstr ""
+
+msgctxt "#30285"
+msgid "Saved local history | Read only"
+msgstr ""
+
+msgctxt "#30286"
+msgid "The history list could not be displayed. No changes or retries run automatically."
+msgstr ""
+
+msgctxt "#30287"
+msgid "Operation history could not be displayed."
+msgstr ""
+
+msgctxt "#30288"
+msgid "Operation history unavailable"
+msgstr ""
+
+msgctxt "#30289"
+msgid "This programme is in the past. Select a future programme."
+msgstr ""
+
+msgctxt "#30290"
+msgid "This programme has already started. Select a future programme."
+msgstr ""
+
+msgctxt "#30291"
+msgid "Prepare the pass at least 1 hour before the programme starts."
+msgstr ""
+
+msgctxt "#30292"
+msgid "Prepare the pass no more than 48 hours before the programme starts."
+msgstr ""
+
+msgctxt "#30293"
+msgid "The DVR has not supplied a supported series identifier. A programme pass is unavailable."
+msgstr ""
+
+msgctxt "#30294"
+msgid "The programme or its source changed or could not be verified. Select it again."
+msgstr ""
+
+msgctxt "#30295"
+msgid "The preview must contain exactly one matching selected future airing."
+msgstr ""
+
+msgctxt "#30296"
+msgid "An active or unconfirmed operation blocks preparation. Check status without making changes."
+msgstr ""
+
+msgctxt "#30297"
+msgid "Operation history is full (32 archived records or 8 MiB). Changes are blocked to keep your history. Nothing is removed or reset."
+msgstr ""
+
+msgctxt "#30298"
+msgid "The configured DVR changed or no longer matches this saved operation. Changes are blocked."
+msgstr ""
+
+msgctxt "#30299"
+msgid "Preparation expired or the clock changed. Check saved status first; do not repeat an operation with an unconfirmed outcome."
+msgstr ""
+
+msgctxt "#30300"
+msgid "You must separately confirm this change. No confirmation has been accepted."
+msgstr ""
+
+msgctxt "#30301"
+msgid "Current ownership could not be verified. Removal is unavailable."
+msgstr ""
+
+msgctxt "#30302"
+msgid "This pass cannot safely be removed here. Only status is available."
+msgstr ""
+
+msgctxt "#30303"
+msgid "These controls are closed. Changes are blocked."
+msgstr ""
+
+msgctxt "#30304"
+msgid "The response or programme selection could not be verified. Changes are blocked."
+msgstr ""
+
+msgctxt "#30305"
+msgid "The programme is too close to its start or outside the allowed future time. Check the recording details."
+msgstr ""
+
+msgctxt "#30306"
+msgid "This recording could not be verified as this add-on's. Cancellation is unavailable."
+msgstr ""
+
+msgctxt "#30307"
+msgid "The DVR state conflicts with this request. Check status before making changes."
+msgstr ""
+
+msgctxt "#30308"
+msgid "An existing operation or recording history limit blocks another recording. History is limited to 32 archived records and 131072 bytes. Check status; do not repeat it."
+msgstr ""
+
+msgctxt "#30309"
+msgid "An active or non-future recording cannot be cancelled here."
+msgstr ""
+
+msgctxt "#30310"
+msgid "The operation stopped unexpectedly. Check its saved status before making changes."
+msgstr ""
+
+msgctxt "#30311"
+msgid "Ready for confirmation"
+msgstr ""
+
+msgctxt "#30312"
+msgid "No current recording operation"
+msgstr ""
+
+msgctxt "#30313"
+msgid "Ready to check a programme"
+msgstr ""
+
+msgctxt "#30315"
+msgid "Changes blocked"
+msgstr ""
+
+msgctxt "#30316"
+msgid "Cancellation not confirmed"
+msgstr ""
+
+msgctxt "#30317"
+msgid "Status could not be verified"
+msgstr ""
+
+msgctxt "#30318"
+msgid "Station details are missing or unsupported. The DVR's channel mapping is unknown. Programme details and scheduling are unavailable for this selection."
+msgstr ""
+
+msgctxt "#30319"
+msgid " | Station details missing: {count} (unavailable: {unavailable}, blank: {blank})"
+msgstr ""
+
+msgctxt "#30320"
+msgid "Guide information unavailable"
+msgstr ""
+
+msgctxt "#30321"
+msgid "The explanation could not be displayed. Scheduling is unavailable for this selection."
+msgstr ""
+
+msgctxt "#30322"
+msgid "Programme pass preview"
+msgstr ""
+
+msgctxt "#30323"
+msgid "A preview is pending. Wait for its result."
+msgstr ""
+
+msgctxt "#30324"
+msgid "Matching airings in this preview: {count}.\nThese are possible airings, not scheduled recordings. Later matches are not guaranteed."
+msgstr ""
+
+msgctxt "#30325"
+msgid "Preview only. No pass was saved by this preview."
+msgstr ""
+
+msgctxt "#30326"
+msgid "Preview matches {start}-{stop}/{count} | {age} | Read {time}"
+msgstr ""
+
+msgctxt "#30327"
+msgid "Preview match details"
+msgstr ""
+
+msgctxt "#30328"
+msgid "Update age unavailable (clock changed)"
+msgstr ""
+
+msgctxt "#30329"
+msgid "Read {count}s ago"
+msgstr ""
+
+msgctxt "#30330"
+msgid "Out of date"
+msgstr ""
+
+msgctxt "#30331"
+msgid "Previous page"
+msgstr ""
+
+msgctxt "#30332"
+msgid "Next page"
+msgstr ""
+
+msgctxt "#30333"
+msgid "Already ended when the preview was read"
+msgstr ""
+
+msgctxt "#30334"
+msgid "In progress when the preview was read"
+msgstr ""
+
+msgctxt "#30335"
+msgid "Future airing when the preview was read"
+msgstr ""
+
+msgctxt "#30336"
+msgid "{start} | {title} | Result {index}"
+msgstr ""
+
+msgctxt "#30337"
+msgid "{title}\nEpisode title: {episode_title}\nSeason: {season}; Episode: {episode}\nStart: {start}\nEnd: {end}\nDuration: {duration}\n{phase}\nPossible channel identifiers supplied by DVR: {channels}\nChannel identifier supplied by DVR: {channel}\nChannel names and sources could not be confirmed. Channels DVR may use another available source.\nSummary: {summary}\n\nPreview read: {time}\nPossible airings in this preview; later matches are not guaranteed.\nPreview only. No pass was saved and these are not scheduled recordings."
+msgstr ""
+
+msgctxt "#30338"
+msgid "Only rules whose EQ.SeriesID value exactly matches the selected series are shown.\nOther custom rules may also match; this is not a complete list of every possible match.\nThe conditions are shown as supplied by the DVR. This add-on does not evaluate their combined meaning.\nThe job count is reported by the DVR, not proof that this add-on owns those recordings. This read-only view does not verify control rights. Channels DVR may use another available source.\nRead only. Opening this view does not change passes or establish ownership."
+msgstr ""
+
+msgctxt "#30339"
+msgid "Only rules naming this exact series ID are listed.\nOther custom rules may also match.\nSaved observation, not the DVR's current state.\nAge/status when opened; not updated while this view is open.\nOut of date after 60s. Reopen to read again."
+msgstr ""
+
+msgctxt "#30340"
+msgid "No saved passes explicitly name this series identifier. Other custom rules may still match."
+msgstr ""
+
+msgctxt "#30341"
+msgid "About this saved-pass view"
+msgstr ""
+
+msgctxt "#30342"
+msgid "Saved passes (read only)"
+msgstr ""
+
+msgctxt "#30343"
+msgid "Saved pass details (read only)"
+msgstr ""
+
+msgctxt "#30344"
+msgid "{name} | Paused: {paused} | Jobs reported by DVR (NumJobs): {jobs}"
+msgstr ""
+
+msgctxt "#30345"
+msgid "{name}\nExact series identifier matched (SeriesID): {series}\nPaused: {paused}\nJobs reported by DVR (NumJobs): {jobs}\nRecording options supplied by DVR. Their units and the meanings of zero or empty values have not been verified; no effects are inferred."
+msgstr ""
+
+msgctxt "#30346"
+msgid " (empty string)"
+msgstr ""
+
+msgctxt "#30347"
+msgid "Complete conditions supplied by DVR. Null and object values are shown distinctly; their combined meaning is not evaluated."
+msgstr ""
+
+msgctxt "#30348"
+msgid "DVR response read: {time}"
+msgstr ""
+
+msgctxt "#30349"
+msgid "{label}: {value}"
+msgstr ""
+
+msgctxt "#30350"
+msgid "Extra time before (PaddingStart)"
+msgstr ""
+
+msgctxt "#30351"
+msgid "Extra time after (PaddingEnd)"
+msgstr ""
+
+msgctxt "#30352"
+msgid "Retention count supplied by DVR (KeepNum)"
+msgstr ""
+
+msgctxt "#30353"
+msgid "Retention value supplied by DVR (KeepOnly)"
+msgstr ""
+
+msgctxt "#30354"
+msgid "Limit supplied by DVR (Limit)"
+msgstr ""
+
+msgctxt "#30355"
+msgid "Duplicates"
+msgstr ""
+
+msgctxt "#30356"
+msgid "Record-again value (Rerecord)"
+msgstr ""
+
+msgctxt "#30357"
+msgid "Priority"
+msgstr ""
+
+msgctxt "#30358"
+msgid "Update value supplied by DVR (UpdatedAt)"
+msgstr ""
+
+msgctxt "#30359"
+msgid "When opened: {status} | Marked out of date after {seconds}s | Read {time}\nThis saved observation is not the DVR's current state. Reopen this view to read again."
+msgstr ""
+
+msgctxt "#30360"
+msgid "Saved passes | {status} | {start}-{stop}/{count}"
+msgstr ""
+
+msgctxt "#30361"
+msgid "{count}s old"
+msgstr ""
+
+msgctxt "#30362"
+msgid "Out of date {count}s"
+msgstr ""
+
+msgctxt "#30363"
+msgid "The DVR address is invalid. Configure an approved address."
+msgstr ""
+
+msgctxt "#30364"
+msgid "This DVR response is not supported."
+msgstr ""
+
+msgctxt "#30365"
+msgid "The DVR redirected the request. This connection was not used."
+msgstr ""
+
+msgctxt "#30366"
+msgid "The DVR did not accept the request."
+msgstr ""
+
+msgctxt "#30367"
+msgid "Could not connect to the DVR."
+msgstr ""
+
+msgctxt "#30368"
+msgid "The DVR response format or encoding is not supported."
+msgstr ""
+
+msgctxt "#30369"
+msgid "The DVR response could not be read."
+msgstr ""
+
+msgctxt "#30370"
+msgid "The response exceeded this view's safe size limit."
+msgstr ""
+
+msgctxt "#30371"
+msgid "This update reached its request limit. It was not accepted as complete."
+msgstr ""
+
+msgctxt "#30372"
+msgid "The configured DVR has not been verified. Changes are blocked."
+msgstr ""
+
+msgctxt "#30373"
+msgid "The DVR did not respond in time."
+msgstr ""
+
+msgctxt "#30374"
+msgid "Recording verified as this add-on's"
+msgstr ""
+
+msgctxt "#30375"
+msgid " [truncated]"
+msgstr ""
+
+#. Live status: the strings do not cache age, TTL, empty-result or permission state.
+msgctxt "#30400"
+msgid "Connected"
+msgstr ""
+
+msgctxt "#30401"
+msgid "No items returned"
+msgstr ""
+
+msgctxt "#30402"
+msgid "Connection unavailable"
+msgstr ""
+
+msgctxt "#30403"
+msgid "Incomplete update not used"
+msgstr ""
+
+msgctxt "#30404"
+msgid "Response could not be used"
+msgstr ""
+
+msgctxt "#30405"
+msgid "Unsupported DVR response"
+msgstr ""
+
+msgctxt "#30406"
+msgid "Loading listings…"
+msgstr ""
+
+msgctxt "#30407"
+msgid "No saved listings"
+msgstr ""
+
+msgctxt "#30408"
+msgid "Previous update; may be out of date"
+msgstr ""
+
+msgctxt "#30409"
+msgid "Last successful update"
+msgstr ""
+
+msgctxt "#30410"
+msgid "Update time unavailable"
+msgstr ""
+
+msgctxt "#30411"
+msgid "Updated {count}s ago"
+msgstr ""
+
+msgctxt "#30412"
+msgid "{status} | {cache} | {age}"
+msgstr ""
+
+msgctxt "#30413"
+msgid "Listings loaded for this view."
+msgstr ""
+
+msgctxt "#30414"
+msgid "The DVR returned no items for this view. The connection succeeded."
+msgstr ""
+
+msgctxt "#30415"
+msgid "Could not load DVR listings. Showing the last successful update, if available."
+msgstr ""
+
+msgctxt "#30416"
+msgid "The update was incomplete and was not used. Showing previous listings, if available."
+msgstr ""
+
+msgctxt "#30417"
+msgid "The DVR response could not be used. Showing previous listings, if available."
+msgstr ""
+
+msgctxt "#30418"
+msgid "This DVR response is not supported. Showing previous listings, if available."
+msgstr ""
+
+msgctxt "#30419"
+msgid "Loading listings… Previous listings remain visible, if available."
+msgstr ""
+
+msgctxt "#30420"
+msgid "No listings have been loaded for this view."
+msgstr ""
+
+msgctxt "#30421"
+msgid "Some station details are unavailable"
+msgstr ""
+
+msgctxt "#30422"
+msgid "{status} | {warning}"
+msgstr ""
+
+msgctxt "#30423"
+msgid "Demo | {status}"
+msgstr ""
+
+msgctxt "#30424"
+msgid "Sample listings loaded"
+msgstr ""
+
+msgctxt "#30425"
+msgid "Recover demo data"
+msgstr ""
+
+msgctxt "#30426"
+msgid "Demo: keep loading"
+msgstr ""
+
+msgctxt "#30427"
+msgid "Demo: connection unavailable"
+msgstr ""
+
+msgctxt "#30428"
+msgid "Demo: invalid response"
+msgstr ""
+
+msgctxt "#30429"
+msgid "Demo: unsupported response"
+msgstr ""
+
+msgctxt "#30430"
+msgid "Demo: incomplete update"
+msgstr ""
+
+msgctxt "#30431"
+msgid "Demo: old saved listings"
+msgstr ""
+
+msgctxt "#30432"
+msgid "Demo: successful empty result"
+msgstr ""
+
+msgctxt "#30433"
+msgid "Demo: clear saved listings and simulate disconnection"
+msgstr ""
+
+msgctxt "#30434"
+msgid "Complete sample listings — not your DVR."
+msgstr ""
+
+msgctxt "#30435"
+msgid "Sample listings are kept loading. Choose Recover demo data to finish."
+msgstr ""
+
+msgctxt "#30436"
+msgid "Sample connection unavailable. Choose Recover demo data to recover."
+msgstr ""
+
+msgctxt "#30437"
+msgid "Saved sample listings cleared; sample connection unavailable."
+msgstr ""
+
+msgctxt "#30438"
+msgid "Invalid sample response was not used."
+msgstr ""
+
+msgctxt "#30439"
+msgid "Unsupported sample response; no update was used."
+msgstr ""
+
+msgctxt "#30440"
+msgid "Incomplete sample update was not used."
+msgstr ""
+
+msgctxt "#30441"
+msgid "Old sample listings only. Choose Recover demo data to refresh."
+msgstr ""
+
+msgctxt "#30442"
+msgid "The sample request succeeded and returned no items."
+msgstr ""
+
+msgctxt "#30443"
+msgid "DVR IP address"
+msgstr ""
+
+msgctxt "#30444"
+msgid "The address dialog could not be opened."
+msgstr ""
+
+msgctxt "#30445"
+msgid "Enter a valid IP address."
+msgstr ""
+
+msgctxt "#30446"
+msgid "Connection settings could not be saved. Recheck them before connecting."
+msgstr ""
+
+msgctxt "#30447"
+msgid "Source {ordinal}"
+msgstr ""
+
+msgctxt "#30448"
+msgid "Source unavailable"
+msgstr ""
+
+msgctxt "#30449"
+msgid "No listing"
+msgstr ""
+
+msgctxt "#30450"
+msgid "More overlapping listings"
+msgstr ""
+
+msgctxt "#30451"
+msgid "Showing previous listings while the guide updates; actions unavailable"
+msgstr ""
+
+msgctxt "#30452"
+msgid "{message}\n{status}; programme actions are unavailable until the guide is ready."
+msgstr ""
+
+msgctxt "#30453"
+msgid "Previous listings | {status}; actions unavailable"
+msgstr ""
+
+msgctxt "#30454"
+msgid "{group} | {start} — {end}"
+msgstr ""
+
+msgctxt "#30455"
+msgid "{title} | Selected time: {time}"
+msgstr ""
+
+msgctxt "#30456"
+msgid "No listing at selected time"
+msgstr ""
+
+msgctxt "#30457"
+msgid " | Some listings are not shown"
+msgstr ""
+
+msgctxt "#30458"
+msgid "Search: {query} | {group}"
+msgstr ""
+
+msgctxt "#30459"
+msgid "Enter search text"
+msgstr ""
+
+msgctxt "#30460"
+msgid "No matching programmes"
+msgstr ""
+
+msgctxt "#30461"
+msgid "Choose Search programmes from the menu"
+msgstr ""
+
+msgctxt "#30462"
+msgid "{position}/{count} | OK: details / show in guide | Info: details"
+msgstr ""
+
+msgctxt "#30463"
+msgid " | Some results are not shown"
+msgstr ""
+
+msgctxt "#30464"
+msgid "{position}/{count} | OK: browse / details | Menu: Recording tools"
+msgstr ""
+
+msgctxt "#30465"
+msgid "No matching recordings | Menu: Recording tools"
+msgstr ""
+
+msgctxt "#30466"
+msgid "Recording tools → Search recordings to enter text"
+msgstr ""
+
+msgctxt "#30467"
+msgid "Scheduled recordings (read only); unconfirmed listing matches remain unconfirmed"
+msgstr ""
+
+msgctxt "#30468"
+msgid "Demo scheduled recordings (read only); possible matches may be ambiguous"
+msgstr ""
+
+msgctxt "#30469"
+msgid "{position}/{count} | Details only"
+msgstr ""
+
+msgctxt "#30470"
+msgid "Select a search result to view programme details. Playback is unavailable."
+msgstr ""
+
+msgctxt "#30471"
+msgid "Programme search result"
+msgstr ""
+
+msgctxt "#30472"
+msgid "Show in guide"
+msgstr ""
+
+msgctxt "#30473"
+msgid "This airing is no longer in the current guide collection."
+msgstr ""
+
+msgctxt "#30474"
+msgid "No listing is available at this time. This does not mean the DVR returned an empty guide."
+msgstr ""
+
+msgctxt "#30475"
+msgid "No matching item in this view. Use Recording tools to search or change the recording source filter."
+msgstr ""
+
+msgctxt "#30476"
+msgid "Search recordings"
+msgstr ""
+
+msgctxt "#30477"
+msgid "Enter recording search text…"
+msgstr ""
+
+msgctxt "#30478"
+msgid "Search recordings (up to 128 characters)"
+msgstr ""
+
+msgctxt "#30479"
+msgid "Recording source"
+msgstr ""
+
+msgctxt "#30480"
+msgid "All sources"
+msgstr ""
+
+msgctxt "#30481"
+msgid "DVR recordings"
+msgstr ""
+
+msgctxt "#30482"
+msgid "Imported media"
+msgstr ""
+
+msgctxt "#30483"
+msgid "Unknown source"
+msgstr ""
+
+msgctxt "#30484"
+msgid "Browse shows"
+msgstr ""
+
+msgctxt "#30485"
+msgid "Shows"
+msgstr ""
+
+msgctxt "#30486"
+msgid "Watched"
+msgstr ""
+
+msgctxt "#30487"
+msgid "Unwatched"
+msgstr ""
+
+msgctxt "#30488"
+msgid "Watch status unknown"
+msgstr ""
+
+msgctxt "#30489"
+msgid "Resume position unknown"
+msgstr ""
+
+msgctxt "#30490"
+msgid "Resume at {seconds}s"
+msgstr ""
+
+msgctxt "#30491"
+msgid "{state} | {resume}"
+msgstr ""
+
+msgctxt "#30492"
+msgid "S{season} E{episode}"
+msgstr ""
+
+msgctxt "#30493"
+msgid "Movie"
+msgstr ""
+
+msgctxt "#30494"
+msgid "DVR"
+msgstr ""
+
+msgctxt "#30495"
+msgid "Imported"
+msgstr ""
+
+msgctxt "#30496"
+msgid "{origin} | Library source: {namespace}"
+msgstr ""
+
+msgctxt "#30497"
+msgid "{title} | {episode} | {state} | {origin}"
+msgstr ""
+
+msgctxt "#30499"
+msgid "Season {season}"
+msgstr ""
+
+msgctxt "#30500"
+msgid "{title} | {origin}"
+msgstr ""
+
+msgctxt "#30501"
+msgid "{title} | {season}"
+msgstr ""
+
+msgctxt "#30502"
+msgid "Select to browse recordings."
+msgstr ""
+
+msgctxt "#30503"
+msgid "{title}\nSelect to browse episodes."
+msgstr ""
+
+msgctxt "#30504"
+msgid "Select to browse seasons."
+msgstr ""
+
+msgctxt "#30505"
+msgid "{mode} | {origin}"
+msgstr ""
+
+msgctxt "#30506"
+msgid "{breadcrumb} | {query}"
+msgstr ""
+
+msgctxt "#30507"
+msgid "Matching listing"
+msgstr ""
+
+msgctxt "#30508"
+msgid "More than one possible listing"
+msgstr ""
+
+msgctxt "#30509"
+msgid "No confirmed listing match"
+msgstr ""
+
+msgctxt "#30510"
+msgid "{title} | {match}"
+msgstr ""
+
+msgctxt "#30511"
+msgid "{source} / {channel}"
+msgstr ""
+
+msgctxt "#30512"
+msgid "Channel unavailable"
+msgstr ""
+
+msgctxt "#30513"
+msgid "Possible listing sources/channels: {channels}"
+msgstr ""
+
+msgctxt "#30514"
+msgid "Source and channel could not be confirmed"
+msgstr ""
+
+msgctxt "#30515"
+msgid "Extra time before/after: {before}/{after}s\nRecording time including extra time: {start} — {end}"
+msgstr ""
+
+msgctxt "#30516"
+msgid "Extra time is unknown. The scheduled time shown is unchanged; no extra time was added again."
+msgstr ""
+
+msgctxt "#30517"
+msgid "{start} — {end}\n{padding}\n{channels}\nMatching listing: {match}\n{policy}\nThis list is read only. Use Recording status and cancel for a recording verified as this add-on's."
+msgstr ""
+
+msgctxt "#30518"
+msgid "Listing matches are not verified DVR associations."
+msgstr ""
+
+msgctxt "#30519"
+msgid "Demo listing match only; not verified against a DVR."
+msgstr ""
+
+msgctxt "#30520"
+msgid "Demo search: {query}"
+msgstr ""
+
+msgctxt "#30521"
+msgid "60 steps (up to 2 seconds)"
+msgstr ""
+
+msgctxt "#30522"
+msgid "600 steps (up to 2 seconds)"
+msgstr ""
+
+msgctxt "#30523"
+msgid "500-channel demo / restore"
+msgstr ""
+
+msgctxt "#30524"
+msgid "Test navigation through 500 demo rows"
+msgstr ""
+
+msgctxt "#30525"
+msgid "Dense demo: 500 channels / 48 hours"
+msgstr ""
+
+msgctxt "#30526"
+msgid "{status}. {message}"
+msgstr ""
+
+msgctxt "#30527"
+msgid "{title} | {number} {source} | {time}"
+msgstr ""
+
+msgctxt "#30528"
+msgid "{number} {name}\n{source}"
+msgstr ""
+
+msgctxt "#30529"
+msgid "Demo — {view}"
+msgstr ""
+
+msgctxt "#30530"
+msgid "Channels DVR Hub"
+msgstr ""
+
+#. Developer captions are localized; timing syntax/IDs/guard reasons are data.
+msgctxt "#30531"
+msgid "Init {init} Render {render}/{render_samples} (count/samples)\nRender {render_times}\nDir {directions}/{direction_samples} {direction_times}\nPairs cur/hi={pairs}/{pairs_high} Cells cur/hi={cells}/{cells_high}\nAPI updates, not frames/MCP/menu wait.\nProcess/native memory unmeasured."
+msgstr ""
+
+msgctxt "#30532"
+msgid "Owner thread {owner}\nMetadata/index worker {worker}\nCurrent index ready {ready}; deferred {deferred}\nDisplay C/E {channels}/{events}\nPending {pending}; error {error}\nCPU/GIL/release time remains; no hard latency guarantee."
+msgstr ""
+
+msgctxt "#30533"
+msgid "No exercise run"
+msgstr ""
+
+msgctxt "#30534"
+msgid "Run {completed}/{steps}: {milliseconds} ms (2s cap)"
+msgstr ""
+
+msgctxt "#30535"
+msgid "500-row traversal stopped: {completed}/499 verified moves; {reason}"
+msgstr ""
+
+msgctxt "#30536"
+msgid "500-row traversal running; {completed}/499 verified moves; Back cancels"
+msgstr ""
+
+msgctxt "#30537"
+msgid "500/500 rows; 499 verified moves; cursor last"
+msgstr ""
+
+msgctxt "#30538"
+msgid "{metrics}\n{exercise}; stress={stress}"
+msgstr ""
+
+#. Fixed minimum policy; earlier transition-only IDs remain reserved.
+msgctxt "#30550"
+msgid "Minimum supported DVR version: {minimum}\nReported DVR version: {reported}\nVersion check passed: {verified}"
+msgstr ""
+
+msgctxt "#30551"
+msgid "DVR versions 2026.08.07.0346 and newer are accepted. This version check does not prove API compatibility. API changes require manual testing and an add-on update if needed. No per-build setting update or confirmation is required."
+msgstr ""
+
+msgctxt "#30552"
+msgid "The reported DVR version is below the minimum or is not a valid DVR timestamp. Listings are blocked until the version check passes."
+msgstr ""
+
+msgctxt "#30553"
+msgid "No current status observation. Choose Connect to check the configured DVR."
+msgstr ""
+
+msgctxt "#30554"
+msgid "This is a historical status observation. Choose Connect for a fresh check. It does not renew saved listings or allow recording changes."
+msgstr ""
+
+#. Compact banner.
+msgctxt "#30555"
+msgid "{status} | {age}{cache}"
+msgstr ""
+
+msgctxt "#30556"
+msgid " | {cache}"
+msgstr ""
+
+msgctxt "#30557"
+msgid "Saved listings"
+msgstr ""
+
+msgctxt "#30558"
+msgid "Saved listings (stale)"
+msgstr ""
+
+msgctxt "#30559"
+msgid "Listing information limited — see Connection status."
+msgstr ""
+
+msgctxt "#30560"
+msgid "Listing information"
+msgstr ""
+
+msgctxt "#30561"
+msgid "Recording files were read in separate pages, not as an atomic snapshot. Listings may have changed during loading."
+msgstr ""
+
+msgctxt "#30562"
+msgid "{details}\nThese counts describe public station fields in the saved channel list, not channels without programme listings. DVR station mapping and tuning availability remain unverified."
+msgstr ""
+
+msgctxt "#30563"
+msgid "Some Guide station details could not be confirmed. This does not establish missing programme listings or the DVR channel mapping."
+msgstr ""
+
+msgctxt "#30564"
+msgid "Some DVR information could not be read. Previous listings, if present, retain their original update time."
+msgstr ""
+
+msgctxt "#30565"
+msgid "Some returned listing data could not be used. Failed or incomplete updates do not replace saved listings."
+msgstr ""
+
+msgctxt "#30566"
+msgid "Some DVR information is not supported by this add-on and was not used."
+msgstr ""
+
+msgctxt "#30567"
+msgid "The recording-file scan was incomplete or changed during reading. It is not a complete or atomic view of DVR files."
+msgstr ""
+
+msgctxt "#30568"
+msgid "Some listing identifiers, timing, watch/resume or padding fields could not be confirmed. Unknown values remain unknown."
+msgstr ""
+
+msgctxt "#30569"
+msgid "The channel list returned no visible channels for this view."
+msgstr ""
+
+#. IDs30570..30590 reserved.
+msgctxt "#30591"
+msgid "Artwork handled by Kodi: {available} references available; {assigned} assigned; {unavailable} unavailable. Delivery and decoding are not verified."
+msgstr ""
+
+msgctxt "#30600"
+msgid "Operation storage"
+msgstr ""
+
+msgctxt "#30601"
+msgid "View stored status"
+msgstr ""
+
+msgctxt "#30602"
+msgid "Import old saved operation history"
+msgstr ""
+
+msgctxt "#30603"
+msgid "Recover recording storage claim"
+msgstr ""
+
+msgctxt "#30604"
+msgid "Recover programme storage claim"
+msgstr ""
+
+msgctxt "#30605"
+msgid "Have you closed all other add-on instances and old-version writers on every device? Continue only with exclusive access. This window will stop its recording/pass controls."
+msgstr ""
+
+msgctxt "#30606"
+msgid "Clear only the abandoned storage claim? Pending actions and history stay saved. Run normal Recording or Programme status next. Changes stay blocked until qualified read-only reconciliation succeeds."
+msgstr ""
+
+msgctxt "#30607"
+msgid "Import this profile's old history? Originals stay untouched. No DVR action runs. Old versions must remain closed; rollback or mixing versions can lose newer history. Fresh status is required before changes."
+msgstr ""
+
+msgctxt "#30608"
+msgid "Storage action saved. Run normal Recording or Programme status before making changes. Stored status alone is not fresh ownership proof."
+msgstr ""
+
+msgctxt "#30609"
+msgid "Storage action unavailable or outcome uncertain. No automatic retry. Refresh stored status before deciding what to do next. Keep all original history; do not reset or delete it."
+msgstr ""
+
+msgctxt "#30610"
+msgid "Storage work is pending. Close recording/pass controls and try a fresh stored-status inspection."
+msgstr ""
+
+msgctxt "#30611"
+msgid "{scope}: {state}\nArchived receipts: {count}; claim present: {claim}; reconciliation required: {pending}"
+msgstr ""
+
+msgctxt "#30612"
+msgid "Stored observations only, not current DVR proof. Recovery/import never retries a DVR action. Profile privacy and durable local storage are required."
+msgstr ""
+
+msgctxt "#30613"
+msgid "Old saved history found. Explicit exclusive import is required; interrupted or invalid history stays blocked."
+msgstr ""
+
+msgctxt "#30614"
+msgid "Import recorded. Original files are retained; any later change or removal blocks operation controls."
+msgstr ""
+
+msgctxt "#30615"
+msgid "Refresh stored status"
+msgstr ""
+
+msgctxt "#30640"
+msgid "Series passes"
+msgstr ""
+
+msgctxt "#30641"
+msgid "Create from selected Guide programme"
+msgstr ""
+
+msgctxt "#30642"
+msgid "Manage this existing pass"
+msgstr ""
+
+msgctxt "#30643"
+msgid "Name"
+msgstr ""
+
+msgctxt "#30644"
+msgid "Pause"
+msgstr ""
+
+msgctxt "#30645"
+msgid "Resume"
+msgstr ""
+
+msgctxt "#30646"
+msgid "Remove pass"
+msgstr ""
+
+msgctxt "#30647"
+msgid "Accept external changes"
+msgstr ""
+
+msgctxt "#30648"
+msgid "Persistent Series pass: all seasons, no end date. The DVR chooses channels and may use another source. Preview is a current sample, not complete future coverage. Future jobs may be created indefinitely.\n\n{title}\n{details}"
+msgstr ""
+
+msgctxt "#30649"
+msgid "Confirm this exact pass and displayed scope? Managing an existing pass saves local consent, not proof that Kodi created it. Pause does not stop active recordings. Remove deletes only the pass, not recordings. Unknown or active linked jobs block changes. No automatic retries."
+msgstr ""
+
+msgctxt "#30650"
+msgid "Read only: unsupported rule, pending operation, or management consent required. Only Name, Pause, Resume and Remove are supported; advanced conditions and options cannot be edited."
+msgstr ""
+
+msgctxt "#30651"
+msgid "Series operation stopped. Refresh details and reconfirm external changes. Unknown outcomes stay read only. Storage or history capacity failures require review; history is never evicted."
+msgstr ""
+
+msgctxt "#30652"
+msgid "Linked job activity is active or unknown. No change was sent. Fresh inactivity is only a current observation, not a guarantee against future jobs."
+msgstr ""
+
+msgctxt "#30653"
+msgid "Next page"
+msgstr ""
+
+msgctxt "#30654"
+msgid "Previous page"
+msgstr ""
+
+msgctxt "#30655"
+msgid "Created by this profile"
+msgstr ""
+
+msgctxt "#30656"
+msgid "Adopted by this profile"
+msgstr ""
+
+msgctxt "#30657"
+msgid "Unmanaged (read only)"
+msgstr ""
+
+msgctxt "#30658"
+msgid "Recover Series storage claim"
+msgstr ""
+
+msgctxt "#30659"
+msgid "Complete raw data (read only)"
+msgstr ""
+
+msgctxt "#30660"
+msgid "Series storage is full (64 passes, 256 operations or status entries, 8 MiB). Changes are blocked; nothing is removed or reset."
+msgstr ""
+
+msgctxt "#30700"
+msgid "Playback"
+msgstr ""
+
+msgctxt "#30701"
+msgid "Watch selected channel LIVE NOW"
+msgstr ""
+
+msgctxt "#30702"
+msgid "Play selected recording from beginning"
+msgstr ""
+
+msgctxt "#30704"
+msgid "Playback could not be prepared or handed to Kodi. No automatic retry. A file may be missing, incomplete or unsupported, the DVR may be busy, or metadata may be unavailable. See Connection status for the playback state."
+msgstr ""
+
+msgctxt "#30705"
+msgid "The advertised URL selects this DVR source; hardware pinning is not established."
+msgstr ""
+
+msgctxt "#30706"
+msgid "The DVR chooses the source (ANY); the selected guide source is not pinned."
+msgstr ""
+
+msgctxt "#30707"
+msgid "Shared tuner availability is UNKNOWN. Empty DVR activity does not prove a free shared tuner. Confirm only if you know capacity is free. Never stop or evict other use.\n\n{source}\n\nWatch this channel LIVE NOW? This does not play the selected past/future programme from its beginning."
+msgstr ""
+
+msgctxt "#30708"
+msgid "Native playback state: {state}\nA handoff is not confirmed AV/audio/seek/stop success. Terminal callbacks are advisory. Kodi owns media HTTP and player controls; the DVR may internally remux/transcode. Recordings start from the beginning; DVR resume/watched synchronization is not implemented. Exiting or disconnecting this guide does not stop playback."
+msgstr ""
+
+msgctxt "#30709"
+msgid "{title}\n{episode}\n{state}\n{origin}\nDuration: {duration}\nAdded: {time}\nDetails only. For eligible DVR recordings, choose Play recording. Playback starts from the beginning; watched/resume changes are not supported."
+msgstr ""
+
+msgctxt "#30711"
+msgid "Live confirmation expired. Choose Watch selected channel LIVE NOW again to prepare a new request. No tune was sent by this request."
+msgstr ""
+
+msgctxt "#30712"
+msgid "Channel: {channel}\nYes checks this same channel again before tuning. No does not tune. Confirmation is one use and expires five minutes after Yes. Shared tuner availability remains UNKNOWN."
+msgstr ""
+
+msgctxt "#30713"
+msgid "Select a recording file or channel in accepted, connected DVR listings. Selections are identity hints only; Play must read current DVR metadata. Folders, scheduled jobs, imports, demo and failed or incomplete listings cannot play."
+msgstr ""
+
+msgctxt "#30900"
+msgid "Dashboard"
+msgstr ""
+
+msgctxt "#30901"
+msgid "Pass list"
+msgstr ""
+
+msgctxt "#30902"
+msgid "Actions"
+msgstr ""
+
+msgctxt "#30903"
+msgid "DVR server\nVersion: {version}\nOS / architecture: {os} / {arch}\nServer running time: {running}\n{age}"
+msgstr ""
+
+msgctxt "#30904"
+msgid "DVR reported · Enabled: {enabled} · Busy: {busy}\nFiles: {files} · Total: {total} · Jobs: {jobs}\nRules: {rules} · Groups: {groups}\nStorage used: {storage}%\n{age}"
+msgstr ""
+
+msgctxt "#30905"
+msgid "Sources: {sources}\nReported tuners: {tuners}\nReporting sources: {reporting} · Unknown: {unknown}\nAvailability is unknown\n{age}"
+msgstr ""
+
+msgctxt "#30906"
+msgid "Pass list: {total}\nPaused: {paused} · Active: {active}\nPause state unknown: {unknown}\nIncludes advanced passes\n{age}"
+msgstr ""
+
+msgctxt "#30907"
+msgid "Channels: {channels} · Hidden: {hidden}\nGuide programmes: {events}\nWindow: {start}\nUntil: {end}\nRecordings loaded (complete scan): {recordings}"
+msgstr ""
+
+msgctxt "#30908"
+msgid "Back: actions / Dashboard / exit · Down: content · Actions: more options"
+msgstr ""
+
+msgctxt "#30909"
+msgid "Back"
+msgstr ""
+
+msgctxt "#30910"
+msgid "Open"
+msgstr ""
+
+msgctxt "#30911"
+msgid "Details"
+msgstr ""
+
+msgctxt "#30912"
+msgid "Schedule"
+msgstr ""
+
+msgctxt "#30913"
+msgid "Watch live now"
+msgstr ""
+
+msgctxt "#30914"
+msgid "Play recording"
+msgstr ""
+
+msgctxt "#30915"
+msgid "Reported activity\nStreams: {streams} · Recordings: {recordings}\nWorkers: {workers} · Other: {other}\nNot a free-tuner check\n{age}"
+msgstr ""
+
+msgctxt "#30916"
+msgid "Configure"
+msgstr ""
+
+msgctxt "#30917"
+msgid "{days}d {hours}h {minutes}m {seconds}s"
+msgstr ""
