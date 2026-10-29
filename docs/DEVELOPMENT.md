@@ -61,3 +61,20 @@ barriers when changing code. An ambiguous write requires reconciliation before
 retrying. A fresh profile is not a recovery shortcut. Keep secrets out of Git.
 See [Identity](IDENTITY.md) for the old EPG boundary and [Limitations](LIMITATIONS.md)
 for the remaining acceptance gaps.
+
+## Draft alpha packaging (not a release)
+
+The separate deterministic ZIP builder has no network or Kodi dependency:
+
+```sh
+python3 -B -m unittest discover -s tests -p test_release_builder.py -v
+python3 -B tools/build_alpha.py
+cd dist && sha256sum -c script.channelsdvr.hub-0.1.0.zip.sha256
+```
+
+It builds `dist/script.channelsdvr.hub-0.1.0.zip` directly from the installable
+add-on directory and a `.sha256` sidecar, rejecting non-allowlisted files.
+`dist/` is Git-ignored. This is a **packaging artifact, not native acceptance**;
+see [Alpha readiness](ALPHA-READINESS.md) for the release gates. The selected
+15-module offline runner is unchanged and does **not** execute the new builder
+tests; run both commands separately.
