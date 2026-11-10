@@ -282,13 +282,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
             origin = self.get_setting("server_origin")
             if type(origin) is not str:
                 return None
-            # Legacy persisted per-build pins are ignored, never rewritten.
-            config = DevelopmentConfig(origin, expected_version=BASE_MINIMUM_DVR_BUILD)
-            # Only origins produced by the numeric-IP configuration UI are used.
-            host = self._config_host(config)
-            if DevelopmentConfig.from_host(host).origin != config.origin:
-                return None
-            return config
+            # Both entry points accept the same forms. Normalize in memory only;
+            # legacy persisted per-build pins remain ignored, never rewritten.
+            return DevelopmentConfig.from_address(origin)
         except (MetadataError, ValueError, RuntimeError, AttributeError, TypeError):
             return None
 
@@ -300,15 +296,15 @@ class ChannelsWindow(xbmcgui.WindowXML):
     def _configure_development(self) -> None:
         config = self._saved_config()
         try:
-            host = xbmcgui.Dialog().numeric(3, self.t('address_ip'),
-                                           defaultt=self._config_host(config) if config else "0.0.0.0")
+            host = xbmcgui.Dialog().input(self.t('address_ip'),
+                                         defaultt=self._config_host(config) if config else "")
         except (RuntimeError, AttributeError, TypeError, ValueError):
             xbmcgui.Dialog().ok(self.t('connection'), self.t('address_dialog_failed'))
             return
         if not host or self._addon is None:
             return
         try:
-            address = DevelopmentConfig.from_host(host)
+            address = DevelopmentConfig.from_address(host)
             config = DevelopmentConfig(address.origin, config.namespace if config else address.namespace,
                                        BASE_MINIMUM_DVR_BUILD)
         except MetadataError:

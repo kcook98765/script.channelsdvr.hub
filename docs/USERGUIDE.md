@@ -1,13 +1,25 @@
 # Channels DVR Hub user guide
 
-Hub `0.1.0` is pre-release source for Kodi 21 / Omega. It has not yet been installed
+Hub `0.1.1` is pre-release source for Kodi 21 / Omega. It has not yet been installed
 or natively accepted under the Hub identity. The workflows below describe source
 behavior, not a completed installation or platform acceptance test.
 
 ## Configuration and entry
 
-The server origin starts **blank**. Configure the Channels DVR server origin in
-Connection and explicitly connect; the project supplies no default server address.
+The DVR address starts **blank**. In **Settings > DVR IP address** or
+**Connection > Configure DVR address**, enter the approved DVR's numeric IP address
+(for example `192.0.2.10`). Both accept the same formats: a bare IP,
+`192.0.2.10:8089`, `http://192.0.2.10`, or `http://192.0.2.10:8089`, with an
+optional trailing `/` on the HTTP address. HTTP port **8089** is used when omitted.
+IPv6 literals are accepted; use brackets in HTTP addresses, for example
+`http://[2001:db8::10]:8089`. Hostnames, HTTPS, other ports, credentials and paths
+are not supported. The project supplies no default server address.
+
+Save the address, then choose **Connection > Connect**. This also turns on
+**Connect automatically when Hub opens** for future opens. Saving an address
+alone does not enable a disconnected Hub. Turning the automatic connection
+setting off disconnects Hub. Reading a saved address normalizes it in memory
+without rewriting the saved value or legacy version setting.
 The minimum valid backend build is `2026.08.07.0346` or newer. A newer version
 passing the floor does not establish compatibility with every future API change.
 
