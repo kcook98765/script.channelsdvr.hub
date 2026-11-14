@@ -38,7 +38,7 @@ class PackageTests(unittest.TestCase):
         root = ET.parse(ADDON / "addon.xml").getroot()
         self.assertEqual(root.tag, "addon")
         self.assertEqual(root.get("id"), "script.channelsdvr.hub")
-        self.assertEqual(root.get("version"), "0.1.0")
+        self.assertEqual(root.get("version"), "0.1.1")
         self.assertEqual([(n.get("addon"), n.get("version")) for n in root.findall("requires/import")],
                          [("xbmc.python", "3.0.1")])
         entries = {n.get("point"): n for n in root.findall("extension")}

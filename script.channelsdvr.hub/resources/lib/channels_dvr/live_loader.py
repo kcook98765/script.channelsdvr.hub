@@ -56,6 +56,33 @@ class DevelopmentConfig:
         authority = f"[{address.compressed}]" if address.version == 6 else str(address)
         return cls(f"http://{authority}:8089")
 
+    @classmethod
+    def from_address(cls, address: str) -> "DevelopmentConfig":
+        """Accept the same numeric-IP address forms in Settings and Connection.
+
+        Omitted scheme/port mean HTTP/8089. No DNS, other ports, credentials,
+        paths, queries or fragments are admitted. Reading never rewrites settings.
+        """
+        if (type(address) is not str or len(address) > 128
+                or any(ord(c) < 32 or ord(c) == 127 for c in address)):
+            raise MetadataError("invalid_origin") from None
+        value = address.strip()
+        try:
+            return cls.from_host(value)
+        except MetadataError:
+            pass
+        match = re.fullmatch(
+            r"(?:http://)?(\[[0-9a-fA-F:.]+\]|[0-9.]+)(?::8089)?/?",
+            value, re.IGNORECASE)
+        if match is None:
+            raise MetadataError("invalid_origin") from None
+        host = match.group(1)
+        if host.startswith("[") and host.endswith("]"):
+            host = host[1:-1]
+            if ":" not in host:
+                raise MetadataError("invalid_origin") from None
+        return cls.from_host(host)
+
 
 @dataclass(frozen=True)
 class LoadResult:

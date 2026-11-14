@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<addon id="script.channelsdvr.hub" name="Channels DVR Hub" version="0.1.0" provider-name="Local development">
+<addon id="script.channelsdvr.hub" name="Channels DVR Hub" version="0.1.1" provider-name="Local development">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
   </requires>
@@ -13,6 +13,6 @@
     <assets>
       <icon>resources/icon.png</icon>
     </assets>
-    <news>0.1.0 pre-release: local Channels DVR Hub identity alignment with a separate Kodi add-on/profile identity. Dashboard, guide, recording management, explicit native Play and programme-only/Series pass management retained. Hub installation and native acceptance pending; old EPG results remain historical.</news>
+    <news>0.1.1 pre-release: Settings and Connection accept the same numeric DVR IP address forms and use HTTP port 8089 when omitted. Address requirements and automatic connection behavior are explained in settings. 0.1.0: local Channels DVR Hub identity alignment with a separate Kodi add-on/profile identity. Dashboard, guide, recording management, explicit native Play and programme-only/Series pass management retained. Hub native acceptance pending; old EPG results remain historical.</news>
   </extension>
 </addon>

@@ -45,7 +45,7 @@ ROWS = (
     ('demo_empty_message', 30442, 'The sample request succeeded and returned no items.'),
     ('address_ip', 30443, 'DVR IP address'),
     ('address_dialog_failed', 30444, 'The address dialog could not be opened.'),
-    ('address_invalid', 30445, 'Enter a valid IP address.'),
+    ('address_invalid', 30445, 'Use a numeric IP or http://IP:8089. Hostnames, HTTPS, other ports and paths are unsupported.'),
     ('connection_save_failed', 30446, 'Connection settings could not be saved. Recheck them before connecting.'),
     ('source_ordinal', 30447, 'Source {ordinal}'),
     ('source_unavailable', 30448, 'Source unavailable'),
