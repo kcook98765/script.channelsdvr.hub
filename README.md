@@ -1,6 +1,6 @@
 # Channels DVR Hub for Kodi
 
-**ID `script.channelsdvr.hub` · version `0.1.0` · Program add-on · Kodi 21 / Omega**
+**ID `script.channelsdvr.hub` · version `0.1.1` · Program add-on · Kodi 21 / Omega**
 
 An unofficial, pre-release Channels DVR client focused on recordings and passes,
 with a guide and explicit native Kodi playback. It is not affiliated with Channels,
@@ -40,6 +40,16 @@ native Series CRUD/adoption acceptance remain incomplete.
 Hub has a separate add-on identity and profile from the former EPG add-on. There
 is no automatic old-profile discovery, copying or migration. Reconcile unresolved
 old operations and establish an exclusive writer before any Hub writes.
+
+## Kodi distribution preparation
+
+The canonical distribution repository is
+**https://github.com/kcook98765/kcook-lab-repo**; this source repository remains
+https://github.com/kcook98765/script.channelsdvr.hub. Do not repoint its origin.
+Use the separately installed `/kodi-release-prepare` command or `github-operator`
+from this source project without selecting the distribution project. See
+[OpenCode setup restoration and the exact 0.1.1 evidence binding](docs/OPENCODE-DISTRIBUTION.md).
+Preparation supplies no native acceptance or publication authority.
 
 ## Documentation
 
