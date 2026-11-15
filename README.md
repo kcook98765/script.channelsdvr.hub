@@ -1,14 +1,18 @@
 # Channels DVR Hub for Kodi
 
-**ID `script.channelsdvr.hub` · version `0.1.1` · Program add-on · Kodi 21 / Omega**
+**ID `script.channelsdvr.hub` · version `0.1.2` · Program add-on · Kodi 21 / Omega**
 
 An unofficial, pre-release Channels DVR client focused on recordings and passes,
 with a guide and explicit native Kodi playback. It is not affiliated with Channels,
 does not replace Kodi's PVR system, and does not administer or update the DVR server.
 
-**Alpha candidate, not yet published:** Hub has not been natively accepted under its
-own add-on identity. Source and fake-adapter tests are not full feature acceptance.
-The repository contains source and offline tests, not a packaged release.
+**Alpha candidate, not yet published:** This 0.1.2 candidate has not been installed
+or natively accepted. Historical Hub 0.1.0 and EPG observations do not accept it. Source and fake-adapter tests are not full feature acceptance.
+The repository contains source, offline tests and a reproducible local candidate
+packager. No Hub release is approved or published.
+
+Prepare the Omega candidate with `python3 -B tools/package.py` after the runtime
+changes have been reviewed and committed. See [Development](docs/DEVELOPMENT.md).
 
 ## Implemented in source
 
@@ -33,7 +37,7 @@ The source targets **Kodi 21 / Omega**. The Channels DVR server origin defaults 
 No server address is supplied by this project.
 
 The minimum valid backend build is **`2026.08.07.0346` or newer**, separate from
-Hub's `0.1.1` version. Passing that version floor is an admission check, not proof
+Hub's `0.1.2` version. Passing that version floor is an admission check, not proof
 that every future server API or behavior is compatible. Platform, audio, seek and
 native Series CRUD/adoption acceptance remain incomplete.
 
@@ -48,12 +52,13 @@ The canonical distribution repository is
 https://github.com/kcook98765/script.channelsdvr.hub. Do not repoint its origin.
 Use the separately installed `/kodi-release-prepare` command or `github-operator`
 from this source project without selecting the distribution project. See
-[OpenCode setup restoration and the exact 0.1.1 evidence binding](docs/OPENCODE-DISTRIBUTION.md).
+[OpenCode setup restoration and the exact 0.1.2 evidence binding](docs/OPENCODE-DISTRIBUTION.md).
 Preparation supplies no native acceptance or publication authority.
 
 ## Documentation
 
 - [User guide](docs/USERGUIDE.md): configuration, navigation and guarded actions.
+- [Material origins](docs/MATERIALS.md): code provenance, generated artwork and notices.
 - [Development](docs/DEVELOPMENT.md): source layout and offline-test scope.
 - [Limitations](docs/LIMITATIONS.md): unsupported features and acceptance gaps.
 - [Identity](docs/IDENTITY.md): separate profile and reconciliation boundaries.

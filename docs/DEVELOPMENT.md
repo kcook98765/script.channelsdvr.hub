@@ -1,6 +1,6 @@
 # Development
 
-Channels DVR Hub is alpha-candidate `0.1.1` source targeting Kodi 21 / Omega. Its sole
+Channels DVR Hub is alpha-candidate `0.1.2` source targeting Kodi 21 / Omega. Its sole
 executable manifest extension is a Program script using `default.py`.
 `plugin.py` is documentation-only, not a video-plugin entry point.
 
@@ -61,3 +61,16 @@ barriers when changing code. An ambiguous write requires reconciliation before
 retrying. A fresh profile is not a recovery shortcut. Keep secrets out of Git.
 See [Identity](IDENTITY.md) for the old EPG boundary and [Limitations](LIMITATIONS.md)
 for the remaining acceptance gaps.
+
+## Local alpha packaging
+
+Run `python3 -B tools/package.py` after committing reviewed runtime inputs. It
+selects only Git-tracked runtime files, requires that subtree to match the source
+commit, and produces an Omega-only candidate under `dist/omega/` with canonical
+ZIP ordering/timestamps/modes, a SHA-256 sidecar and source/tool provenance. It
+rejects replacement of different existing bytes. No Kodi code is imported.
+
+The versioned packager derives from the separately hashed tool retained with the
+0.1.1 handoff; the new source tracks it and narrows proposed lanes to Omega.
+Frozen 0.1.1 packages remain unchanged. Packaging is not native acceptance,
+rights approval, repository admission or publication authorization.
