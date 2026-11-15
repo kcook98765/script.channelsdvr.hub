@@ -4,7 +4,7 @@
 | --- | --- |
 | Name | Channels DVR Hub |
 | Kodi add-on ID and package folder | `script.channelsdvr.hub` |
-| Version | `0.1.0` pre-release |
+| Version | `0.1.1` alpha candidate |
 | Target | Kodi 21 / Omega |
 | Entry | Program script, `default.py` |
 | Python namespace | `channels_dvr` |

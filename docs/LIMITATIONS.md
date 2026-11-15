@@ -2,7 +2,7 @@
 
 ## Pre-release status
 
-Channels DVR Hub `0.1.0` targets Kodi 21 / Omega. **Hub has not yet been installed
+Channels DVR Hub `0.1.1` is an **alpha candidate** targeting Kodi 21 / Omega. **Hub has not yet been installed
 or natively accepted under its own identity.** Results from an earlier EPG identity
 do not establish Hub acceptance. Source tests, fake adapters and static validation
 are useful evidence, but are not full functional or release acceptance.

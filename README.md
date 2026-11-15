@@ -6,7 +6,7 @@ An unofficial, pre-release Channels DVR client focused on recordings and passes,
 with a guide and explicit native Kodi playback. It is not affiliated with Channels,
 does not replace Kodi's PVR system, and does not administer or update the DVR server.
 
-**Source preview:** Hub has not yet been installed or natively accepted under its
+**Alpha candidate, not yet published:** Hub has not been natively accepted under its
 own add-on identity. Source and fake-adapter tests are not full feature acceptance.
 The repository contains source and offline tests, not a packaged release.
 
@@ -33,7 +33,7 @@ The source targets **Kodi 21 / Omega**. The Channels DVR server origin defaults 
 No server address is supplied by this project.
 
 The minimum valid backend build is **`2026.08.07.0346` or newer**, separate from
-Hub's `0.1.0` version. Passing that version floor is an admission check, not proof
+Hub's `0.1.1` version. Passing that version floor is an admission check, not proof
 that every future server API or behavior is compatible. Platform, audio, seek and
 native Series CRUD/adoption acceptance remain incomplete.
 

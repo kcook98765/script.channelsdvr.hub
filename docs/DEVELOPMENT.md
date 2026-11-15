@@ -1,6 +1,6 @@
 # Development
 
-Channels DVR Hub is pre-release `0.1.0` source targeting Kodi 21 / Omega. Its sole
+Channels DVR Hub is alpha-candidate `0.1.1` source targeting Kodi 21 / Omega. Its sole
 executable manifest extension is a Program script using `default.py`.
 `plugin.py` is documentation-only, not a video-plugin entry point.
 
