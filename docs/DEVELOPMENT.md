@@ -11,6 +11,8 @@ executable manifest extension is a Program script using `default.py`.
 - `script.channelsdvr.hub/resources/`: settings, translations, artwork and UI assets.
 - `tests/`: the selected pure-Python and explicit fake-adapter regression modules.
 - `tools/test_offline.py`: the bounded offline runner.
+- `tools/package.py`: deterministic, exact-commit Omega candidate packaging.
+- `tools/generate_artwork.py`: original icon/texture generation and byte checks.
 
 The runtime uses Python's standard library, including SQLite for operation state.
 Artwork and playback are delegated to Kodi. No external image-processing package
@@ -48,10 +50,10 @@ experiments and historical fixtures. A clone does not require those private file
 
 `tests/test_dashboard.py` is a separate targeted cohort, **not** part of the
 15-module public runner above. Run the affected Dashboard/owner/config/package/live
-paths from the repository root with explicit fakes:
+paths, including the reconciled connection parser, with explicit fakes:
 
 ```sh
-PYTHONPATH=script.channelsdvr.hub/resources/lib:tests python3 -B -m unittest test_dashboard test_ui_dispatch test_package test_live_loader -v
+PYTHONPATH=script.channelsdvr.hub/resources/lib:tests python3 -B -m unittest test_dashboard test_ui_dispatch test_package test_live_loader test_connection_config -v
 ```
 
 Coverage uses deterministic clocks, explicit fake Kodi controls/owner loops, fake
@@ -64,12 +66,22 @@ idle polls must neither format cards/timestamps nor translate strings. No Kodi
 SDK/stubs or DVR is executed. The public runner's audit guard does not wrap this
 standalone command; review this explicit cohort before execution.
 
-Static checks require a matched Omega interpreter, Kodistubs and checker/cache;
-`--branch omega` alone does not select stubs. For private qualification package
-the exact reviewed add-on root with a unique development version (currently
-`0.1.3~issue4`), checking for retained-version collisions first. Keep source/ZIP
-digests and native evidence private; preserve the add-on ID, profile and operation
-history. Static/fake-GUI passes are not native qualification or a release.
+The separate packager provenance cohort uses harmless Git commands in temporary
+synthetic repositories, including fixture commits and index concealment flags:
+
+```sh
+PYTHONPATH=tests python3 -B -m unittest test_packager_provenance -v
+```
+
+Do not run it under the public runner's subprocess-forbidding guard or confuse its
+fixture commits with changes to the source repository. Static checks require a
+matched Omega interpreter, Kodistubs and checker/cache; `--branch omega` alone does
+not select stubs. For private qualification use the exact reviewed, committed
+add-on root (currently unpublished numeric `0.1.3`), checking for retained-version
+collisions first. Preserve the add-on ID, profile and operation history. Source/ZIP
+digests and native evidence stay private. Static/fake-GUI passes are not native
+qualification or a release; prior `0.1.2` / `0.1.3~issue4` evidence does not qualify
+the combined candidate.
 
 ## Test boundaries
 
@@ -88,3 +100,16 @@ barriers when changing code. An ambiguous write requires reconciliation before
 retrying. A fresh profile is not a recovery shortcut. Keep secrets out of Git.
 See [Identity](IDENTITY.md) for the old EPG boundary and [Limitations](LIMITATIONS.md)
 for the remaining acceptance gaps.
+
+## Local alpha packaging
+
+Run `python3 -B tools/package.py` after committing reviewed runtime inputs. It
+selects only Git-tracked runtime files, requires that subtree to match the source
+commit, and produces an Omega-only candidate under `dist/omega/` with canonical
+ZIP ordering/timestamps/modes, a SHA-256 sidecar and source/tool provenance. It
+rejects replacement of different existing bytes. No Kodi code is imported.
+
+The versioned packager derives from the separately hashed tool retained with the
+0.1.1 handoff; the new source tracks it and narrows proposed lanes to Omega.
+Frozen 0.1.1 packages remain unchanged. Packaging is not native acceptance,
+rights approval, repository admission or publication authorization.

@@ -10,11 +10,11 @@ msgid "Connection"
 msgstr ""
 
 msgctxt "#30001"
-msgid "DVR address"
+msgid "DVR IP address"
 msgstr ""
 
 msgctxt "#30002"
-msgid "Enter only the approved development DVR address, without credentials or a path. Leave blank until configured."
+msgid "Enter a numeric DVR IP (e.g. 192.0.2.10) or http://IP:8089. Uses HTTP port 8089. Hostnames, HTTPS, other ports, credentials and paths are unsupported."
 msgstr ""
 
 msgctxt "#30003"
@@ -26,11 +26,11 @@ msgid "DVR versions 2026.08.07.0346 and newer are accepted. The minimum is fixed
 msgstr ""
 
 msgctxt "#30005"
-msgid "Connect when the guide opens"
+msgid "Connect automatically when Hub opens"
 msgstr ""
 
 msgctxt "#30006"
-msgid "Load listings from the configured DVR when the guide opens. Turning this off leaves the guide disconnected. Scheduling and pass changes always need separate confirmation; existing DVR rules keep running."
+msgid "Load listings from the configured DVR when Hub opens. Connection > Connect also turns this on. Turning this off leaves Hub disconnected. Scheduling and pass changes always need separate confirmation; existing DVR rules keep running."
 msgstr ""
 
 #. Developer visibility is not a backend permission.
@@ -135,7 +135,7 @@ msgid "Connect to your DVR first."
 msgstr ""
 
 msgctxt "#30128"
-msgid "Configure an approved DVR address, then choose Connect."
+msgid "In Settings or Connection > Configure DVR address, set a numeric IP, then Connect. Uses HTTP port 8089; no hostnames."
 msgstr ""
 
 msgctxt "#30129"
@@ -1286,7 +1286,7 @@ msgid "The address dialog could not be opened."
 msgstr ""
 
 msgctxt "#30445"
-msgid "Enter a valid IP address."
+msgid "Use a numeric IP or http://IP:8089. Hostnames, HTTPS, other ports and paths are unsupported."
 msgstr ""
 
 msgctxt "#30446"

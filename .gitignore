@@ -23,15 +23,21 @@
 !/tests/test_native_playback.py
 !/tests/test_series_manager.py
 !/tests/test_dashboard.py
+!/tests/test_connection_config.py
+!/tests/test_packager_provenance.py
 !/tools/
 /tools/*
 !/tools/test_offline.py
+!/tools/package.py
+!/tools/generate_artwork.py
 !/docs/
 /docs/*
 !/docs/USERGUIDE.md
 !/docs/DEVELOPMENT.md
 !/docs/LIMITATIONS.md
 !/docs/IDENTITY.md
+!/docs/MATERIALS.md
+!/docs/OPENCODE-DISTRIBUTION.md
 
 # Defense in depth, including anything accidentally created within the package.
 AGENTS.md

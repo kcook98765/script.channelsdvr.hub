@@ -2,6 +2,8 @@
 
 **Unofficial Kodi Program add-on · Kodi 21 Omega · Published version 0.1.2 ALPHA (work in progress)**
 
+**Source candidate: `0.1.3` ALPHA · unpublished reconciliation with Dashboard issue #4**
+
 Channels DVR Hub is an independent, pre-release client for an existing Channels DVR
 server. Its goal is to provide guide, recording and pass workflows inside Kodi,
 with explicit playback through Kodi's native player. It is **not** a Kodi PVR
@@ -12,6 +14,10 @@ replacement or a DVR server administration/update tool.
 > failure recovery have **not** completed native acceptance testing for this
 > release. Do not rely on this alpha for important recordings or DVR changes.
 > This project is not affiliated with or endorsed by Channels or Fancy Bits, LLC.
+
+The combined 0.1.3 source candidate has **no connected/native acceptance**. Prior
+Hub builds, the `0.1.3~issue4` qualification build and EPG observations do not accept
+this combined runtime. Source and fake-adapter tests are not full feature acceptance.
 
 ## Install on Kodi 21 Omega
 
@@ -94,10 +100,17 @@ write has an uncertain outcome, reconcile it before retrying.
 The [published 0.1.2 Alpha ZIP]
 (https://github.com/kcook98765/kcook-lab-repo/releases/tag/channelsdvr-hub-0.1.2-alpha)
 is hosted in **kcook-lab-repo** and listed in its Omega Program add-ons catalog.
-This issue-4 development checkout declares **0.1.3~issue4** in
-`script.channelsdvr.hub/addon.xml` for private qualification; it is **not** a
-published release or the source of the published 0.1.2 package. Use the release ZIP or
-repository feed for installation instead of packaging this checkout yourself.
+This checkout declares **0.1.3** in `script.channelsdvr.hub/addon.xml` as an
+unpublished ALPHA candidate. It reconciles the published 0.1.2 source (shared
+numeric IP normalization, original generated artwork, notices and deterministic
+packaging) with issue #4's Dashboard scheduling and presentation. It is not the
+published 0.1.2 artifact. For the published alpha, use the release ZIP or repository
+feed above, not GitHub's source archive.
+
+Developers can prepare the local Omega candidate with `python3 -B tools/package.py`
+**after reviewing and committing the runtime inputs**. The packager binds the ZIP
+to exact committed runtime bytes and retains provenance under `dist/`; this is
+not release or publication approval. See [Development](docs/DEVELOPMENT.md).
 
 The release has static/offline and packaging verification, but **0.1.2 has not
 been natively exercised against a connected DVR**. Prior results for 0.1.0
@@ -109,9 +122,20 @@ add-on development. That tooling does not substitute for live feature
 acceptance. Contributions, bug reports and testing feedback are welcome via
 [GitHub issues](https://github.com/kcook98765/script.channelsdvr.hub/issues).
 
+## Kodi distribution preparation
+
+The canonical distribution repository is
+**https://github.com/kcook98765/kcook-lab-repo**; this source repository remains
+https://github.com/kcook98765/script.channelsdvr.hub. Do not repoint its origin.
+Use the separately installed `/kodi-release-prepare` command or `github-operator`
+from this source project without selecting the distribution project. See
+[OpenCode setup restoration and the exact 0.1.2 evidence binding](docs/OPENCODE-DISTRIBUTION.md).
+Preparation supplies no native acceptance or publication authority.
+
 ## Documentation
 
 - [User guide](docs/USERGUIDE.md): navigation, configuration and guarded actions.
+- [Material origins](docs/MATERIALS.md): code provenance, generated artwork and notices.
 - [Development](docs/DEVELOPMENT.md): source layout and offline-test scope.
 - [Limitations](docs/LIMITATIONS.md): unsupported features and acceptance gaps.
 - [Identity](docs/IDENTITY.md): separate profile and reconciliation boundaries.
