@@ -26,6 +26,7 @@ from channels_dvr.normalization import DataResult, DataState
 from channels_dvr.ui_chrome import WindowChrome
 from channels_dvr.ui_dispatch import UiDispatcher
 from channels_dvr.ui_navigation import execute_command
+from channels_dvr.ui_routes import Route, back
 from channels_dvr.ui_text import FALLBACK, IDS, capture, text
 from channels_dvr.guide_render import RenderMemo
 from channels_dvr.metrics import GuiMetrics
@@ -97,20 +98,31 @@ class Window:
                          'dashboard_refresh_minutes': '5'}
         self.setting_reads = []
         self.saved = CONFIG
-        self.controls = {i: Control() for i in (*range(200, 207), *range(300, 311), *range(400, 406))}
+        self.controls = {i: Control() for i in (*range(200, 206), *range(300, 311), *range(400, 406))}
         self.labels = {}
         self.focus = 201
         self.focus_calls = []
         self.selection = object()
-        self._dispatcher = SimpleNamespace(assert_owner=lambda: None)
-        self._playback_ui = SimpleNamespace(cancel=Mock())
+        self._dispatcher = UiDispatcher()
+        self._playback_ui = SimpleNamespace(cancel=Mock(), selection=Mock(return_value=None))
         self._guide_runtime.invalidate_view = Mock()
         self._chrome = WindowChrome(self)
         self._dashboard_ui = DashboardUI(self, Worker())
 
+    @property
+    def view(self):
+        return self._route.view
+
+    @view.setter
+    def view(self, value):
+        self._route = Route(value)
+
     def get_setting(self, key):
         self.setting_reads.append(key)
         return self.settings.get(key, '')
+
+    def developer_enabled(self):
+        return False
 
     def _saved_config(self):
         return self.saved
@@ -442,7 +454,7 @@ class DashboardScheduleTests(DashboardFixture):
                         self.w.focus = 201
                         self.w._chrome.action(92)
                     else:
-                        self.w._chrome.back(content=False)
+                        back(self.w)
                 self.assertEqual(self.w.view, 'Dashboard')
                 self.ui.poll()
                 self.assertEqual(len(self.ui.worker.requests), 1)
@@ -450,7 +462,7 @@ class DashboardScheduleTests(DashboardFixture):
         self.now = 310
         self.ui.poll()
         with patch.object(self.w, 'render'):
-            self.w._chrome.back(content=False)
+            back(self.w)
         self.ui.poll()
         self.assertEqual(len(self.ui.worker.requests), 2)
 
@@ -981,7 +993,7 @@ class DashboardStartupTests(unittest.TestCase):
                 ui.poll()
                 self.assertEqual(w.setting_reads, [])
                 with patch.object(w, 'render'):
-                    w._chrome.back(content=False)
+                    back(w)
                 ui.poll()
                 self.assertIs(ui.state, state)
                 self.assertEqual(ui.state.last_success, 1000)
@@ -1302,7 +1314,8 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         w._render_memo = RenderMemo()
         w.pool = [(Control(), Control())]  # previously displayed listing row
         w.path = ''
-        w.guide = SimpleNamespace(prepared_ready=False)
+        w.guide = SimpleNamespace(prepared_ready=False, selection=object(), group='All')
+        w.repository = SimpleNamespace(channels=())
         w.metrics = GuiMetrics()
         w._paint_pending = False
         w._status_tick = None
@@ -1310,13 +1323,15 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         w.demo_allowed = lambda: False
         w.selected_indexed_event = lambda: None
         w._guide_runtime.ready = False
+        w._guide_runtime.revision = 0
+        w._live_session._catalog_epoch = 0
         w._live_session.loading = False
         w._live_session.guide = lambda: Presentation((), DataState.OUTAGE, False, True,
             None, None, 'Updated 37s ago | listing failure', '', False)
         w._guide_runtime.presentation = lambda data: data
         w._guide_runtime.poll = Mock(return_value=False)
         w._artwork_ui = SimpleNamespace(poll=Mock(return_value=False), update=Mock(), draw=Mock())
-        w._recording_ui = SimpleNamespace(poll=Mock())
+        w._recording_ui = SimpleNamespace(poll=Mock(), _current_config=lambda: None)
         w._storage_ui = SimpleNamespace(poll=Mock())
         w._playback_ui.poll = Mock()
         w._series_ui = None
@@ -1360,16 +1375,16 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
 
     def test_whole_dashboard_clears_listing_banner_on_navigation_and_back(self):
         w = self.whole_window()
-        for back in ('navigation', 'back', 'nav-back'):
+        for return_method in ('navigation', 'back', 'nav-back'):
             execute_command(w, None, 'view.guide')
             w.process_pending()
             self.assertIn('Updated 37s ago', self.displayed()[114])
             self.assertNotIn(116, self.displayed())
             self.assertFalse(set(range(400, 406)) & self.displayed().keys())
-            if back == 'navigation':
+            if return_method == 'navigation':
                 execute_command(w, None, 'view.dashboard')
-            elif back == 'back':
-                w._chrome.back(content=False)
+            elif return_method == 'back':
+                back(w)
             else:
                 w.focus = 201
                 w._chrome.action(92)

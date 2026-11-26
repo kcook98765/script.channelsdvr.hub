@@ -78,7 +78,7 @@ class PackageTests(unittest.TestCase):
         ids = [int(n.get("id")) for n in controls]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual(set(ids), {100, 110, 112, 113, 114, 115, 116, 117, *range(120, 126), *range(140, 144),
-                                   *range(200, 207), *range(300, 311), *range(400, 406)})
+                                   *range(200, 206), *range(300, 311), *range(400, 406)})
         self.assertTrue(all(n.get('type') == 'button' for n in controls if 200 <= int(n.get('id')) < 400))
         self.assertTrue(all(n.get('type') == 'textbox' for n in controls if int(n.get('id')) >= 400))
 
@@ -240,7 +240,8 @@ class PackageTests(unittest.TestCase):
             if isinstance(method, ast.FunctionDef) and method.name in ("onInit", "onAction", "onClick"):
                 self.assertEqual(len(method.body), 1)
                 calls = {dotted(node.func) for node in ast.walk(method) if isinstance(node, ast.Call)}
-                self.assertLessEqual(calls, {"self._dispatcher.post", "action.getId", "self._chrome.capture"})
+                self.assertLessEqual(calls, {"self._dispatcher.post", "action.getId", "self._chrome.capture",
+                                             "self._chrome.capture_action"})
                 self.assertIn("self._dispatcher.post", calls)
         self.assertLess((LIB / "kodi_ui.py").stat().st_size, 48 * 1024)
         for file in ADDON.rglob('*'):

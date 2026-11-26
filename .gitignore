@@ -25,6 +25,7 @@
 !/tests/test_dashboard.py
 !/tests/test_connection_config.py
 !/tests/test_packager_provenance.py
+!/tests/test_navigation.py
 !/tools/
 /tools/*
 !/tools/test_offline.py
@@ -38,6 +39,7 @@
 !/docs/IDENTITY.md
 !/docs/MATERIALS.md
 !/docs/OPENCODE-DISTRIBUTION.md
+!/docs/NAVIGATION-MODERNIZATION.md
 
 # Defense in depth, including anything accidentally created within the package.
 AGENTS.md

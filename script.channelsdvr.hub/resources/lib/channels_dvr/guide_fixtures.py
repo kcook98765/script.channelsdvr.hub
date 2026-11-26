@@ -67,11 +67,12 @@ def install_fixture(window, kind):
     if kind not in ("normal", "stress", "large500"):
         raise ValueError("Unknown fixed synthetic fixture")
     cancel_large(window, "fixture replaced")
+    from .ui_routes import enter
+    enter(window, 'Guide')
     if kind == "large500":
         window._guide_runtime.fixture(FixtureMode.LARGE500)
     else:
         window._guide_runtime.mode(kind)
-    window.view = "Guide"
 
 
 def large_menu(window):

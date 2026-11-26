@@ -37,7 +37,8 @@ def show_station_gap(window, channel, dialog):
         return False
     try:
         from .programme_scope_ui import show_scope
-        if show_scope(window.path, text(strings, 'station_unavailable'), text(strings, 'gap_detail'), strings=strings) is not True:
+        if show_scope(window.path, text(strings, 'station_unavailable'), text(strings, 'gap_detail'),
+                      strings=strings, modal_owner=window) is not True:
             raise RuntimeError('guide explanation unavailable')
     except Exception:
         try:

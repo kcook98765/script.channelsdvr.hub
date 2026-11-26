@@ -369,6 +369,28 @@ class GuideController:
         self._reveal()
         return True
 
+    def focus_cell(self, channel: ChannelKey, event_id: str | None, start: int) -> bool:
+        """Resolve a displayed hit by exact airing ID (or a genuine gap)."""
+        if channel not in self._rows:
+            return False
+        schedule = self._schedule(channel)
+        if event_id is not None:
+            index = schedule.positions.get((event_id, start))
+            return index is not None and self.focus_event(schedule.events[index])
+        anchor = self._clamp_time(start)
+        if next(schedule.overlapping(anchor, anchor + 1), None) is not None:
+            return False
+        self.selection = Selection(channel, None, anchor)
+        self.refresh()
+        return True
+
+    def bookmark(self) -> tuple[str, Selection, int, int]:
+        return self.group, self.selection, self.top, self.viewport
+
+    def restore_bookmark(self, bookmark: tuple[str, Selection, int, int]) -> None:
+        self.group, self.selection, self.top, self.viewport = bookmark
+        self.refresh()
+
     def refresh(self, anchor: int | None = None) -> None:
         """Rebind an accepted repository snapshot without merging channel IDs.
 

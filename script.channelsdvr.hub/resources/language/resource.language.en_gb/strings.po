@@ -143,7 +143,7 @@ msgid "Not connected"
 msgstr ""
 
 msgctxt "#30130"
-msgid "Connect to your DVR to load listings. Open Connection to configure an approved DVR address and connect."
+msgid "Connect to your DVR to load listings. Use Settings or Configure to enter an approved DVR address, then choose Connect."
 msgstr ""
 
 msgctxt "#30131"
@@ -1974,7 +1974,7 @@ msgid "Independently loaded listings (cache)\nChannels: {channels} · Hidden: {h
 msgstr ""
 
 msgctxt "#30908"
-msgid "Back: actions / Dashboard / exit · Down: content · Actions: more options"
+msgid "Left/Right: destinations · Down: actions · Back: exit"
 msgstr ""
 
 msgctxt "#30909"
@@ -2131,4 +2131,12 @@ msgstr ""
 
 msgctxt "#30947"
 msgid "Statistics are partial, failed or stale; values may be retained or unavailable."
+msgstr ""
+
+msgctxt "#30948"
+msgid "DVR"
+msgstr ""
+
+msgctxt "#30949"
+msgid "More"
 msgstr ""

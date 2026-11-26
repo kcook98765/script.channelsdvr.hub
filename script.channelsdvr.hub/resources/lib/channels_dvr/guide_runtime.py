@@ -460,6 +460,7 @@ class GuideRuntime:
         w._clear_search_cache()
         if fixture is not None:
             w.repository = repository
+            w._guide_return = None
             w.data_session = OfflineDataSession(repository, fixture.mode.value, strings=w.strings)
             w._large_fixture = fixture.mode in (FixtureMode.LARGE500, FixtureMode.DENSE500_48H)
             w.stress_fixture = False
@@ -491,6 +492,10 @@ class GuideRuntime:
         if kind in ('live', 'no_connection'):
             self.window.transient_demo_mode = False
         self._mode = (kind, config)
+        # Invalidate only scalar return intent at the switch boundary. Large
+        # search/index references still follow the worker retirement handoff.
+        self.window._guide_return = None
+        self.window._search_return = None
         # Paint admission changes even when the swap finishes synchronously or
         # awaits retirement. Existing controller/repository/display pins stay
         # until _change_mode obtains its worker hold; painting does not detach.
@@ -538,14 +543,14 @@ class GuideRuntime:
         w.guide = GuideController(display_repository(w.repository), deferred=True, strings=w.strings)
         self.display = None
         w.library = LibraryBrowser(w.repository.recordings, strings=w.strings)
-        w.library_return_mode = "Shows"
         w.positions.clear()
+        w._guide_return = None
+        w._dvr_selected = w._dvr_rows_key = None
+        w._dvr_rows = ()
         w._reset_search()
         w.stress_fixture = kind == "stress"
         w._large_fixture = False
         w._intended_anchor = None
-        if kind in ('normal', 'stress'):
-            w.view = "Guide"
         self.synthetic_owner = object()
         self.context = None
         self._fixture = None

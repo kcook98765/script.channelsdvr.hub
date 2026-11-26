@@ -44,11 +44,11 @@ class ArtworkUI:
         if w.view == 'Search':
             event = w._selected_search_event()
             return event_key(event) if event is not None else None
-        if w.view in ('Recordings', 'Scheduled'):
+        if w.view in ('Recordings', 'DVR'):
             rows = w._rows()
             position = w.library.position if w.view == 'Recordings' else w.positions.get(w._position_key(), 0)
             row = rows[min(position, len(rows)-1)] if rows else None
-            return inventory.rows.get((w.view, row.id)) if row is not None and not row.children else None
+            return inventory.rows.get(('Scheduled' if w.view == 'DVR' else w.view, row.id)) if row is not None and not row.children else None
         return None
 
     def _try_apply(self, control, method, *args):
@@ -204,6 +204,6 @@ def show_media_details(window, row):
             return False
         from .programme_scope_ui import show_scope
         return show_scope(window.path, row.label, row.detail, strings=window.strings,
-                          art_path=window._artwork_ui.ready()) is True
+                          art_path=window._artwork_ui.ready(), modal_owner=window) is True
     except Exception:
         return False

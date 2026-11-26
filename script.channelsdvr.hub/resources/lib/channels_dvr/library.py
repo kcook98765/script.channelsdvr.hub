@@ -84,6 +84,7 @@ class LibraryBrowser:
         self._bookmarks: dict[tuple[_Context, _Path], _Bookmark] = {}
         self._rows: tuple[Row, ...] = ()
         self._position: int = 0
+        self._search_parent: tuple[str, str] | None = None
         self._coverage_limited: bool = False
         self._truncated: bool = False
         self._breadcrumb: str = ""
@@ -339,14 +340,29 @@ class LibraryBrowser:
         if mode not in ("Shows", "Recent", "Movies", "Search"):
             raise ValueError("Unknown library mode")
         self._remember()
+        if mode == 'Search' and self._mode != 'Search':
+            self._search_parent = (self._mode, self._filter)
+        elif mode != 'Search':
+            self._search_parent = None
         self._mode = mode
         self._load()
+
+    def leave_search(self) -> bool:
+        if self._mode != 'Search' or self._search_parent is None:
+            return False
+        self._remember()
+        self._mode, self._filter = self._search_parent
+        self._search_parent = None
+        self._load()
+        return True
 
     def set_query(self, query: str) -> None:
         normalized = normalize_query(query)
         self._remember()
         changed = normalized != self._normalized
         self._query, self._normalized = query, normalized
+        if self._mode != 'Search':
+            self._search_parent = (self._mode, self._filter)
         self._mode = "Search"
         if changed:
             # No history contract: discard every previous Search query/origin

@@ -23,7 +23,7 @@ from channels_dvr.series_manager_ui import SeriesManagerUI
 from channels_dvr.series_http import SeriesHTTP
 from channels_dvr.series_models import RuleSnapshot
 from channels_dvr.ui_text import FALLBACK, IDS, capture
-from channels_dvr.ui_menu import main_entries
+from channels_dvr.ui_navigation import LABELS
 
 CONFIG = DevelopmentConfig('http://192.0.2.20:8089')
 BINDING = profile_binding(CONFIG.origin, CONFIG.namespace, CONFIG.expected_version)
@@ -515,6 +515,7 @@ class UITests(unittest.TestCase):
         self.owner = threading.get_ident()
         self.config = CONFIG
         self.scope = object()
+        self.presentation = object()
         self.event = SimpleNamespace(start=NOW, title='Title')
         parent = self
         class Dialog:
@@ -533,12 +534,22 @@ class UITests(unittest.TestCase):
         self.ui = SeriesManagerUI(assert_owner=owner, dialog=Dialog, profile=lambda: '/unit-own-profile',
             config=lambda: self.config, selection=lambda: self.event,
             viewer=lambda heading, body: self.shown.append(body) or True, strings=capture(), default_no=10,
-            source_scope=lambda: self.scope,
+            source_scope=lambda: self.scope, presentation_scope=lambda: self.presentation,
             worker_factory=lambda *a: Worker())
     def test_global_list_independent_of_guide(self):
         self.event = None
         self.answers = [0]
         self.ui.request()
+        self.assertEqual(self.calls, [('list', {})])
+
+    def test_late_pass_list_does_not_open_over_another_route(self):
+        self.answers = [0]
+        self.ui.request()
+        self.presentation = object()
+        self.results = [ManagerView('list', rows=rule_rows([full()])[0:1])]
+        self.answers = [0]  # would request row details if the stale chooser opened
+        self.ui.poll()
+        self.assertEqual(self.answers, [0])
         self.assertEqual(self.calls, [('list', {})])
     def test_preview_dismiss_and_no_confirmation_never_mutates(self):
         self.answers = [1]
@@ -605,12 +616,11 @@ class UITests(unittest.TestCase):
         self.answers = [50, 0]
         self.ui.poll()
         self.assertEqual(self.calls[-1], ('details', {'key': 'r-50'}))
-    def test_normal_menu_17_unique_stable_ids(self):
-        entries = main_entries(False)
-        self.assertEqual(len(entries), 18)
-        self.assertEqual(len({k for k, _ in entries}), 18)
-        self.assertIn(('series.manager', 'series_manager'), entries)
-        self.assertTrue(all(k in IDS for _, k in entries))
+    def test_hub_registry_keeps_explicit_localized_series_workflow(self):
+        self.assertEqual(LABELS['series.manager'], 'series_manager')
+        self.assertTrue(all(key in IDS for key in LABELS.values()))
+        self.assertNotIn('series.create', LABELS)
+        self.assertNotIn('series.remove', LABELS)
     def test_all_series_strings_present_in_real_po_and_under_tool_limit(self):
         from channels_dvr.series_manager_catalog import ROWS
         path = Path(__file__).absolute().parents[1]/'script.channelsdvr.hub/resources/language/resource.language.en_gb/strings.po'

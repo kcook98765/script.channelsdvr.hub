@@ -2,11 +2,12 @@
 
 from collections import deque
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import Lock, get_ident
-from .ui_activation import ButtonActivation
+from .ui_activation import ButtonActivation, ShortcutActivation
 
-Command = tuple[str, int | ButtonActivation | None]
+Command = tuple[str, int | ButtonActivation | ShortcutActivation | None]
 
 
 @dataclass(frozen=True, eq=False)
@@ -18,13 +19,15 @@ class UiDispatcher:
     def __init__(self) -> None:
         self._owner = get_ident()
         self._lock = Lock()
-        self._commands: deque[tuple[int, Command]] = deque()
+        self._commands: deque[tuple[int, int, Command]] = deque()
         self._closed = False
         self._dropped = 0
         self._revision = 0
         self._active_revision: int | None = None
         self._dispatch_pending = 0
         self._playback_input: PlaybackInput | None = None
+        self._input_epoch = 0
+        self._modal_depth = 0
 
     def assert_owner(self) -> None:
         if get_ident() != self._owner:
@@ -38,23 +41,55 @@ class UiDispatcher:
     def post(self, command: Command) -> bool:
         if (type(command) is not tuple or len(command) != 2
                 or command[0] not in ("initialize", "action", "click", "chrome")
-                or (command[0] == "initialize" and command[1] is not None)
-                or (command[0] in ('action', 'click') and type(command[1]) is not int)
+                 or (command[0] == "initialize" and command[1] is not None)
+                 or (command[0] == 'click' and type(command[1]) is not int)
+                 or (command[0] == 'action' and type(command[1]) not in (int, ShortcutActivation))
                 or (command[0] == 'chrome' and command[1] is not None and type(command[1]) is not ButtonActivation)):
             raise ValueError("Plain UI command required")
         with self._lock:
             # Even a full-mailbox input invalidates a pending playback intent.
             # No GUI, domain command cancellation or SDK work on posting threads.
             self._revision += 1
-            if self._closed or len(self._commands) >= 128:
+            if self._closed or (self._modal_depth and command[0] != 'initialize'):
                 self._dropped += 1
                 return False
-            self._commands.append((self._revision, command))
+            if command[0] == 'initialize':
+                self._input_epoch += 1
+                if len(self._commands) >= 128:
+                    self._dropped += len(self._commands)
+                    self._commands.clear()  # a lifecycle fence must not be shed
+            elif len(self._commands) >= 128:
+                self._dropped += 1
+                return False
+            self._commands.append((self._revision, self._input_epoch, command))
             return True
+
+    def fence_input(self):
+        self.assert_owner()
+        with self._lock:
+            self._input_epoch += 1
+
+    @contextmanager
+    def modal_input(self):
+        self.assert_owner()
+        with self._lock:
+            self._input_epoch += 1
+            self._modal_depth += 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._modal_depth -= 1
+                self._input_epoch += 1
+
+    @property
+    def modal_active(self):
+        self.assert_owner()
+        return self._modal_depth != 0
 
     def drain(self, max_commands: int = 16) -> tuple[Command, ...]:
         """Legacy plain snapshot consumer. Runtime command execution uses dispatch."""
-        return tuple(command for _, command in self._take(max_commands))
+        return tuple(command for _, _, command in self._take(max_commands))
 
     def _take(self, max_commands):
         self.assert_owner()
@@ -72,16 +107,18 @@ class UiDispatcher:
         """
         self.assert_owner()
         with self._lock:
-            if self._dispatch_pending:
+            if self._dispatch_pending or self._modal_depth:
                 return  # nested owner pumps cannot overtake an active batch
         batch = self._take(max_commands)
         with self._lock:
             self._dispatch_pending = len(batch)
         try:
-            for revision, command in batch:
+            for revision, epoch, command in batch:
                 with self._lock:
-                    self._active_revision = revision
-                yield command
+                    active = not self._closed and (epoch == self._input_epoch or command[0] == 'initialize')
+                    self._active_revision = revision if active else None
+                if active:
+                    yield command
                 with self._lock:
                     self._active_revision = None
                     self._dispatch_pending -= 1

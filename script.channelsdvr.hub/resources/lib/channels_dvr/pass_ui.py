@@ -13,14 +13,16 @@ from .programme_pass_worker import ProgrammePassWorker
 from .ui_menu import PROGRAMME, select
 from .ui_text import FALLBACK, text
 from .ui_operation_errors import error_message
+from .ui_modal import dialog_for
+from .ui_routes import presentation_scope
 
 _SAVED_SCOPE_WARNING = FALLBACK['saved_scope_warning']
 
 
-def _programme_scope(addon_path, heading, text, strings=FALLBACK):
+def _programme_scope(addon_path, heading, text, strings=FALLBACK, *, modal_owner=None):
     # Import only on explicit controls scope opening, never in pure coordinators.
     from .programme_scope_ui import show_scope
-    return show_scope(addon_path, heading, text, strings=strings)
+    return show_scope(addon_path, heading, text, strings=strings, modal_owner=modal_owner)
 
 
 class PassPreviewUI:
@@ -39,6 +41,12 @@ class PassPreviewUI:
 
     def t(self, key, **values):
         return text(self.strings, key, **values)
+
+    def _dialog(self):
+        return dialog_for(self.window, xbmcgui)
+
+    def _show_scope(self, heading, text):
+        return _programme_scope(self.window.path, heading, text, self.strings, modal_owner=self.window)
 
     def close(self) -> None:
         if self.controls is not None:
@@ -63,7 +71,7 @@ class PassPreviewUI:
         config = self.recording_ui._current_config()
         event = self._selection()
         if config is None or self.window._live_session is None:
-            xbmcgui.Dialog().ok(self.t('preview_title'), self.t('connect_first'))
+            self._dialog().ok(self.t('preview_title'), self.t('connect_first'))
             return
         if self.worker is not None or self.browser is not None:
             pending = self.worker or SimpleNamespace(config=config, selected=event)
@@ -71,7 +79,7 @@ class PassPreviewUI:
             if not self._valid(pending, generation):
                 self.close()
                 return
-            xbmcgui.Dialog().ok(self.t('preview_title'), self.t('preview_pending'))
+            self._dialog().ok(self.t('preview_title'), self.t('preview_pending'))
             if not self._valid(pending, generation):
                 self.close()
             return
@@ -80,7 +88,7 @@ class PassPreviewUI:
         admission = SimpleNamespace(config=config, selected=event)
         generation = self.generation
         strings = getattr(self.window, 'strings', FALLBACK)
-        selected = select(xbmcgui.Dialog(), strings, 'programme_tools', PROGRAMME)
+        selected = select(self._dialog(), strings, 'programme_tools', PROGRAMME)
         choice = {'programme.preview': 0, 'programme.saved': 1, 'programme.prepare': 2,
                   'programme.status': 3, 'programme.history': 4}.get(selected)
         if choice in (2, 3, 4):
@@ -94,12 +102,11 @@ class PassPreviewUI:
                 return
             if self.controls is None:
                 self.controls = ProgrammePassUI(assert_owner=self.window._dispatcher.assert_owner,
-                    dialog=xbmcgui.Dialog, profile=self.recording_ui._programme_profile,
+                    dialog=self._dialog, profile=self.recording_ui._programme_profile,
                     config=self.recording_ui._current_config, context=self._control_context,
                     worker_factory=lambda config, profile: ProgrammePassWorker(config, profile, strings=strings),
-                    scope_display=lambda heading, text: _programme_scope(self.window.path, heading, text, strings),
-                    message_display=lambda heading, text: _programme_scope(self.window.path, heading, text, strings),
-                    strings=strings)
+                    scope_display=self._show_scope, message_display=self._show_scope,
+                    strings=strings, presentation_scope=lambda: presentation_scope(self.window))
             self._read_close()
             if choice == 4:
                 self.controls.request_history()
@@ -133,6 +140,9 @@ class PassPreviewUI:
                 or not self._valid(worker, self.generation)):
             self._read_close()
             return
+        self._present(worker, result)
+
+    def _present(self, worker, result):
         # Retire transport before any modal; retain the admission scope until Back.
         worker.close()
         self.worker = None
@@ -159,7 +169,7 @@ class PassPreviewUI:
             message = self.t('preview_empty', count=result.count)
         else:
             message = error_message('schema_unqualified', self.strings, 'read')
-        xbmcgui.Dialog().ok(self.t('preview_title'), message + '\n' + self.t('preview_notice'))
+        self._dialog().ok(self.t('preview_title'), message + '\n' + self.t('preview_notice'))
         # Revalidate after the modal too; no follow-up or re-request on dismissal.
         self._valid(worker, generation)
         self._read_close()
@@ -168,7 +178,8 @@ class PassPreviewUI:
         session = self.window._live_session
         repository = getattr(session, "repository", None)
         return ((session, session._generation, repository,
-                 getattr(repository, "events", None), getattr(repository, "channels", None))
+                 getattr(repository, "events", None), getattr(repository, "channels", None),
+                 presentation_scope(self.window))
                 if session is not None else None)
 
     def _control_context(self):
@@ -187,7 +198,7 @@ class PassPreviewUI:
         current = self._data_scope()
         return (self._scope is not None and current is not None
                 and self._scope[1] == current[1]
-                and all(self._scope[i] is current[i] for i in (0, 2, 3, 4)))
+                and all(self._scope[i] is current[i] for i in (0, 2, 3, 4, 5)))
 
     def _valid(self, worker, generation) -> bool:
         return (self.generation == generation and self.generation == getattr(worker, "generation", generation)
@@ -210,7 +221,7 @@ class PassPreviewUI:
             heading = self.t('preview_heading', start=page * 50 + 1,
                 stop=min((page + 1) * 50, len(snapshot.matches)), count=len(snapshot.matches),
                 age=age_label, time=utc(snapshot.observed_at))
-            choice = xbmcgui.Dialog().select(heading, list(labels), preselect=bookmark)
+            choice = self._dialog().select(heading, list(labels), preselect=bookmark)
             if not self._valid(worker, generation) or type(choice) is not int or not 0 <= choice < len(indices):
                 return
             selected = indices[choice]
@@ -222,7 +233,7 @@ class PassPreviewUI:
             bookmark = choice
             if not self._valid(worker, generation):
                 return
-            xbmcgui.Dialog().textviewer(self.t('preview_details'), snapshot.details[selected])
+            self._dialog().textviewer(self.t('preview_details'), snapshot.details[selected])
             if not self._valid(worker, generation):
                 return
 
@@ -239,16 +250,16 @@ class PassPreviewUI:
             self.browser = snapshot
             if not self._valid(worker, generation):
                 return
-            xbmcgui.Dialog().ok(self.t('saved_scope_title'), self.t('saved_scope_warning'))
+            self._dialog().ok(self.t('saved_scope_title'), self.t('saved_scope_warning'))
             if not self._valid(worker, generation):
                 return
             self._browse_saved(worker, generation, snapshot)
             return
         if self._valid(worker, generation):
             if result.error is None and isinstance(snapshot, SavedSnapshot) and not snapshot.rules:
-                xbmcgui.Dialog().textviewer(self.t('saved_title'), message)
+                self._dialog().textviewer(self.t('saved_title'), message)
             else:
-                xbmcgui.Dialog().ok(self.t('saved_title'), message)
+                self._dialog().ok(self.t('saved_title'), message)
             self._valid(worker, generation)
 
     def _browse_saved(self, worker, generation, snapshot) -> None:
@@ -259,7 +270,7 @@ class PassPreviewUI:
             heading = saved_list_heading(snapshot, page, int(time.time()), self.strings)
             if not self._valid(worker, generation):
                 return
-            choice = xbmcgui.Dialog().select(heading, list(labels), preselect=bookmark)
+            choice = self._dialog().select(heading, list(labels), preselect=bookmark)
             if not self._valid(worker, generation) or type(choice) is not int or not 0 <= choice < len(indices):
                 return
             selected = indices[choice]
@@ -274,6 +285,6 @@ class PassPreviewUI:
             text = snapshot_age(snapshot, int(time.time()), self.strings) + "\n\n" + snapshot.details[selected]
             if not self._valid(worker, generation):
                 return
-            xbmcgui.Dialog().textviewer(self.t('saved_details_title'), text)
+            self._dialog().textviewer(self.t('saved_details_title'), text)
             if not self._valid(worker, generation):
                 return

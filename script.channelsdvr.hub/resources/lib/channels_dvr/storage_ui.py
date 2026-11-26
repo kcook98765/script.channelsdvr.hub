@@ -7,6 +7,8 @@ from .operation_storage import OperationStore, Scope, StorageError, normalize_pr
 from .storage_migration import summaries
 from .ui_text import FALLBACK, text
 from .ui_operation_errors import state_label
+from .ui_modal import dialog_for
+from .ui_routes import presentation_scope
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,7 @@ class StorageUI:
     def __init__(self, window):
         self.window = window
         self.worker: StorageWorker | None = None
+        self._presentation = None
 
     def t(self, key, **values):
         return text(getattr(self.window,'strings',FALLBACK), key, **values)
@@ -109,10 +112,12 @@ class StorageUI:
             if self.worker is None:
                 profile = normalize_profile(xbmcvfs.translatePath(self.window._addon.getAddonInfo('profile')))
                 self.worker = StorageWorker(profile)
-            if not self.worker.submit('status'):
-                xbmcgui.Dialog().ok(self.t('storage_title'),self.t('storage_busy'))
+            if self.worker.submit('status'):
+                self._presentation = presentation_scope(self.window)
+            else:
+                dialog_for(self.window, xbmcgui).ok(self.t('storage_title'),self.t('storage_busy'))
         except Exception:
-            xbmcgui.Dialog().ok(self.t('storage_title'),self.t('storage_failed'))
+            dialog_for(self.window, xbmcgui).ok(self.t('storage_title'),self.t('storage_failed'))
 
     def close(self):
         if self.worker is not None:
@@ -139,21 +144,25 @@ class StorageUI:
                 return
             try:
                 import xbmcgui
-                xbmcgui.Dialog().ok(self.t('storage_title'),self.t('storage_failed'))
+                dialog_for(self.window, xbmcgui).ok(self.t('storage_title'),self.t('storage_failed'))
             except Exception:
                 pass  # Unsupported dialog must not break the Guide or leak details.
 
     def _poll(self):
         import xbmcgui
-        from .ui_menu import command
         self.window._dispatcher.assert_owner()
         worker = self.worker
         if worker is None:
             return
         result = worker.poll()
-        if result is None or self.window._closed:
+        if (result is None or self.window._closed or
+                self._presentation is not presentation_scope(self.window)):
             return
-        dialog, title = xbmcgui.Dialog(), self.t('storage_title')
+        self._present(xbmcgui, worker, result)
+
+    def _present(self, xbmcgui, worker: StorageWorker, result: StorageResult) -> None:
+        from .ui_menu import command
+        dialog, title = dialog_for(self.window, xbmcgui), self.t('storage_title')
         if result.error:
             self.close()
             dialog.ok(title,self.t('storage_failed'))
@@ -162,7 +171,7 @@ class StorageUI:
             dialog.ok(title, (self.t('series_manager')+'\n'+self.t('status_read')+'\n'+self.t('storage_local_warning'))
                       if result.scope is Scope.SERIES else self.t('storage_done'))
             return
-        entries = [('view','storage_view'),('refresh','storage_refresh')]
+        entries: list[tuple[str | Scope, str]] = [('view','storage_view'),('refresh','storage_refresh')]
         for scope, _, _, claim, _ in result.rows:
             if claim:
                 entries.append((scope,'series_recover' if scope is Scope.SERIES else 'storage_recover_recording' if scope is Scope.RECORDING else 'storage_recover_programme'))

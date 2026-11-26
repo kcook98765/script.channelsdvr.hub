@@ -56,7 +56,7 @@ class SourceScope:
 
 class ProgrammePassUI:
     def __init__(self, *, assert_owner, dialog, profile, config, context, worker_factory=ProgrammePassWorker,
-                 scope_display=None, message_display=None, strings=FALLBACK):
+                 scope_display=None, message_display=None, strings=FALLBACK, presentation_scope=lambda: None):
         self._owner, self._dialog, self._profile = assert_owner, dialog, profile
         self._config, self._context, self._factory = config, context, worker_factory
         self._scope_display = scope_display
@@ -65,6 +65,8 @@ class ProgrammePassUI:
         self._generation = 0
         self._scope = self._event = self._binding = None
         self._prepare = False
+        self._presentation_scope = presentation_scope
+        self._presentation = None
         self.strings = strings
 
     def t(self, key, **values):
@@ -128,6 +130,7 @@ class ProgrammePassUI:
             self.close()
             return False
         if worker.submit(operation, **kwargs):
+            self._presentation = self._presentation_scope()
             return True
         self._modal(generation, 'ok', self.t('programme'), self.t('pending_operation'))
         return False
@@ -183,6 +186,10 @@ class ProgrammePassUI:
         if result is None:
             return
         worker = self.worker
+        if self._presentation is not self._presentation_scope():
+            if getattr(result, 'state', None) == 'prepared' and not worker.submit('abort'):
+                self.close()
+            return
         if isinstance(result, ProgrammeHistoryResult):
             self._history_result(generation, result)
             return  # Never fall through to owned actions, including on error.
