@@ -38,7 +38,7 @@ class PackageTests(unittest.TestCase):
         root = ET.parse(ADDON / "addon.xml").getroot()
         self.assertEqual(root.tag, "addon")
         self.assertEqual(root.get("id"), "script.channelsdvr.hub")
-        self.assertEqual(root.get("version"), "0.1.0")
+        self.assertEqual(root.get("version"), "0.1.3~issue4")
         self.assertEqual([(n.get("addon"), n.get("version")) for n in root.findall("requires/import")],
                          [("xbmc.python", "3.0.1")])
         entries = {n.get("point"): n for n in root.findall("extension")}
@@ -77,7 +77,7 @@ class PackageTests(unittest.TestCase):
         controls = root.findall(".//control[@id]")
         ids = [int(n.get("id")) for n in controls]
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(set(ids), {100, 110, 112, 113, 114, 115, *range(120, 126), *range(140, 144),
+        self.assertEqual(set(ids), {100, 110, 112, 113, 114, 115, 116, *range(120, 126), *range(140, 144),
                                    *range(200, 207), *range(300, 311), *range(400, 406)})
         self.assertTrue(all(n.get('type') == 'button' for n in controls if 200 <= int(n.get('id')) < 400))
         self.assertTrue(all(n.get('type') == 'textbox' for n in controls if int(n.get('id')) >= 400))
@@ -218,7 +218,10 @@ class PackageTests(unittest.TestCase):
         self.assertLess((LIB / "kodi_ui.py").stat().st_size, 48 * 1024)
         for file in ADDON.rglob('*'):
             if file.is_file():
-                self.assertLess(file.stat().st_size,49152,str(file.relative_to(ADDON)))
+                # Localized Dashboard settings/status expand this one catalog;
+                # retain the existing 48-KiB source/asset bound everywhere else.
+                limit = 52 * 1024 if file == ADDON / 'resources/language/resource.language.en_gb/strings.po' else 49152
+                self.assertLess(file.stat().st_size, limit, str(file.relative_to(ADDON)))
 
     def test_ast_no_playback_resolver_external_execution_or_persistent_writes(self):
         forbidden_calls = {

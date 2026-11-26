@@ -1,6 +1,6 @@
 # Development
 
-Channels DVR Hub is pre-release `0.1.0` source targeting Kodi 21 / Omega. Its sole
+Channels DVR Hub targets Kodi 21 / Omega. Its sole
 executable manifest extension is a Program script using `default.py`.
 `plugin.py` is documentation-only, not a video-plugin entry point.
 
@@ -43,6 +43,33 @@ error or blocked network/process operation makes the command exit nonzero.
 
 The initial repository intentionally omits workstation validation tools, live API
 experiments and historical fixtures. A clone does not require those private files.
+
+## Focused Dashboard regressions (issue #4)
+
+`tests/test_dashboard.py` is a separate targeted cohort, **not** part of the
+15-module public runner above. Run the affected Dashboard/owner/config/package/live
+paths from the repository root with explicit fakes:
+
+```sh
+PYTHONPATH=script.channelsdvr.hub/resources/lib:tests python3 -B -m unittest test_dashboard test_ui_dispatch test_package test_live_loader -v
+```
+
+Coverage uses deterministic clocks, explicit fake Kodi controls/owner loops, fake
+HTTP and a synchronized worker: initial/manual/disabled scheduling, Back/return
+cadence, source/token rejection, healthy unknown fields versus retained partial
+results, last success, regional absolute timestamps (including padding modifiers),
+independent listing-cache state, and publication without hide/show or focus churn.
+The original idle-repaint and changed-card hide/text/show regressions are included;
+idle polls must neither format cards/timestamps nor translate strings. No Kodi
+SDK/stubs or DVR is executed. The public runner's audit guard does not wrap this
+standalone command; review this explicit cohort before execution.
+
+Static checks require a matched Omega interpreter, Kodistubs and checker/cache;
+`--branch omega` alone does not select stubs. For private qualification package
+the exact reviewed add-on root with a unique development version (currently
+`0.1.3~issue4`), checking for retained-version collisions first. Keep source/ZIP
+digests and native evidence private; preserve the add-on ID, profile and operation
+history. Static/fake-GUI passes are not native qualification or a release.
 
 ## Test boundaries
 

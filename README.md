@@ -94,9 +94,9 @@ write has an uncertain outcome, reconcile it before retrying.
 The [published 0.1.2 Alpha ZIP]
 (https://github.com/kcook98765/kcook-lab-repo/releases/tag/channelsdvr-hub-0.1.2-alpha)
 is hosted in **kcook-lab-repo** and listed in its Omega Program add-ons catalog.
-The current source checkout in this repository still declares **0.1.0** in
-`script.channelsdvr.hub/addon.xml`; that source-tree version is **not** the
-version of the published 0.1.2 package. Use the versioned release ZIP or
+This issue-4 development checkout declares **0.1.3~issue4** in
+`script.channelsdvr.hub/addon.xml` for private qualification; it is **not** a
+published release or the source of the published 0.1.2 package. Use the release ZIP or
 repository feed for installation instead of packaging this checkout yourself.
 
 The release has static/offline and packaging verification, but **0.1.2 has not

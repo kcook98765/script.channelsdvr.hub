@@ -390,6 +390,25 @@ class LiveDataSession:
         view = cache.get(query, now=now)
         return view.items if view is not None and view.updated_at is not None else ()
 
+    def summary_health(self, name: str) -> tuple[bool, bool]:
+        """Read-only (stale, failed) sidecar for independently loaded summaries.
+
+        Observe the exact listing cache, not Dashboard success/failure. This does
+        not load listings, touch TTLs, synchronize repositories or confer authority.
+        """
+        now = self._clock()
+        view: CacheView | None
+        if name == 'channels':
+            view = self._channels.get(self._channels_query, now=now)
+        elif name == 'recordings':
+            view = self._recordings.get(self._recordings_query, now=now)
+        elif name == 'events':
+            window = self._windows.get(self._horizon) if self._horizon is not None else None
+            view = window.cache.get(window.query, now=now) if window else None
+        else:
+            view = None
+        return (view is None or view.stale, view is not None and view.state not in _SUCCESS)
+
     def _sync_repository(self, now: int) -> None:
         self._repository.channels = self._accepted_items(self._channels, self._channels_query, now)
         self._repository.recordings = self._accepted_items(

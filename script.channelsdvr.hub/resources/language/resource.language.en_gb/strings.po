@@ -1954,23 +1954,23 @@ msgid "Actions"
 msgstr ""
 
 msgctxt "#30903"
-msgid "DVR server\nVersion: {version}\nOS / architecture: {os} / {arch}\nServer running time: {running}\n{age}"
+msgid "DVR server\nVersion: {version}\nOS / architecture: {os} / {arch}\nServer running time: {running}\n{status}"
 msgstr ""
 
 msgctxt "#30904"
-msgid "DVR reported · Enabled: {enabled} · Busy: {busy}\nFiles: {files} · Total: {total} · Jobs: {jobs}\nRules: {rules} · Groups: {groups}\nStorage used: {storage}%\n{age}"
+msgid "DVR reported · Enabled: {enabled} · Busy: {busy}\nFiles: {files} · Total: {total} · Jobs: {jobs}\nRules: {rules} · Groups: {groups}\nStorage used: {storage}%\n{status}"
 msgstr ""
 
 msgctxt "#30905"
-msgid "Sources: {sources}\nReported tuners: {tuners}\nReporting sources: {reporting} · Unknown: {unknown}\nAvailability is unknown\n{age}"
+msgid "Sources: {sources}\nReported tuners: {tuners}\nReporting sources: {reporting} · Unknown: {unknown}\nAvailability is unknown\n{status}"
 msgstr ""
 
 msgctxt "#30906"
-msgid "Pass list: {total}\nPaused: {paused} · Active: {active}\nPause state unknown: {unknown}\nIncludes advanced passes\n{age}"
+msgid "Pass list: {total}\nPaused: {paused} · Active: {active}\nPause state unknown: {unknown}\nIncludes advanced passes\n{status}"
 msgstr ""
 
 msgctxt "#30907"
-msgid "Channels: {channels} · Hidden: {hidden}\nGuide programmes: {events}\nWindow: {start}\nUntil: {end}\nRecordings loaded (complete scan): {recordings}"
+msgid "Independently loaded listings (cache)\nChannels: {channels} · Hidden: {hidden}\nGuide programmes: {events}\nWindow: {start} — {end}\nRecordings (complete scan): {recordings}"
 msgstr ""
 
 msgctxt "#30908"
@@ -2002,7 +2002,7 @@ msgid "Play recording"
 msgstr ""
 
 msgctxt "#30915"
-msgid "Reported activity\nStreams: {streams} · Recordings: {recordings}\nWorkers: {workers} · Other: {other}\nNot a free-tuner check\n{age}"
+msgid "Reported activity\nStreams: {streams} · Recordings: {recordings}\nWorkers: {workers} · Other: {other}\nNot a free-tuner check\n{status}"
 msgstr ""
 
 msgctxt "#30916"
@@ -2011,4 +2011,96 @@ msgstr ""
 
 msgctxt "#30917"
 msgid "{days}d {hours}h {minutes}m {seconds}s"
+msgstr ""
+
+msgctxt "#30918"
+msgid "Automatic statistics refresh"
+msgstr ""
+
+msgctxt "#30919"
+msgid "Refresh statistics on Dashboard only. Initial/manual reads work when disabled. Listings and connection permission are unchanged."
+msgstr ""
+
+msgctxt "#30920"
+msgid "Disabled"
+msgstr ""
+
+msgctxt "#30921"
+msgid "1 minute"
+msgstr ""
+
+msgctxt "#30922"
+msgid "2 minutes"
+msgstr ""
+
+msgctxt "#30923"
+msgid "5 minutes"
+msgstr ""
+
+msgctxt "#30924"
+msgid "10 minutes"
+msgstr ""
+
+msgctxt "#30925"
+msgid "15 minutes"
+msgstr ""
+
+msgctxt "#30926"
+msgid "30 minutes"
+msgstr ""
+
+msgctxt "#30927"
+msgid "Refresh statistics"
+msgstr ""
+
+msgctxt "#30928"
+msgid "Statistics · Last refreshed: {timestamp} · {status}"
+msgstr ""
+
+msgctxt "#30929"
+msgid "Never"
+msgstr ""
+
+msgctxt "#30930"
+msgid "Unavailable / unknown"
+msgstr ""
+
+msgctxt "#30931"
+msgid "Refreshing; displayed values retained"
+msgstr ""
+
+msgctxt "#30932"
+msgid "Partial / stale; retained or unavailable values"
+msgstr ""
+
+msgctxt "#30933"
+msgid "Refresh failed; previous values stale or unavailable"
+msgstr ""
+
+msgctxt "#30934"
+msgid "Stale"
+msgstr ""
+
+msgctxt "#30935"
+msgid "Complete"
+msgstr ""
+
+msgctxt "#30936"
+msgid "Partial / stale: retained or unavailable fields"
+msgstr ""
+
+msgctxt "#30937"
+msgid "{count} ({status})"
+msgstr ""
+
+msgctxt "#30938"
+msgid "listing cache"
+msgstr ""
+
+msgctxt "#30939"
+msgid "stale listing cache"
+msgstr ""
+
+msgctxt "#30940"
+msgid "stale listing cache; read failed"
 msgstr ""

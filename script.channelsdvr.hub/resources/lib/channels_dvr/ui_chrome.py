@@ -14,7 +14,7 @@ ACTIONS = {300: ('selection.details', 'details'), 301: ('playback.play', 'play_s
            304: ('window.actions', 'actions'), 305: ('window.back', 'back'),
            306: ('search.programmes', 'search'), 307: ('search.clear', 'search_clear'),
            308: ('connection.configure', 'dashboard_configure'), 309: ('connection.connect', 'connect'),
-           310: ('dashboard.refresh', 'refresh')}
+           310: ('dashboard.refresh', 'dashboard_refresh')}
 
 
 class WindowChrome:

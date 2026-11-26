@@ -1,8 +1,8 @@
 # Channels DVR Hub user guide
 
-Hub `0.1.0` is pre-release source for Kodi 21 / Omega. It has not yet been installed
-or natively accepted under the Hub identity. The workflows below describe source
-behavior, not a completed installation or platform acceptance test.
+This guide covers Channels DVR Hub for Kodi 21 / Omega and describes source
+behavior, not platform acceptance. See the README for published packages and the
+distinction between published releases and development candidates.
 
 ## Configuration and entry
 
@@ -16,8 +16,45 @@ Hub**. The Program script opens a Dashboard with Guide, Recordings, Scheduled,
 Pass list, Search and Connection navigation. It is not a native PVR replacement.
 
 Dashboard cards are read-only summaries. Reported totals and accepted loaded
-listings can differ; check their ages and availability. Unknown is not zero, and
-a reported tuner count is not a count of free tuners.
+listings can differ. Unknown / unavailable is not zero or No, and a reported tuner
+count is not a count of free tuners.
+
+### Dashboard statistics
+
+Statistics are read immediately when Dashboard first becomes eligible on the
+explicitly connected source. **Refresh statistics** requests another read; repeated
+clicks during a read use the same in-flight cycle. Displayed values stay in place
+while it runs. This does not refresh guide or recording listings.
+
+In add-on settings → **Dashboard → Automatic statistics refresh**, choose **1, 2,
+5 (default), 10, 15 or 30 minutes**, or **Disabled**. Disabled stops periodic reads,
+not the initial or manual read. Invalid/missing saved choices safely use 5 minutes.
+The interval runs from the previous cycle's completion, including a failed cycle.
+Reads pause away from Dashboard; returning, including Back, refreshes if due.
+Selecting the already active Dashboard does not restart the interval. These
+settings do not enable a connection or change any recording/pass permissions.
+
+One **Statistics · Last refreshed** line above the cards shows the local absolute
+date/time (including UTC offset) of the last successful coherent statistics cycle,
+or **Never**. Kodi's regional date/time order is used when available, with a local
+`YYYY-MM-DD HH:MM:SS ±HHMM` fallback. All routes must be accepted and no older
+values retained for the timestamp to advance. A fresh unreported optional field
+is Unknown, not a failed read. Failed routes or actual retention of earlier field
+values are marked partial/stale and do not advance the successful timestamp.
+
+A changed source or accepted backend-version scope cannot reuse earlier
+statistics as fresh values. Complete statistics become stale after the selected
+interval (5 minutes when automatic refresh is disabled), measured monotonically
+from acceptance rather than by wall-clock changes. This is presentation only,
+not a recording/pass eligibility or action-safety check.
+
+**Independently loaded listings (cache)** describes accepted listing scans, not
+the statistics request. Counts and the guide window can differ from server totals.
+Listing-cache, stale-listing-cache and failed-listing-read labels observe the
+existing listing caches; statistics success does not renew them or change their
+cadence. The consolidated statistics timestamp does not date these listings.
+Dashboard has no individual rolling age labels. Other views keep their own refresh
+and safety behavior.
 
 ## Browsing and playback
 

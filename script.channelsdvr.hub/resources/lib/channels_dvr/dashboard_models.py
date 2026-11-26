@@ -110,23 +110,30 @@ class DashboardState:
         self.accepted_version = None
         self.unsupported_version = None
         self.error = False
+        self.partial = False
+        self.last_success = None
+        self.revision = 0
 
     def merge(self, result):
+        self.revision += 1
         self.reported_version = result.version
         self.error = result.error
+        self.partial = False
         if result.unsupported and result.version is not None:
             self.values.clear()
             self.accepted_version = None
             self.unsupported_version = result.version
-            return
+            self.last_success = None
+            return False
         coherent = (result.coherent if result.coherent is not None else
                     any(v is not None for _, v in result.resources))
         if not coherent or not supported_build(result.version):
             # Failed/unknown/drifting observations never retag accepted values.
             self.values = {k: ResourceValue(v.values, v.fetched_at, True) for k, v in self.values.items()}
-            return
+            return False
         if result.version != self.accepted_version:
             self.values.clear()
+            self.last_success = None
         self.accepted_version = result.version
         self.unsupported_version = None
         for name, values in result.resources:
@@ -136,8 +143,15 @@ class DashboardState:
                 retained = any(v is None and prior.get(k) is not None for k, v in values)
                 merged = tuple((k, prior[k] if v is None and prior.get(k) is not None else v) for k, v in values)
                 # Card age conservatively describes its oldest retained value.
-                self.values[name] = ResourceValue(merged, old.fetched_at if retained else result.fetched_at, retained)
+                self.values[name] = ResourceValue(merged, old.fetched_at if retained else result.fetched_at,
+                                                  retained)
             elif values is not None:
+                # Fresh unreported fields are unknown, not retained/failed reads.
                 self.values[name] = ResourceValue(values, result.fetched_at)
             elif old is not None:
                 self.values[name] = ResourceValue(old.values, old.fetched_at, True)
+        self.partial = (result.error or any(values is None for _, values in result.resources)
+                        or any(v.unavailable for v in self.values.values()))
+        if not self.partial:
+            self.last_success = result.fetched_at
+        return True

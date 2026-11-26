@@ -22,6 +22,7 @@
 !/tests/test_artwork_native.py
 !/tests/test_native_playback.py
 !/tests/test_series_manager.py
+!/tests/test_dashboard.py
 !/tools/
 /tools/*
 !/tools/test_offline.py
