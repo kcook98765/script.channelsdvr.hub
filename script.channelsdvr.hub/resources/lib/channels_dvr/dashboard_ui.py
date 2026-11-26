@@ -5,6 +5,8 @@ import re
 from .dashboard_models import DashboardState
 from .dashboard_worker import DashboardWorker
 from .guide import time_label
+from .build_status_ui import current as current_status, fresh as fresh_status
+from .metadata_http import valid_status_sample
 
 
 def refresh_seconds(value):
@@ -48,6 +50,10 @@ class DashboardUI:
         self.admitted = False
         self._summary_scope = None
         self.ready_cards: set[int] = set()
+        self._seen_status = None
+        self._requested_at = None
+        self._verified_after = None
+        self._pending_version = None
 
     def _source(self):
         w = self.window
@@ -55,7 +61,55 @@ class DashboardUI:
         if (w._closed or w._development_blocked is not None or s is None
                 or w._development_config is None or w._guide_runtime._mode is not None):
             return None
-        return (w._development_config, s, s._generation, s.actual_version, s._version_blocked)
+        # Generation, actual_version and block describe listing admission. Stats
+        # have their own serialized, version-bookended read and source token.
+        return (w._development_config, s)
+
+    def _reset(self):
+        self.worker.cancel()
+        self.token = None
+        self.state = DashboardState()
+        self.completed = self.accepted_at = None
+        self._requested_at = self._verified_after = None
+        self._seen_status = self._pending_version = None
+        self.manual = False
+
+    def _observe_version(self):
+        # Reuse the exact current receipt/config/session/settings checks. Neither
+        # a listing block nor a cached actual_version is fresh status evidence.
+        published = self.window._guide_runtime.latest_status
+        if published is None or published is self._seen_status:
+            return False
+        sample = getattr(published[0], 'sample', None)
+        if (sample is not None and valid_status_sample(sample) and not fresh_status(sample)
+                and sample.observed_at <= monotonic()):
+            self._seen_status = published  # expired evidence cannot become fresh
+            return False
+        latest = current_status(self.window)
+        if latest is None:
+            return False  # a still-fresh publication can become eligible later
+        sample = latest[0].sample
+        if not fresh_status(sample):
+            return False
+        self._seen_status = published
+        if self._verified_after is not None and sample.observed_at < self._verified_after:
+            return False  # older than a subsequently admitted stats read
+        version = sample.reported_version
+        known = self.state.accepted_version or self.state.unsupported_version
+        changed = known is not None and version != known
+        if changed:
+            # This is a real contradiction of accepted stats, not listing churn.
+            # An earlier pending failure must not complete/renew this old scope.
+            self.worker.cancel()
+            self.token = self._requested_at = self._pending_version = None
+            self.state = DashboardState()
+            self.completed = self.accepted_at = None
+        if (self.token is not None and self._requested_at is not None
+                and sample.observed_at >= self._requested_at):
+            # Keep an initial/current read through ordinary corroboration. A
+            # contradictory ready/late result must be retried AFTER this proof.
+            self._pending_version = version
+        return changed
 
     def poll(self):
         w = self.window
@@ -64,17 +118,12 @@ class DashboardUI:
         source = self._source()
         changed = False
         if source != self.binding:
-            self.worker.cancel()
-            self.binding, self.token = source, None
-            self.state = DashboardState()
-            self.completed = None
-            self.accepted_at = None
-            self.manual = False
+            self._reset()
+            self.binding = source
             changed = True
         if w.view != 'Dashboard':
             if self.token is not None:
-                self.worker.cancel()
-                self.token = None
+                self.suspend()
             return changed  # no saved-setting/profile lookup on Guide/leaf Info
         admitted = (source is not None and w.get_setting('development_metadata_enabled') is True
                     and w._saved_config() == source[0])
@@ -85,12 +134,10 @@ class DashboardUI:
             if (self.token is not None or self.state.values or self.state.reported_version is not None
                     or self.state.error or self.completed is not None):
                 changed = True
-                self.state = DashboardState()
-            self.worker.cancel()
-            self.token = None
-            self.completed = None
-            self.accepted_at = None
-            self.manual = False
+                self._reset()
+            else:
+                self.worker.cancel()
+                self.manual = False
             return self._changed() or changed
         try:
             self.interval = refresh_seconds(w.get_setting('dashboard_refresh_minutes'))
@@ -98,17 +145,31 @@ class DashboardUI:
             self.interval = 300
         if self._summary_scope is None or self._summary_scope[0] is not source[1]:
             self._summary_scope = (source[1], source[0])
+        changed = self._observe_version() or changed
         result = self.worker.poll()
         if result is not None and self.token is not None and result[0] is self.token:
-            if self.state.merge(result[1]):
-                self.accepted_at = monotonic()
-            self.token = None
-            self.completed = monotonic()
-            self.manual = False
+            item = result[1]
+            positive = item.coherent is True or item.unsupported
+            if positive and self._pending_version is not None and item.version != self._pending_version:
+                # The result predates contradictory current status evidence.
+                # Cancel its token; only a fresh bookended read can replace it.
+                self.worker.cancel()
+                self.state = DashboardState()
+                self.completed = self.accepted_at = None
+            else:
+                if self.state.merge(item):
+                    self.accepted_at = monotonic()
+                if positive:
+                    self._verified_after = self._requested_at
+                self.completed = monotonic()
+                self.manual = False
+            self.token, self._pending_version = None, None
             changed = True
         now = monotonic()
         if self.token is None and (self.completed is None or self.manual
                 or (self.interval and now >= self.completed + self.interval)):
+            self._requested_at = now
+            self._pending_version = None
             self.token = self.worker.request(source[0])
         return self._changed() or changed
 
@@ -133,6 +194,7 @@ class DashboardUI:
     def suspend(self):
         self.worker.cancel()
         self.token = None
+        self._requested_at = self._pending_version = None
 
     def close(self):
         self.worker.close()

@@ -16,7 +16,11 @@ from channels_dvr.dashboard_http import DashboardResult, DashboardStatusReadClie
 from channels_dvr.dashboard_models import DashboardState, ResourceSummary, parse_resource
 from channels_dvr.dashboard_ui import DashboardUI, format_timestamp, refresh_seconds
 from channels_dvr.dashboard_worker import DashboardWorker
-from channels_dvr.live_loader import DevelopmentConfig
+from channels_dvr.build_status_ui import current as bound_status
+from channels_dvr.live_loader import DevelopmentConfig, LoadResult, MetadataSubmission, StatusObservation
+from channels_dvr.metadata_http import ChannelsMetadataClient, MetadataError, status_sample
+from channels_dvr.metadata_models import MetadataBatch
+from channels_dvr.metadata_repository import DevelopmentSnapshot
 from channels_dvr.live_session import LiveDataSession
 from channels_dvr.normalization import DataResult, DataState
 from channels_dvr.ui_chrome import WindowChrome
@@ -82,7 +86,7 @@ class Window:
         self._closed = False
         self._development_blocked = None
         self._development_config = CONFIG
-        self._guide_runtime = SimpleNamespace(_mode=None, incarnation=object())
+        self._guide_runtime = SimpleNamespace(_mode=None, incarnation=object(), latest_status=None)
         self._live_session = SimpleNamespace(_generation=1, actual_version=VERSION,
             _version_blocked=False, summaries={}, incarnation=object(),
             summary_health=Mock(return_value=(False, False)))
@@ -290,7 +294,8 @@ class DashboardRenderTests(DashboardFixture):
     def test_direct_render_revokes_source_timestamp_before_next_poll(self):
         old_line = self.ui.status_line()
         self.assertNotIn('Never', old_line)
-        self.w._live_session._generation += 1
+        self.w._live_session = SimpleNamespace(_generation=1, actual_version=VERSION,
+            _version_blocked=False, summaries={}, incarnation=object())
         self.w.render()
         self.assertIn('Never', self.w.labels[116])
         self.assertEqual(self.w.labels[112], self.w.t('connection_prompt'))
@@ -488,10 +493,8 @@ class DashboardScheduleTests(DashboardFixture):
 
     def test_source_and_opt_in_changes_revoke_values_and_old_tokens(self):
         for mutate in (
-            lambda: setattr(self.w._live_session, '_generation', 2),
             lambda: setattr(self.w, '_live_session', SimpleNamespace(_generation=1,
                 actual_version=VERSION, _version_blocked=False, summaries={}, incarnation=object())),
-            lambda: setattr(self.w._live_session, 'actual_version', '2026.08.08.0000'),
             lambda: setattr(self.w, 'saved', DevelopmentConfig('http://192.0.2.11:8089')),
             lambda: self.w.settings.update(development_metadata_enabled=False),
             lambda: setattr(self.w._guide_runtime, '_mode', ('no_connection', None)),
@@ -529,6 +532,472 @@ class DashboardScheduleTests(DashboardFixture):
             for _ in range(20):
                 self.assertFalse(self.ui.poll())
             translate.assert_not_called()
+
+
+class DashboardStartupTests(unittest.TestCase):
+    def setUp(self):
+        self.now = 10.0
+        for target in ('channels_dvr.dashboard_ui.monotonic', 'channels_dvr.build_status_ui.monotonic'):
+            clock = patch(target, lambda: self.now)
+            clock.start()
+            self.addCleanup(clock.stop)
+
+    def window(self, minutes='1'):
+        w = Window()
+        w.settings['dashboard_refresh_minutes'] = minutes
+        w._live_session.actual_version = None
+        return w, w._dashboard_ui
+
+    def metadata(self, w, transition):
+        if transition == 'corroboration':
+            w._live_session.actual_version = VERSION
+        elif transition == 'block':
+            w._live_session._version_blocked = True
+        elif transition == 'generation':
+            w._live_session._generation += 1
+        else:
+            self.fail('Unknown fake metadata transition')
+
+    def complete(self, ui, item=None):
+        ui.worker.result = (ui.token, item or result())
+        return ui.poll()
+
+    def status(self, w, version=VERSION, *, observed_at=None):
+        # Mint real sealed HTTP status evidence through an inert opener. Raw
+        # session actual_version, a lookalike DTO or old receipt is not proof.
+        client = ChannelsMetadataClient(CONFIG.origin, namespace=CONFIG.namespace,
+            expected_version=VERSION, opener=SimpleNamespace(open=lambda *a, **k: Response({'version': version})))
+        with patch('channels_dvr.metadata_http.time.monotonic',
+                   lambda: self.now if observed_at is None else observed_at):
+            try:
+                client.verify_status()
+            except MetadataError:
+                pass  # A strict HTTP200 status sample can prove an unsupported build.
+        sample = status_sample(client)
+        self.assertIsNotNone(sample)
+        w.settings['ShowDeveloperTools'] = False
+        w.transient_demo_mode = False
+        w._live_session.loading = False
+        receipt = MetadataSubmission(1, w._live_session._generation, w._live_session.incarnation, object(), 0)
+        w._current_status_receipt = receipt
+        w._metadata_loader = SimpleNamespace(current_status_receipt=lambda r:
+            r is w._current_status_receipt and r.owner is w._live_session.incarnation
+            and r.metadata_generation == w._live_session._generation)
+        runtime = w._guide_runtime
+        runtime._request = None
+        context = SimpleNamespace(saved_connect=True, saved_developer=False,
+            session=w._live_session, config=w._development_config, view=w.view)
+        runtime._same_context = lambda c: (c is context and c.session is w._live_session
+            and c.config is w._development_config and c.view == w.view)
+        observation = StatusObservation(CONFIG, receipt, 1000, 4, sample)
+        runtime.latest_status = (observation, context)
+        return observation, context
+
+    def test_metadata_after_first_cycle_does_not_rearm_initial(self):
+        for minutes, gap in (('1', 5.131), ('0', 0.734)):
+            for transition in ('corroboration', 'block', 'generation'):
+                with self.subTest(minutes=minutes, transition=transition):
+                    self.now = 10.0
+                    w, ui = self.window(minutes)
+                    self.assertTrue(ui.poll())
+                    self.complete(ui)
+                    w.render()
+                    state, completed, accepted = ui.state, ui.completed, ui.accepted_at
+                    cancels = ui.worker.cancels
+                    self.now += gap
+                    self.metadata(w, transition)
+                    ui.poll()
+                    self.assertEqual(len(ui.worker.requests), 1, 'Metadata-only startup change caused duplicate cycle')
+                    self.assertIs(ui.state, state)
+                    self.assertEqual((ui.completed, ui.accepted_at), (completed, accepted))
+                    self.assertEqual(ui.worker.cancels, cancels)
+                    self.assertEqual(ui.state.last_success, 1000)
+                    self.now = 69.999
+                    ui.poll()
+                    self.assertEqual(len(ui.worker.requests), 1)
+                    self.now = 70.0 if minutes == '1' else 1000.0
+                    ui.poll()
+                    self.assertEqual(len(ui.worker.requests), 2 if minutes == '1' else 1)
+
+    def test_metadata_before_initial_read_still_allows_immediate_stats(self):
+        for minutes in ('1', '0'):
+            for transition in ('corroboration', 'block', 'generation'):
+                with self.subTest(minutes=minutes, transition=transition):
+                    w, ui = self.window(minutes)
+                    self.metadata(w, transition)
+                    self.status(w)
+                    ui.poll()
+                    self.assertEqual(len(ui.worker.requests), 1)
+                    self.complete(ui)
+                    self.assertEqual(ui.state.last_success, 1000)
+                    self.assertEqual(len(ui.worker.requests), 1)
+
+    def test_actual_metadata_apply_corroboration_or_block_does_not_restart_stats(self):
+        for minutes in ('1', '0'):
+            for blocked in (False, True):
+                with self.subTest(minutes=minutes, blocked=blocked):
+                    self.now = 10
+                    w, ui = self.window(minutes)
+                    session = LiveDataSession(CONFIG.namespace, VERSION, clock=lambda: 1000)
+                    session.begin(1, 1000, guide_windows=1)
+                    w._live_session = session
+                    ui.poll()
+                    self.complete(ui)
+                    state = ui.state
+                    batch = MetadataBatch((), DataState.OUTAGE if blocked else DataState.EMPTY)
+                    empty = MetadataBatch((), DataState.EMPTY)
+                    snapshot = DevelopmentSnapshot(CONFIG.namespace, VERSION, 1000, (1000, 2800),
+                                                   batch, batch, empty, empty)
+                    self.now += 0.734 if minutes == '0' else 5.131
+                    self.assertTrue(session.apply(LoadResult(1, 1000, 1, snapshot, None)))
+                    self.assertEqual(session._version_blocked, blocked)
+                    self.assertEqual(session.actual_version, None if blocked else VERSION)
+                    ui.poll()
+                    self.assertIs(ui.state, state)
+                    self.assertEqual(ui.state.last_success, 1000)
+                    self.assertEqual(ui.completed, 10)
+                    self.assertEqual(len(ui.worker.requests), 1)
+
+    def test_metadata_during_first_read_preserves_pending_or_ready_token(self):
+        for minutes in ('1', '0'):
+            for transition in ('corroboration', 'block', 'generation'):
+                for ready in (False, True):
+                    with self.subTest(minutes=minutes, transition=transition, ready=ready):
+                        self.now = 10
+                        w, ui = self.window(minutes)
+                        ui.poll()
+                        token, cancels = ui.token, ui.worker.cancels
+                        self.now = 11
+                        self.metadata(w, transition)
+                        self.status(w)
+                        if ready:
+                            ui.worker.result = (token, result())
+                        ui.poll()
+                        self.assertEqual(len(ui.worker.requests), 1)
+                        self.assertEqual(ui.worker.cancels, cancels)
+                        if not ready:
+                            self.assertIs(ui.token, token)
+                            self.complete(ui)
+                        self.assertEqual(ui.state.last_success, 1000)
+                        self.assertEqual(ui.completed, 11)
+
+    def test_failed_and_partial_initial_attempts_keep_cadence_through_listing_block(self):
+        for minutes in ('1', '0'):
+            for item in (result(coherent=False, error=True),
+                         result(resources=(('server', dict(result().resources)['server']), ('dvr', None)), error=True)):
+                with self.subTest(minutes=minutes, coherent=item.coherent):
+                    self.now = 10
+                    w, ui = self.window(minutes)
+                    ui.poll()
+                    self.complete(ui, item)
+                    state = ui.state
+                    self.now = 15
+                    self.metadata(w, 'block')
+                    self.status(w)
+                    ui.poll()
+                    self.assertIs(ui.state, state)
+                    self.assertEqual(ui.completed, 10)
+                    self.assertIsNone(ui.state.last_success)
+                    self.assertEqual(len(ui.worker.requests), 1)
+
+    def test_manual_during_and_after_initial_read_does_not_create_extra_requests(self):
+        for minutes in ('1', '0'):
+            with self.subTest(minutes=minutes):
+                w, ui = self.window(minutes)
+                ui.refresh()  # manual intent before the first owner poll
+                ui.poll()
+                token = ui.token
+                self.metadata(w, 'block')
+                self.status(w)
+                for _ in range(3):
+                    ui.refresh()
+                    ui.poll()
+                    self.assertIs(ui.token, token)
+                self.complete(ui)
+                ui.refresh()
+                ui.poll()
+                self.assertEqual(len(ui.worker.requests), 2)
+                token = ui.token
+                self.metadata(w, 'corroboration')
+                ui.refresh()
+                ui.poll()
+                self.assertIs(ui.token, token)
+                self.complete(ui, result(at=1001))
+                self.assertEqual(len(ui.worker.requests), 2)
+                self.assertEqual(ui.state.last_success, 1001)
+
+    def test_listing_generation_block_and_cached_version_are_not_stats_authority(self):
+        w, ui = self.window('0')
+        ui.poll()
+        self.complete(ui)
+        state = ui.state
+        for version, blocked in ((None, True), (VERSION, False), ('2026.08.08.0000', True)):
+            w._live_session._generation += 1
+            w._live_session.actual_version = version
+            w._live_session._version_blocked = blocked
+            ui.poll()
+            self.assertIs(ui.state, state)
+            self.assertEqual(len(ui.worker.requests), 1)
+        self.assertEqual(ui.state.accepted_version, VERSION)
+
+    def test_fresh_different_status_revokes_values_without_stale_listing_version_loop(self):
+        w, ui = self.window('0')
+        ui.poll()
+        self.complete(ui)
+        w._live_session.actual_version = VERSION
+        self.now += 5
+        newer = '2026.08.08.0000'
+        self.status(w, newer)
+        self.assertTrue(ui.poll())
+        self.assertEqual(ui.state.values, {})
+        self.assertIsNone(ui.state.last_success)
+        self.assertEqual(len(ui.worker.requests), 2)
+        self.complete(ui, result(version=newer, at=1100))
+        self.assertEqual(ui.state.accepted_version, newer)
+        for _ in range(20):
+            self.assertFalse(ui.poll())
+        self.assertEqual(len(ui.worker.requests), 2)
+        self.assertEqual(w._live_session.actual_version, VERSION)
+
+    def test_positive_status_fences_ready_old_result_before_and_during_initialization(self):
+        newer = '2026.08.08.0000'
+        for already_accepted in (False, True):
+            with self.subTest(already_accepted=already_accepted):
+                self.now = 10
+                w, ui = self.window('0')
+                ui.poll()
+                if already_accepted:
+                    self.complete(ui)
+                    ui.refresh()
+                    ui.poll()
+                token = ui.token
+                self.now = 12
+                self.status(w, newer)
+                ui.worker.result = (token, result(files=999))
+                ui.poll()
+                self.assertIsNot(ui.token, token)
+                self.assertEqual(ui.state.values, {})
+                self.assertIsNone(ui.state.last_success)
+                current = ui.token
+                ui.worker.result = (token, result(files=999))  # late/cancelled replay
+                ui.poll()
+                self.assertIs(ui.token, current)
+                self.assertEqual(ui.state.values, {})
+                self.complete(ui, result(version=newer, at=1100, files=3))
+                self.assertEqual(ui.state.accepted_version, newer)
+
+    def test_different_status_cancels_known_old_scope_before_new_verification(self):
+        w, ui = self.window('0')
+        ui.poll()
+        self.complete(ui)
+        ui.refresh()
+        ui.poll()
+        token, count = ui.token, len(ui.worker.requests)
+        self.now += 1
+        newer = '2026.08.08.0000'
+        self.status(w, newer)
+        ui.poll()
+        self.assertEqual(ui.state.values, {})
+        self.assertIsNot(ui.token, token)
+        self.assertEqual(len(ui.worker.requests), count + 1)
+        current = ui.token
+        ui.worker.result = (token, result(version=newer, at=1100))
+        ui.poll()
+        self.assertIs(ui.token, current)
+        self.assertIsNone(ui.state.last_success)
+        self.complete(ui, result(version=newer, at=1100))
+        self.assertEqual(len(ui.worker.requests), count + 1)
+        self.assertEqual(ui.state.last_success, 1100)
+
+    def test_contradicted_pending_failure_cannot_suppress_verification_even_disabled(self):
+        for minutes in ('1', '0'):
+            with self.subTest(minutes=minutes):
+                self.now = 10
+                w, ui = self.window(minutes)
+                ui.poll()
+                self.complete(ui)
+                ui.refresh()
+                ui.poll()
+                old = ui.token
+                self.now = 15
+                newer = '2026.08.08.0000'
+                self.status(w, newer)
+                ui.worker.result = (old, result(coherent=False, error=True))
+                ui.poll()
+                self.assertEqual(len(ui.worker.requests), 3)
+                self.assertIsNot(ui.token, old)
+                self.assertIsNone(ui.completed)
+                self.assertIsNone(ui.state.last_success)
+                token = ui.token
+                ui.worker.result = (old, result(coherent=False, error=True))
+                ui.poll()
+                self.assertIs(ui.token, token)
+                self.assertIsNone(ui.completed)
+                self.complete(ui, result(version=newer, at=1100))
+                self.assertEqual(ui.state.last_success, 1100)
+
+    def test_processed_and_expired_publication_skip_full_trust_checks_on_idle(self):
+        for expired in (False, True):
+            with self.subTest(expired=expired):
+                self.now = 100
+                w, ui = self.window('0')
+                ui.poll()
+                self.complete(ui)
+                self.status(w, observed_at=0 if expired else 100)
+                with patch('channels_dvr.dashboard_ui.current_status',
+                           wraps=bound_status) as current:
+                    ui.poll()
+                    calls = current.call_count
+                    for _ in range(20):
+                        self.now += 0.05
+                        ui.poll()
+                    self.assertEqual(current.call_count, calls)
+                    self.assertEqual(calls, 0 if expired else 1)
+                self.assertEqual(len(ui.worker.requests), 1)
+
+    def test_untrusted_fresh_publication_can_become_eligible_on_later_poll(self):
+        w, ui = self.window('0')
+        ui.poll()
+        self.complete(ui)
+        self.now += 1
+        self.status(w, '2026.08.08.0000')
+        w._live_session.loading = True
+        ui.poll()
+        self.assertEqual(len(ui.worker.requests), 1)
+        self.assertEqual(ui.state.accepted_version, VERSION)
+        w._live_session.loading = False
+        ui.poll()
+        self.assertEqual(len(ui.worker.requests), 2)
+        self.assertEqual(ui.state.values, {})
+
+    def test_unsupported_status_and_own_unsupported_result_remain_fail_closed(self):
+        w, ui = self.window('0')
+        ui.poll()
+        self.complete(ui)
+        self.now += 1
+        unsupported = '2020.01.01.0000'
+        self.status(w, unsupported)
+        ui.poll()
+        self.assertFalse(ui.state.values)
+        self.assertIsNone(ui.state.last_success)
+        self.complete(ui, result(version=unsupported, coherent=False, unsupported=True, error=True))
+        self.assertEqual(ui.state.unsupported_version, unsupported)
+        self.assertEqual(len(ui.worker.requests), 2)
+        self.now += 1000
+        ui.poll()
+        self.assertEqual(len(ui.worker.requests), 2)
+        ui.refresh()
+        ui.poll()
+        self.complete(ui, result(at=1200))
+        self.assertEqual(ui.state.last_success, 1200)
+
+    def test_unknown_or_incoherent_stats_result_cannot_advance_success(self):
+        w, ui = self.window('0')
+        ui.poll()
+        token = ui.token
+        self.now += 1
+        self.metadata(w, 'block')
+        self.status(w)
+        ui.worker.result = (token, result(version=None, coherent=False, error=True))
+        ui.poll()
+        self.assertIsNone(ui.state.last_success)
+        self.assertIsNone(ui.state.accepted_version)
+        self.assertIn('Refresh failed', ui.status_line())
+        self.assertEqual(len(ui.worker.requests), 1)
+
+    def test_unsealed_expired_wrong_config_and_cancelled_status_proofs_are_ignored(self):
+        for rejected in ('unsealed', 'expired', 'old-generation', 'wrong-config', 'cancelled'):
+            with self.subTest(rejected=rejected):
+                self.now = 100
+                w, ui = self.window('0')
+                ui.poll()
+                self.complete(ui)
+                state = ui.state
+                observation, context = self.status(w, '2020.01.01.0000',
+                    observed_at=0 if rejected == 'expired' else 100)
+                if rejected == 'unsealed':
+                    observation = replace(observation, sample=replace(observation.sample, _seal=object()))
+                elif rejected == 'old-generation':
+                    w._live_session._generation += 1
+                elif rejected == 'wrong-config':
+                    observation = replace(observation, config=DevelopmentConfig('http://192.0.2.11:8089'))
+                elif rejected == 'cancelled':
+                    w._current_status_receipt = None
+                w._guide_runtime.latest_status = (observation, context)
+                ui.poll()
+                self.assertIs(ui.state, state)
+                self.assertEqual(len(ui.worker.requests), 1)
+
+    def test_delayed_status_older_than_subsequent_stats_read_is_not_a_capability(self):
+        self.now = 100
+        w, ui = self.window('0')
+        ui.poll()
+        self.complete(ui)
+        state = ui.state
+        self.now = 101
+        self.status(w, '2020.01.01.0000', observed_at=99)  # still fresh, but superseded
+        ui.poll()
+        self.assertIs(ui.state, state)
+        self.assertEqual(len(ui.worker.requests), 1)
+
+    def test_source_or_config_change_cancels_old_result_even_with_metadata_proof(self):
+        for change in ('config', 'session'):
+            with self.subTest(change=change):
+                w, ui = self.window('0')
+                ui.poll()
+                token = ui.token
+                self.status(w)
+                if change == 'config':
+                    w._development_config = w.saved = DevelopmentConfig('http://192.0.2.11:8089')
+                else:
+                    w._live_session = SimpleNamespace(_generation=1, actual_version=VERSION,
+                        _version_blocked=False, summaries={}, incarnation=object(), loading=False)
+                ui.worker.result = (token, result(files=999))
+                ui.poll()
+                self.assertIsNot(ui.token, token)
+                self.assertFalse(ui.state.values)
+                self.assertIsNone(ui.state.last_success)
+
+    def test_navigation_metadata_changes_preserve_due_time_and_disabled_state(self):
+        for minutes in ('1', '0'):
+            with self.subTest(minutes=minutes):
+                self.now = 10
+                w, ui = self.window(minutes)
+                ui.poll()
+                self.complete(ui)
+                w.render()
+                state = ui.state
+                w.view = 'Guide'
+                self.now = 80
+                self.metadata(w, 'generation')
+                self.metadata(w, 'block')
+                w.setting_reads.clear()
+                ui.poll()
+                self.assertEqual(w.setting_reads, [])
+                with patch.object(w, 'render'):
+                    w._chrome.back(content=False)
+                ui.poll()
+                self.assertIs(ui.state, state)
+                self.assertEqual(ui.state.last_success, 1000)
+                self.assertEqual(len(ui.worker.requests), 2 if minutes == '1' else 1)
+
+    def test_listing_provenance_still_rejects_blocked_and_wrong_version_summaries(self):
+        w, ui = self.window('0')
+        ui.poll()
+        self.complete(ui)
+        summary = ResourceSummary(CONFIG.namespace, VERSION, (1000, 2000), 1000, 123, ())
+        w._live_session.summaries['channels'] = summary
+        self.assertTrue(ui.poll())
+        self.assertIn('123', ui.cards()[4])
+        self.metadata(w, 'block')
+        self.assertTrue(ui.poll())
+        self.assertNotIn('123', ui.cards()[4])
+        self.assertEqual(ui.state.last_success, 1000)
+        w._live_session._version_blocked = False
+        w._live_session.summaries['channels'] = replace(summary, version='2026.08.08.0000')
+        ui.poll()
+        self.assertNotIn('123', ui.cards()[4])
+        self.assertEqual(len(ui.worker.requests), 1)
 
 
 class DashboardStateTests(unittest.TestCase):
