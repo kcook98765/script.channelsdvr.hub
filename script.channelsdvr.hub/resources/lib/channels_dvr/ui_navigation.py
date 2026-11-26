@@ -22,10 +22,12 @@ def execute_command(w, gui, selected, *, origin=100):
         w.close()
         return
     if selected.startswith('view.'):
-        w._dashboard_ui.suspend()
-        w.view = {'view.dashboard': 'Dashboard', 'view.guide': 'Guide', 'view.recordings': 'Recordings',
+        target = {'view.dashboard': 'Dashboard', 'view.guide': 'Guide', 'view.recordings': 'Recordings',
                   'view.scheduled': 'Scheduled', 'view.search': 'Search'}[selected]
-        w._guide_runtime.invalidate_view()
+        if target != w.view or target != 'Dashboard':
+            w._dashboard_ui.suspend()
+            w.view = target
+            w._guide_runtime.invalidate_view()
     elif selected == 'window.actions':
         main_menu(w, gui)
         return

@@ -40,7 +40,7 @@ from .ui_browse_navigation import recording_tools, search_menu, time_navigation
 from .ui_status import STATUS_KEYS
 from .artwork_ui import ArtworkUI, show_media_details
 from .playback_ui import PlaybackUI
-from .dashboard_ui import DashboardUI
+from .dashboard_ui import DashboardUI, format_timestamp
 from .ui_chrome import WindowChrome
 
 
@@ -104,7 +104,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._guide_runtime = GuideRuntime(self)
         self._artwork_ui = ArtworkUI(self)
         self._playback_ui = PlaybackUI(self)
-        self._dashboard_ui = DashboardUI(self)
+        self._dashboard_ui = DashboardUI(self, timestamp=self._dashboard_timestamp)
         self._chrome = WindowChrome(self)
 
     def onInit(self):
@@ -228,7 +228,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self.render()
 
     def get_setting(self, key: str) -> str | bool:
-        if key not in ("server_origin", "server_expected_version", "development_metadata_enabled", "ShowDeveloperTools"):
+        if key not in ("server_origin", "server_expected_version", "development_metadata_enabled", "ShowDeveloperTools", "dashboard_refresh_minutes"):
             raise ValueError("Unknown owned setting")
         if self._addon is None:
             return False if key in ("development_metadata_enabled", "ShowDeveloperTools") else ""
@@ -236,6 +236,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
             return self._addon.getSettingBool(key)
         if key == "server_origin":
             return self._addon.getSettingString("server_origin")
+        if key == "dashboard_refresh_minutes":
+            return self._addon.getSettingString("dashboard_refresh_minutes")
         return self._addon.getSettingString("server_expected_version")
 
     def t(self, key: str, **values: object) -> str:
@@ -244,6 +246,10 @@ class ChannelsWindow(xbmcgui.WindowXML):
     @staticmethod
     def utc_now() -> int:
         return int(time())
+
+    @staticmethod
+    def _dashboard_timestamp(stamp):
+        return format_timestamp(stamp, getattr(xbmc, 'getRegion', None))
 
     def developer_enabled(self) -> bool:
         try:
@@ -282,13 +288,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
             origin = self.get_setting("server_origin")
             if type(origin) is not str:
                 return None
-            # Legacy persisted per-build pins are ignored, never rewritten.
-            config = DevelopmentConfig(origin, expected_version=BASE_MINIMUM_DVR_BUILD)
-            # Only origins produced by the numeric-IP configuration UI are used.
-            host = self._config_host(config)
-            if DevelopmentConfig.from_host(host).origin != config.origin:
-                return None
-            return config
+            # Both entry points accept the same forms. Normalize in memory only;
+            # legacy persisted per-build pins remain ignored, never rewritten.
+            return DevelopmentConfig.from_address(origin)
         except (MetadataError, ValueError, RuntimeError, AttributeError, TypeError):
             return None
 
@@ -300,15 +302,15 @@ class ChannelsWindow(xbmcgui.WindowXML):
     def _configure_development(self) -> None:
         config = self._saved_config()
         try:
-            host = xbmcgui.Dialog().numeric(3, self.t('address_ip'),
-                                           defaultt=self._config_host(config) if config else "0.0.0.0")
+            host = xbmcgui.Dialog().input(self.t('address_ip'),
+                                         defaultt=self._config_host(config) if config else "")
         except (RuntimeError, AttributeError, TypeError, ValueError):
             xbmcgui.Dialog().ok(self.t('connection'), self.t('address_dialog_failed'))
             return
         if not host or self._addon is None:
             return
         try:
-            address = DevelopmentConfig.from_host(host)
+            address = DevelopmentConfig.from_address(host)
             config = DevelopmentConfig(address.origin, config.namespace if config else address.namespace,
                                        BASE_MINIMUM_DVR_BUILD)
         except MetadataError:
@@ -515,6 +517,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
         if self.view == 'Dashboard':
             self._dashboard_ui.render()
             return
+        self._label(116, '')
         data = self._current_data()
         view_label = self.t(VIEW_KEYS[self.view])
         if self.demo_allowed():

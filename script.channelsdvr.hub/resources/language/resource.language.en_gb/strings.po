@@ -10,11 +10,11 @@ msgid "Connection"
 msgstr ""
 
 msgctxt "#30001"
-msgid "DVR address"
+msgid "DVR IP address"
 msgstr ""
 
 msgctxt "#30002"
-msgid "Enter only the approved development DVR address, without credentials or a path. Leave blank until configured."
+msgid "Enter a numeric DVR IP (e.g. 192.0.2.10) or http://IP:8089. Uses HTTP port 8089. Hostnames, HTTPS, other ports, credentials and paths are unsupported."
 msgstr ""
 
 msgctxt "#30003"
@@ -26,11 +26,11 @@ msgid "DVR versions 2026.08.07.0346 and newer are accepted. The minimum is fixed
 msgstr ""
 
 msgctxt "#30005"
-msgid "Connect when the guide opens"
+msgid "Connect automatically when Hub opens"
 msgstr ""
 
 msgctxt "#30006"
-msgid "Load listings from the configured DVR when the guide opens. Turning this off leaves the guide disconnected. Scheduling and pass changes always need separate confirmation; existing DVR rules keep running."
+msgid "Load listings from the configured DVR when Hub opens. Connection > Connect also turns this on. Turning this off leaves Hub disconnected. Scheduling and pass changes always need separate confirmation; existing DVR rules keep running."
 msgstr ""
 
 #. Developer visibility is not a backend permission.
@@ -135,7 +135,7 @@ msgid "Connect to your DVR first."
 msgstr ""
 
 msgctxt "#30128"
-msgid "Configure an approved DVR address, then choose Connect."
+msgid "In Settings or Connection > Configure DVR address, set a numeric IP, then Connect. Uses HTTP port 8089; no hostnames."
 msgstr ""
 
 msgctxt "#30129"
@@ -1286,7 +1286,7 @@ msgid "The address dialog could not be opened."
 msgstr ""
 
 msgctxt "#30445"
-msgid "Enter a valid IP address."
+msgid "Use a numeric IP or http://IP:8089. Hostnames, HTTPS, other ports and paths are unsupported."
 msgstr ""
 
 msgctxt "#30446"
@@ -1954,23 +1954,23 @@ msgid "Actions"
 msgstr ""
 
 msgctxt "#30903"
-msgid "DVR server\nVersion: {version}\nOS / architecture: {os} / {arch}\nServer running time: {running}\n{age}"
+msgid "DVR server\nVersion: {version}\nOS / architecture: {os} / {arch}\nServer running time: {running}\n{status}"
 msgstr ""
 
 msgctxt "#30904"
-msgid "DVR reported · Enabled: {enabled} · Busy: {busy}\nFiles: {files} · Total: {total} · Jobs: {jobs}\nRules: {rules} · Groups: {groups}\nStorage used: {storage}%\n{age}"
+msgid "DVR reported · Enabled: {enabled} · Busy: {busy}\nFiles: {files} · Total: {total} · Jobs: {jobs}\nRules: {rules} · Groups: {groups}\nStorage used: {storage}%\n{status}"
 msgstr ""
 
 msgctxt "#30905"
-msgid "Sources: {sources}\nReported tuners: {tuners}\nReporting sources: {reporting} · Unknown: {unknown}\nAvailability is unknown\n{age}"
+msgid "Sources: {sources}\nReported tuners: {tuners}\nReporting sources: {reporting} · Unknown: {unknown}\nAvailability is unknown\n{status}"
 msgstr ""
 
 msgctxt "#30906"
-msgid "Pass list: {total}\nPaused: {paused} · Active: {active}\nPause state unknown: {unknown}\nIncludes advanced passes\n{age}"
+msgid "Pass list: {total}\nPaused: {paused} · Active: {active}\nPause state unknown: {unknown}\nIncludes advanced passes\n{status}"
 msgstr ""
 
 msgctxt "#30907"
-msgid "Channels: {channels} · Hidden: {hidden}\nGuide programmes: {events}\nWindow: {start}\nUntil: {end}\nRecordings loaded (complete scan): {recordings}"
+msgid "Independently loaded listings (cache)\nChannels: {channels} · Hidden: {hidden}\nGuide programmes: {events}\nWindow: {start} — {end}\nRecordings (complete scan): {recordings}"
 msgstr ""
 
 msgctxt "#30908"
@@ -2002,7 +2002,7 @@ msgid "Play recording"
 msgstr ""
 
 msgctxt "#30915"
-msgid "Reported activity\nStreams: {streams} · Recordings: {recordings}\nWorkers: {workers} · Other: {other}\nNot a free-tuner check\n{age}"
+msgid "Reported activity\nStreams: {streams} · Recordings: {recordings}\nWorkers: {workers} · Other: {other}\nNot a free-tuner check\n{status}"
 msgstr ""
 
 msgctxt "#30916"
@@ -2011,4 +2011,96 @@ msgstr ""
 
 msgctxt "#30917"
 msgid "{days}d {hours}h {minutes}m {seconds}s"
+msgstr ""
+
+msgctxt "#30918"
+msgid "Automatic statistics refresh"
+msgstr ""
+
+msgctxt "#30919"
+msgid "Refresh statistics on Dashboard only. Initial/manual reads work when disabled. Listings and connection permission are unchanged."
+msgstr ""
+
+msgctxt "#30920"
+msgid "Disabled"
+msgstr ""
+
+msgctxt "#30921"
+msgid "1 minute"
+msgstr ""
+
+msgctxt "#30922"
+msgid "2 minutes"
+msgstr ""
+
+msgctxt "#30923"
+msgid "5 minutes"
+msgstr ""
+
+msgctxt "#30924"
+msgid "10 minutes"
+msgstr ""
+
+msgctxt "#30925"
+msgid "15 minutes"
+msgstr ""
+
+msgctxt "#30926"
+msgid "30 minutes"
+msgstr ""
+
+msgctxt "#30927"
+msgid "Refresh statistics"
+msgstr ""
+
+msgctxt "#30928"
+msgid "Statistics · Last refreshed: {timestamp} · {status}"
+msgstr ""
+
+msgctxt "#30929"
+msgid "Never"
+msgstr ""
+
+msgctxt "#30930"
+msgid "Unavailable / unknown"
+msgstr ""
+
+msgctxt "#30931"
+msgid "Refreshing; displayed values retained"
+msgstr ""
+
+msgctxt "#30932"
+msgid "Partial / stale; retained or unavailable values"
+msgstr ""
+
+msgctxt "#30933"
+msgid "Refresh failed; previous values stale or unavailable"
+msgstr ""
+
+msgctxt "#30934"
+msgid "Stale"
+msgstr ""
+
+msgctxt "#30935"
+msgid "Complete"
+msgstr ""
+
+msgctxt "#30936"
+msgid "Partial / stale: retained or unavailable fields"
+msgstr ""
+
+msgctxt "#30937"
+msgid "{count} ({status})"
+msgstr ""
+
+msgctxt "#30938"
+msgid "listing cache"
+msgstr ""
+
+msgctxt "#30939"
+msgid "stale listing cache"
+msgstr ""
+
+msgctxt "#30940"
+msgid "stale listing cache; read failed"
 msgstr ""

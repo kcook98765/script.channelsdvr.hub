@@ -4,7 +4,7 @@
 | --- | --- |
 | Name | Channels DVR Hub |
 | Kodi add-on ID and package folder | `script.channelsdvr.hub` |
-| Version | `0.1.0` pre-release |
+| Version | `0.1.3` unpublished ALPHA candidate |
 | Target | Kodi 21 / Omega |
 | Entry | Program script, `default.py` |
 | Python namespace | `channels_dvr` |
@@ -13,7 +13,8 @@
 The repository name is distinct from the Python namespace and backend brand.
 Channels DVR remains the backend's name; Hub is the unofficial Kodi client.
 Repository publication does not imply an installed add-on, a packaged release or
-native acceptance. Hub has not yet been installed or natively accepted.
+native acceptance. This combined 0.1.3 candidate is not natively accepted.
+Historical Hub, 0.1.3~issue4 and EPG observations do not establish its acceptance.
 
 ## Separate Kodi profile
 

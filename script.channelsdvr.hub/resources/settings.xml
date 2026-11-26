@@ -29,5 +29,25 @@
         </setting>
       </group>
     </category>
+    <category id="dashboard" label="30900">
+      <group id="1">
+        <setting id="dashboard_refresh_minutes" type="string" label="30918" help="30919">
+          <level>0</level>
+          <default>5</default>
+          <constraints>
+            <options>
+              <option label="30920">0</option>
+              <option label="30921">1</option>
+              <option label="30922">2</option>
+              <option label="30923">5</option>
+              <option label="30924">10</option>
+              <option label="30925">15</option>
+              <option label="30926">30</option>
+            </options>
+          </constraints>
+          <control type="spinner" format="string"/>
+        </setting>
+      </group>
+    </category>
   </section>
 </settings>
