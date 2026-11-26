@@ -2104,3 +2104,31 @@ msgstr ""
 msgctxt "#30940"
 msgid "stale listing cache; read failed"
 msgstr ""
+
+msgctxt "#30941"
+msgid "DVR server\nVersion: {version}\nOS / architecture: {os} / {arch}"
+msgstr ""
+
+msgctxt "#30942"
+msgid "DVR reported · Enabled: {enabled} · Busy: {busy}\nFiles: {files} · Total: {total} · Jobs: {jobs}\nRules: {rules} · Groups: {groups}\nStorage used: {storage}%"
+msgstr ""
+
+msgctxt "#30943"
+msgid "Sources: {sources}\nReported tuners: {tuners}\nReporting sources: {reporting} · Unknown: {unknown}\nAvailability is unknown"
+msgstr ""
+
+msgctxt "#30944"
+msgid "Pass list: {total}\nPaused: {paused} · Active: {active}\nPause state unknown: {unknown}\nIncludes advanced passes"
+msgstr ""
+
+msgctxt "#30945"
+msgid "Reported activity\nStreams: {streams} · Recordings: {recordings}\nWorkers: {workers} · Other: {other}\nNot a free-tuner check"
+msgstr ""
+
+msgctxt "#30946"
+msgid "Last updated: {timestamp}"
+msgstr ""
+
+msgctxt "#30947"
+msgid "Statistics are partial, failed or stale; values may be retained or unavailable."
+msgstr ""

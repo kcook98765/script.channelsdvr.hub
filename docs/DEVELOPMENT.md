@@ -46,7 +46,7 @@ error or blocked network/process operation makes the command exit nonzero.
 The initial repository intentionally omits workstation validation tools, live API
 experiments and historical fixtures. A clone does not require those private files.
 
-## Focused Dashboard regressions (issue #4)
+## Focused Dashboard regressions (issues #4 and #7)
 
 `tests/test_dashboard.py` is a separate targeted cohort, **not** part of the
 15-module public runner above. Run the affected Dashboard/owner/config/package/live
@@ -66,6 +66,16 @@ idle polls must neither format cards/timestamps nor translate strings. No Kodi
 SDK/stubs or DVR is executed. The public runner's audit guard does not wrap this
 standalone command; review this explicit cohort before execution.
 
+Whole-window regressions exercise the actual parent render, label memo, chrome and
+owner loop with inert SDK controls. They cover Guide/navigation/Back transitions,
+localized absolute Last updated text, retained old localization IDs, partial/failed
+and stale statistics warnings, and unchanged display while reads run or independent
+listing caches expire.
+Elapsed server runtime and routine/card/count status are absent from Dashboard.
+A stale-boundary warning transition is semantic invalidation, not a rolling timer
+repaint. Native resource loading, skin clipping and in-place upgrades still need
+independent supervised native evidence; fake controls cannot qualify them.
+
 The separate packager provenance cohort uses harmless Git commands in temporary
 synthetic repositories, including fixture commits and index concealment flags:
 
@@ -77,7 +87,7 @@ Do not run it under the public runner's subprocess-forbidding guard or confuse i
 fixture commits with changes to the source repository. Static checks require a
 matched Omega interpreter, Kodistubs and checker/cache; `--branch omega` alone does
 not select stubs. For private qualification use the exact reviewed, committed
-add-on root (currently unpublished numeric `0.1.3`), checking for retained-version
+add-on root (currently unpublished numeric `0.1.4`), checking for retained-version
 collisions first. Preserve the add-on ID, profile and operation history. Source/ZIP
 digests and native evidence stay private. Static/fake-GUI passes are not native
 qualification or a release; prior `0.1.2` / `0.1.3~issue4` evidence does not qualify

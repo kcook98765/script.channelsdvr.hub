@@ -46,13 +46,16 @@ Reads pause away from Dashboard; returning, including Back, refreshes if due.
 Selecting the already active Dashboard does not restart the interval. These
 settings do not enable a connection or change any recording/pass permissions.
 
-One **Statistics · Last refreshed** line above the cards shows the local absolute
+One small **Last updated** label above the cards shows the local absolute
 date/time (including UTC offset) of the last successful coherent statistics cycle,
 or **Never**. Kodi's regional date/time order is used when available, with a local
 `YYYY-MM-DD HH:MM:SS ±HHMM` fallback. All routes must be accepted and no older
 values retained for the timestamp to advance. A fresh unreported optional field
 is Unknown, not a failed read. Failed routes or actual retention of earlier field
 values are marked partial/stale and do not advance the successful timestamp.
+One separate consolidated warning indicates partial, failed or stale statistics.
+Retrying does not hide that warning; a healthy statistics read clears the relevant
+condition. There is no routine Refreshing/Complete status or elapsed server runtime.
 
 A changed source or accepted backend-version scope cannot reuse earlier
 statistics as fresh values. Complete statistics become stale after the selected
@@ -62,11 +65,17 @@ not a recording/pass eligibility or action-safety check.
 
 **Independently loaded listings (cache)** describes accepted listing scans, not
 the statistics request. Counts and the guide window can differ from server totals.
-Listing-cache, stale-listing-cache and failed-listing-read labels observe the
-existing listing caches; statistics success does not renew them or change their
-cadence. The consolidated statistics timestamp does not date these listings.
-Dashboard has no individual rolling age labels. Other views keep their own refresh
-and safety behavior.
+Counts have no individual status or age labels. Independent listing expiry does not
+show a statistics warning or repaint Dashboard. Statistics success does not renew
+listing caches or change their cadence. The timestamp does not date these listings.
+Dashboard has
+no rolling clock or age repaint; a freshness-boundary warning changes only once.
+Other views keep their own status, refresh and safety behavior.
+
+An on-time automatic statistics read does not briefly show a stale warning while
+running. This presentation grace allows one second of dispatch jitter and lasts
+at most the read's 25-second budget. Partial/failed results, delayed reads, late
+return to Dashboard and stale statistics with automatic refresh disabled still warn.
 
 ## Browsing and playback
 
