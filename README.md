@@ -1,8 +1,8 @@
 # Channels DVR Hub for Kodi
 
-**Unofficial Kodi Program add-on · Kodi 21 Omega · Published version 0.1.2 ALPHA (work in progress)**
+**Unofficial Kodi Program add-on · Kodi 21 Omega · ALPHA (work in progress)**
 
-**Source candidate: `0.1.3` ALPHA · unpublished reconciliation with Dashboard issue #4**
+**Source candidate: `0.1.4` ALPHA · unpublished Dashboard presentation follow-up (#7)**
 
 Channels DVR Hub is an independent, pre-release client for an existing Channels DVR
 server. Its goal is to provide guide, recording and pass workflows inside Kodi,
@@ -15,7 +15,7 @@ replacement or a DVR server administration/update tool.
 > release. Do not rely on this alpha for important recordings or DVR changes.
 > This project is not affiliated with or endorsed by Channels or Fancy Bits, LLC.
 
-The combined 0.1.3 source candidate has **no connected/native acceptance**. Prior
+The 0.1.4 source candidate has **no connected/native acceptance**. Prior
 Hub builds, the `0.1.3~issue4` qualification build and EPG observations do not accept
 this combined runtime. Source and fake-adapter tests are not full feature acceptance.
 
@@ -100,12 +100,12 @@ write has an uncertain outcome, reconcile it before retrying.
 The [published 0.1.2 Alpha ZIP]
 (https://github.com/kcook98765/kcook-lab-repo/releases/tag/channelsdvr-hub-0.1.2-alpha)
 is hosted in **kcook-lab-repo** and listed in its Omega Program add-ons catalog.
-This checkout declares **0.1.3** in `script.channelsdvr.hub/addon.xml` as an
-unpublished ALPHA candidate. It reconciles the published 0.1.2 source (shared
-numeric IP normalization, original generated artwork, notices and deterministic
-packaging) with issue #4's Dashboard scheduling and presentation. It is not the
-published 0.1.2 artifact. For the published alpha, use the release ZIP or repository
-feed above, not GitHub's source archive.
+This checkout declares **0.1.4** in `script.channelsdvr.hub/addon.xml` as an
+unpublished ALPHA candidate based on merged 0.1.3 source at `7f2d8af`. Issue #7's
+Dashboard-only presentation correction removes elapsed runtime and repeated or
+routine status copy, with one absolute Last updated label and one separate warning.
+Statistics scheduling, listing views and safety checks are unchanged. This is not
+a published artifact; GitHub's source archive is not an installable add-on ZIP.
 
 Developers can prepare the local Omega candidate with `python3 -B tools/package.py`
 **after reviewing and committing the runtime inputs**. The packager binds the ZIP

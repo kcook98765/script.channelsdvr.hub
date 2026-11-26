@@ -178,10 +178,8 @@ class DashboardUI:
         # formatting or card construction on the 50-ms idle owner-loop path.
         admitted = self.admitted and self._source() == self.binding
         summaries = self._summaries() if admitted else {}
-        presentation = (admitted, self.state, self.state.revision, self.token is not None,
-                        tuple((name, self._stale(value)) for name, value in self.state.values.items()),
-                        tuple((name, value, self.window._live_session.summary_health(name))
-                              for name, value in summaries.items()))
+        presentation = (admitted, self.state, self.state.revision, self._warning_key(),
+                        tuple(summaries.items()))
         changed = presentation != self._presentation
         self._presentation = presentation
         return changed
@@ -210,30 +208,38 @@ class DashboardUI:
         stamp = w.t('dashboard_never')
         if state.last_success is not None:
             stamp = self.timestamp(state.last_success)
-        if not admitted:
-            status = w.t('dashboard_unavailable')
-        elif self.token is not None:
-            status = w.t('dashboard_refreshing')
-        elif state.unsupported_version is not None:
-            status = w.t('live_unsupported')
-        elif state.partial:
-            status = w.t('dashboard_partial')
-        elif state.error:
-            status = w.t('dashboard_failed')
-        elif any(self._stale(v) for v in state.values.values()):
-            status = w.t('dashboard_stale')
-        else:
-            status = w.t('dashboard_current') if state.values else w.t('dashboard_unavailable')
-        return w.t('dashboard_status', timestamp=stamp, status=status)
+        return w.t('dashboard_updated', timestamp=stamp)
 
-    def _running_label(self, value):
-        # Pure presentation of the accepted server duration, never host uptime.
-        if type(value) is not int or not 0 <= value <= 2**53:
-            return self.window.t('unknown')
-        days, remainder = divmod(value, 86400)
-        hours, remainder = divmod(remainder, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        return self.window.t('dashboard_duration', days=days, hours=hours, minutes=minutes, seconds=seconds)
+    def _warning_key(self):
+        # One semantic warning, independent of in-flight/routine request state.
+        # Freshness checks remain live; crossing a stale boundary changes the
+        # warning once, never produces a rolling clock/age repaint.
+        if not self.admitted or self._source() != self.binding:
+            return None
+        if self.state.unsupported_version is not None:
+            return 'live_unsupported'
+        if self.state.partial or self.state.error:
+            return 'dashboard_warning'
+        if any(self._stale(v) for v in self.state.values.values()) and not self._routine_refresh():
+            return 'dashboard_warning'
+        return None
+
+    def _routine_refresh(self):
+        # Presentation only: don't flash Stale as an on-time automatic read
+        # starts. Allow owner-loop jitter (1s), bounded by the existing worker's
+        # 25s total read budget. Late polling, disabled/manual reads, unhealthy
+        # retained values and genuinely delayed retrieval remain warning-worthy.
+        # Neither _stale nor any scheduler/source/freshness receipt is changed.
+        return (self.token is not None and not self.manual and bool(self.interval)
+                and self.state.last_success is not None
+                and not any(v.unavailable for v in self.state.values.values())
+                and self.accepted_at is not None and self._requested_at is not None
+                and self._requested_at <= self.accepted_at + self.interval + 1
+                and monotonic() < self._requested_at + 25)
+
+    def warning_line(self):
+        key = self._warning_key()
+        return self.window.t(key) if key else ''
 
     def cards(self):
         w = self.window
@@ -246,36 +252,29 @@ class DashboardUI:
             values = dict(resource.values) if resource else {}
             result = {k: values.get(k) if values.get(k) is not None else unknown for k in fields}
             result = {k: w.t('yes' if v else 'no') if type(v) is bool else v for k, v in result.items()}
-            result['status'] = (w.t('dashboard_retained') if resource.unavailable else
-                                w.t('dashboard_stale') if self._stale(resource) else '') if resource else w.t('dashboard_unavailable')
             return result
-        server = value('server', ('version', 'os', 'arch', 'running'))
+        server = value('server', ('version', 'os', 'arch'))
         # Rejected status diagnostics must not caption old A values as build B.
         server['version'] = state.unsupported_version or state.accepted_version or unknown
-        server['running'] = self._running_label(server['running'])
-        session = w._live_session
         summaries = self._summaries()
         def loaded(name):
             item = summaries.get(name)
             if item is None:
                 return unknown
-            stale, failed = session.summary_health(name)
-            return w.t('dashboard_listing_count', count=item.loaded,
-                       status=w.t('dashboard_listing_failed' if failed else
-                                  'dashboard_listing_stale' if stale else 'dashboard_listing_cache'))
+            return item.loaded
         channels = summaries.get('channels')
         events = summaries.get('events')
         counts = dict(channels.counts) if channels else {}
         return (
-            w.t('dashboard_server', **server),
-            w.t('dashboard_dvr', **value('dvr', ('files', 'total', 'jobs', 'rules', 'groups', 'storage', 'enabled', 'busy'))),
-            w.t('dashboard_sources', **value('sources', ('sources', 'tuners', 'reporting', 'unknown'))),
-            w.t('dashboard_passes', **value('passes', ('total', 'paused', 'active', 'unknown'))),
+            w.t('dashboard_server_summary', **server),
+            w.t('dashboard_dvr_summary', **value('dvr', ('files', 'total', 'jobs', 'rules', 'groups', 'storage', 'enabled', 'busy'))),
+            w.t('dashboard_sources_summary', **value('sources', ('sources', 'tuners', 'reporting', 'unknown'))),
+            w.t('dashboard_passes_summary', **value('passes', ('total', 'paused', 'active', 'unknown'))),
             w.t('dashboard_loaded', channels=loaded('channels'), hidden=counts.get('hidden', unknown),
                 events=loaded('events'), recordings=loaded('recordings'),
                 start=time_label(events.horizon[0]) if events else unknown,
                 end=time_label(events.horizon[1]) if events else unknown),
-            w.t('dashboard_activity', **value('activity', ('streams', 'recordings', 'workers', 'other'))),
+            w.t('dashboard_activity_summary', **value('activity', ('streams', 'recordings', 'workers', 'other'))),
         )
 
     def _summaries(self):
@@ -312,5 +311,6 @@ class DashboardUI:
                 memo.best_effort(control, 'setVisible', False)
                 memo.best_effort(control, 'setText', '')
         w._label(112, w.t('connection_prompt') if not self.admitted or self._source() != self.binding else '')
+        w._label(117, self.warning_line())
         w._label(115, w.t('dashboard_hint'))
         w._label(116, self.status_line())

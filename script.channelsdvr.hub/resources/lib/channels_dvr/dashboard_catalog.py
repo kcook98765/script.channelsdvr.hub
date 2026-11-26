@@ -41,4 +41,13 @@ ROWS = (
     ('dashboard_listing_cache', 30938, 'listing cache'),
     ('dashboard_listing_stale', 30939, 'stale listing cache'),
     ('dashboard_listing_failed', 30940, 'stale listing cache; read failed'),
+    # New templates intentionally do not reuse IDs whose translations can carry
+    # elapsed time, routine refresh copy or per-card/listing status on upgrade.
+    ('dashboard_server_summary', 30941, 'DVR server\nVersion: {version}\nOS / architecture: {os} / {arch}'),
+    ('dashboard_dvr_summary', 30942, 'DVR reported · Enabled: {enabled} · Busy: {busy}\nFiles: {files} · Total: {total} · Jobs: {jobs}\nRules: {rules} · Groups: {groups}\nStorage used: {storage}%'),
+    ('dashboard_sources_summary', 30943, 'Sources: {sources}\nReported tuners: {tuners}\nReporting sources: {reporting} · Unknown: {unknown}\nAvailability is unknown'),
+    ('dashboard_passes_summary', 30944, 'Pass list: {total}\nPaused: {paused} · Active: {active}\nPause state unknown: {unknown}\nIncludes advanced passes'),
+    ('dashboard_activity_summary', 30945, 'Reported activity\nStreams: {streams} · Recordings: {recordings}\nWorkers: {workers} · Other: {other}\nNot a free-tuner check'),
+    ('dashboard_updated', 30946, 'Last updated: {timestamp}'),
+    ('dashboard_warning', 30947, 'Statistics are partial, failed or stale; values may be retained or unavailable.'),
 )

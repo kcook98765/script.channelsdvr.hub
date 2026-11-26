@@ -27,6 +27,9 @@ from channels_dvr.ui_chrome import WindowChrome
 from channels_dvr.ui_dispatch import UiDispatcher
 from channels_dvr.ui_navigation import execute_command
 from channels_dvr.ui_text import FALLBACK, IDS, capture, text
+from channels_dvr.guide_render import RenderMemo
+from channels_dvr.metrics import GuiMetrics
+from channels_dvr.session import Presentation
 
 
 VERSION = '2026.08.07.0346'
@@ -190,11 +193,13 @@ class DashboardRenderTests(DashboardFixture):
 
     def test_retrieval_retains_all_cards_and_last_success(self):
         cards = self.ui.cards()
+        line = self.ui.status_line()
         self.ui.refresh()
-        self.assertTrue(self.ui.poll())
+        self.assertFalse(self.ui.poll())
         self.assertEqual(self.ui.cards(), cards)
         self.assertEqual(self.ui.state.last_success, 1000)
-        self.assertIn('Refreshing', self.ui.status_line())
+        self.assertEqual(line, self.ui.status_line())
+        self.assertEqual('', self.ui.warning_line())
 
     def test_partial_cycle_and_failure_do_not_advance_last_success(self):
         old = self.ui.state.values['dvr']
@@ -203,20 +208,20 @@ class DashboardRenderTests(DashboardFixture):
         self.ui.refresh()
         self.ui.poll()
         self.assertTrue(self.complete(partial))
-        self.assertIn('Partial / stale', self.ui.status_line())
+        self.assertIn('partial, failed or stale', self.ui.warning_line())
         self.assertEqual(self.ui.state.last_success, 1000)
         self.assertEqual(self.ui.state.values['dvr'].fetched_at, old.fetched_at)
-        self.assertIn('retained or unavailable', self.ui.cards()[1])
+        self.assertNotIn('retained or unavailable', self.ui.cards()[1])
         self.ui.refresh()
         self.ui.poll()
         self.complete(result(at=1200, coherent=False, error=True))
-        self.assertIn('Refresh failed', self.ui.status_line())
+        self.assertIn('partial, failed or stale', self.ui.warning_line())
         self.assertEqual(self.ui.state.last_success, 1000)
         self.ui.refresh()
         self.ui.poll()
         self.complete(result(at=1300))
         self.assertEqual(self.ui.state.last_success, 1300)
-        self.assertIn('Complete', self.ui.status_line())
+        self.assertEqual('', self.ui.warning_line())
 
     def test_unknown_is_not_zero_or_false_and_fresh_missing_fields_are_not_failures(self):
         self.assertIn('Jobs: 0', self.ui.cards()[1])
@@ -228,7 +233,7 @@ class DashboardRenderTests(DashboardFixture):
                                                   for n, v in result().resources)))
         self.assertIn('Files: Unknown', self.ui.cards()[1])
         self.assertIn('Busy: Unknown', self.ui.cards()[1])
-        self.assertIn('Complete', self.ui.status_line())
+        self.assertEqual('', self.ui.warning_line())
         self.assertEqual(self.ui.state.last_success, 1000)
         self.assertFalse(self.ui.state.values['dvr'].unavailable)
 
@@ -237,14 +242,15 @@ class DashboardRenderTests(DashboardFixture):
         self.w._live_session.summaries['recordings'] = summary
         self.assertTrue(self.ui.poll())
         self.assertIn('Independently loaded listings (cache)', self.ui.cards()[4])
-        self.assertIn('0 (listing cache)', self.ui.cards()[4])
+        self.assertIn('Recordings (complete scan): 0', self.ui.cards()[4])
         self.ui.state.merge(result(coherent=False, error=True))
-        self.assertIn('0 (listing cache)', self.ui.cards()[4])
+        self.assertIn('Recordings (complete scan): 0', self.ui.cards()[4])
         self.assertNotIn('stale listing cache', self.ui.cards()[4])
         self.w._live_session.summary_health.return_value = (True, True)
-        self.assertTrue(self.ui.poll())
-        self.assertIn('stale listing cache', self.ui.cards()[4])
-        self.assertIn('read failed', self.ui.cards()[4])
+        self.ui.poll()
+        self.assertNotIn('stale listing cache', self.ui.cards()[4])
+        self.assertNotIn('read failed', self.ui.cards()[4])
+        self.assertIn('partial, failed or stale', self.ui.warning_line())
         self.assertNotIn('ago', '\n'.join(self.ui.cards()))
         self.assertNotIn('Last refreshed', '\n'.join(self.ui.cards()))
         self.assertEqual(self.ui.state.last_success, 1000)
@@ -267,8 +273,8 @@ class DashboardRenderTests(DashboardFixture):
             self.assertIn(local.strftime('%Y-%m-%d %H:%M:%S %z'), line)
             dt.fromtimestamp.assert_called_once_with(1000)
             dt.fromtimestamp.return_value.astimezone.assert_called_once_with()
-        translated = capture(lambda ident: 'Local success: {timestamp}; {status}'
-                             if ident == IDS['dashboard_status'] else '')
+        translated = capture(lambda ident: 'Local success: {timestamp}'
+                             if ident == IDS['dashboard_updated'] else '')
         with patch.object(self.w, 't', lambda key, **values: text(translated, key, **values)):
             self.assertIn('Local success:', self.ui.status_line())
 
@@ -277,7 +283,7 @@ class DashboardRenderTests(DashboardFixture):
         self.ui.poll()
         self.now += 300
         self.assertTrue(self.ui.poll())
-        self.assertIn('Stale', self.ui.status_line())
+        self.assertIn('partial, failed or stale', self.ui.warning_line())
         self.assertFalse(self.ui.poll())
         self.assertEqual(len(self.ui.worker.requests), 1)
 
@@ -289,7 +295,7 @@ class DashboardRenderTests(DashboardFixture):
         self.assertFalse(self.ui.poll())
         self.now += 1
         self.assertTrue(self.ui.poll())
-        self.assertIn('Stale', self.ui.status_line())
+        self.assertIn('partial, failed or stale', self.ui.warning_line())
 
     def test_direct_render_revokes_source_timestamp_before_next_poll(self):
         old_line = self.ui.status_line()
@@ -337,7 +343,7 @@ class DashboardScheduleTests(DashboardFixture):
             self.assertEqual(len(self.ui.worker.requests), 1)
             self.assertEqual(self.ui.completed, 10)
         self.now = 310
-        self.assertTrue(self.ui.poll())
+        self.assertFalse(self.ui.poll(), 'On-time automatic dispatch is not a display change')
         self.assertEqual(len(self.ui.worker.requests), 2)
 
     def test_every_allowed_interval_and_invalid_fallback(self):
@@ -902,7 +908,7 @@ class DashboardStartupTests(unittest.TestCase):
         ui.poll()
         self.assertIsNone(ui.state.last_success)
         self.assertIsNone(ui.state.accepted_version)
-        self.assertIn('Refresh failed', ui.status_line())
+        self.assertIn('partial, failed or stale', ui.warning_line())
         self.assertEqual(len(ui.worker.requests), 1)
 
     def test_unsealed_expired_wrong_config_and_cancelled_status_proofs_are_ignored(self):
@@ -1104,6 +1110,11 @@ class DashboardSettingsTests(unittest.TestCase):
         bottom = int(line.findtext('top')) + int(line.findtext('height'))
         self.assertLessEqual(bottom, 235)
         self.assertGreaterEqual(int(line.findtext('top')), 215)
+        warning = skin.find(".//control[@id='117']")
+        self.assertEqual(warning.findtext('font'), 'font10')
+        self.assertLessEqual(int(warning.findtext('top')) + int(warning.findtext('height')),
+                             int(line.findtext('top')))
+        self.assertFalse(skin.findall('.//autoscroll'))
 
 
 class Response(io.BytesIO):
@@ -1177,7 +1188,7 @@ class DashboardTransportTests(unittest.TestCase):
         self.assertFalse(ui.state.values['activity'].unavailable)
         self.assertIn('Other: Unknown', ui.cards()[5])
         self.assertIn('Streams: 0', ui.cards()[5])
-        self.assertIn('Complete', ui.status_line())
+        self.assertEqual('', ui.warning_line())
         self.assertNotIn('Never', ui.status_line())
 
     def test_cancellation_deadline_budgets_route_and_type_safeguards(self):
@@ -1278,6 +1289,225 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         self.addCleanup(context.stop)
         from channels_dvr.kodi_ui import ChannelsWindow
         return ChannelsWindow
+
+    def whole_window(self, strings=FALLBACK):
+        """Real parent render/memo/chrome and owner loop, inert SDK controls."""
+        from types import MethodType
+        adapter = self.adapter()
+        w = self.w
+        w.controls.update({i: Control() for i in (100, 110, 112, 113, 114, 115, 116, 117,
+                                                 *range(120, 126), *range(140, 144))})
+        w.strings = strings
+        w.t = lambda key, **values: text(w.strings, key, **values)
+        w._render_memo = RenderMemo()
+        w.pool = [(Control(), Control())]  # previously displayed listing row
+        w.path = ''
+        w.guide = SimpleNamespace(prepared_ready=False)
+        w.metrics = GuiMetrics()
+        w._paint_pending = False
+        w._status_tick = None
+        w._revoke_demo = Mock()
+        w.demo_allowed = lambda: False
+        w.selected_indexed_event = lambda: None
+        w._guide_runtime.ready = False
+        w._live_session.loading = False
+        w._live_session.guide = lambda: Presentation((), DataState.OUTAGE, False, True,
+            None, None, 'Updated 37s ago | listing failure', '', False)
+        w._guide_runtime.presentation = lambda data: data
+        w._guide_runtime.poll = Mock(return_value=False)
+        w._artwork_ui = SimpleNamespace(poll=Mock(return_value=False), update=Mock(), draw=Mock())
+        w._recording_ui = SimpleNamespace(poll=Mock())
+        w._storage_ui = SimpleNamespace(poll=Mock())
+        w._playback_ui.poll = Mock()
+        w._series_ui = None
+        w._large_exercise = None
+        w._dispatcher = UiDispatcher()
+        w.initialized = True
+        for name in ('render', '_render', '_label', '_ensure_pool', '_current_data', 'process_pending'):
+            setattr(w, name, MethodType(getattr(adapter, name), w))
+        return w
+
+    def displayed(self):
+        result = {}
+        for ident, control in self.w.controls.items():
+            visible, body = True, ''
+            for method, args in control.calls:
+                if method == 'setVisible':
+                    visible = args[0]
+                elif method in ('setText', 'setLabel'):
+                    body = args[0]
+            if visible and body:
+                result[ident] = body
+        return result
+
+    def test_whole_dashboard_has_no_elapsed_or_routine_status(self):
+        w = self.whole_window()
+        w.render()
+        shown = '\n'.join(self.displayed().values())
+        self.assertNotIn('Server running time', shown)
+        self.assertNotIn('0d 0h 1m 0s', shown)
+        self.assertNotIn('Complete', shown)
+        self.assertIn('Last updated:', shown)
+        before = self.displayed()
+        self.ui.refresh()
+        w.process_pending()
+        self.assertEqual(self.displayed(), before)
+        with patch.object(w, 'render', wraps=w.render) as render:
+            for _ in range(20):
+                self.now += 1
+                w.process_pending()
+            render.assert_not_called()
+
+    def test_whole_dashboard_clears_listing_banner_on_navigation_and_back(self):
+        w = self.whole_window()
+        for back in ('navigation', 'back', 'nav-back'):
+            execute_command(w, None, 'view.guide')
+            w.process_pending()
+            self.assertIn('Updated 37s ago', self.displayed()[114])
+            self.assertNotIn(116, self.displayed())
+            self.assertFalse(set(range(400, 406)) & self.displayed().keys())
+            if back == 'navigation':
+                execute_command(w, None, 'view.dashboard')
+            elif back == 'back':
+                w._chrome.back(content=False)
+            else:
+                w.focus = 201
+                w._chrome.action(92)
+            w.process_pending()
+            self.assertEqual(w.view, 'Dashboard')
+            self.assertNotIn('ago', '\n'.join(self.displayed().values()))
+            self.assertNotIn(114, self.displayed())
+            self.assertTrue(set(range(400, 406)) <= self.displayed().keys())
+
+    def test_whole_dashboard_localized_timestamp_and_single_warning_lifecycle(self):
+        legacy = {'dashboard_server', 'dashboard_dvr', 'dashboard_sources',
+                  'dashboard_passes', 'dashboard_activity', 'dashboard_status',
+                  'dashboard_duration', 'dashboard_listing_count'}
+        by_id = {IDS[key]: ('OLD AGE ' if key in legacy else 'L: ') + value
+                 for key, value in FALLBACK.items()}
+        w = self.whole_window(capture(by_id.get))
+        self.ui.timestamp = lambda stamp: f'ABSOLUTE {stamp}'
+        summary = ResourceSummary(CONFIG.namespace, VERSION, (1000, 2000), 1000, 9, ())
+        w._live_session.summaries['recordings'] = summary
+        self.ui.poll()
+        w.render()
+        line = self.displayed()[116]
+        self.assertEqual(line, 'L: Last updated: ABSOLUTE 1000')
+        self.assertNotIn(117, self.displayed())
+
+        def check_warning(expected=True):
+            shown = self.displayed()
+            self.assertEqual(shown[116], line)
+            self.assertEqual(117 in shown, expected)
+            body = '\n'.join(shown.values())
+            self.assertNotIn('OLD AGE', body)
+            self.assertNotIn('ago', body)
+            self.assertNotIn('Refreshing', body)
+            self.assertNotIn('Complete', body)
+            if expected:
+                self.assertEqual(body.count('L: Statistics are partial, failed or stale'), 1)
+            self.assertNotIn('stale', '\n'.join(shown[i] for i in range(400, 406)))
+
+        # Independent listing expiry/failure never dates statistics, shows a
+        # statistics warning, or invalidates the parent Dashboard display.
+        w._live_session.summary_health.return_value = (True, True)
+        with patch.object(w, 'render', wraps=w.render) as render:
+            w.process_pending()
+            render.assert_not_called()
+        check_warning(False)
+        self.assertIn('Recordings (complete scan): 9', self.displayed()[404])
+        w._live_session.summary_health.return_value = (False, False)
+        with patch.object(w, 'render', wraps=w.render) as render:
+            w.process_pending()
+            render.assert_not_called()
+        check_warning(False)
+        # Both partial resource failure and total failure retain the last success.
+        for item in (result(at=1100, resources=tuple((n, None if n == 'dvr' else v)
+                                                   for n, v in result().resources), error=True),
+                     result(at=1200, coherent=False, error=True)):
+            self.ui.refresh()
+            w.process_pending()
+            self.ui.worker.result = (self.ui.token, item)
+            w.process_pending()
+            check_warning()
+            self.ui.refresh()
+            w.process_pending()
+            check_warning()  # a retry must not hide the existing warning
+        # A complete cycle alone advances the timestamp and clears the warning.
+        self.ui.worker.result = (self.ui.token, result(at=1300))
+        w.process_pending()
+        line = 'L: Last updated: ABSOLUTE 1300'
+        check_warning(False)
+        w.settings['dashboard_refresh_minutes'] = '0'
+        w.process_pending()
+        self.now += 300
+        w.process_pending()
+        check_warning()
+        with patch.object(w, 'render', wraps=w.render) as render:
+            self.now += 1000
+            w.process_pending()
+            render.assert_not_called()  # stable stale state is not a timer repaint
+
+    def test_changed_templates_reject_old_placeholder_translations(self):
+        translated = capture(lambda ident: 'OLD {timestamp} {status}'
+                             if ident == IDS['dashboard_updated'] else '')
+        w = self.whole_window(translated)
+        w.render()
+        self.assertTrue(self.displayed()[116].startswith('Last updated:'))
+
+    def test_whole_dashboard_on_time_automatic_read_does_not_flash_stale(self):
+        w = self.whole_window()
+        self.ui.timestamp = lambda stamp: f'ABSOLUTE {stamp}'
+        w.render()
+        before = self.displayed()
+        self.now = 310.05  # normal owner-loop jitter at the five-minute deadline
+        with patch.object(w, 'render', wraps=w.render) as render:
+            w.process_pending()
+            self.assertIsNotNone(self.ui.token)
+            self.assertEqual(len(self.ui.worker.requests), 2)
+            self.assertTrue(self.ui._stale(self.ui.state.values['server']))
+            self.assertEqual(self.displayed(), before)
+            self.now += 0.25
+            w.process_pending()
+            self.assertEqual(self.displayed(), before)
+            render.assert_not_called()
+            self.ui.worker.result = (self.ui.token, result(at=2000))
+            w.process_pending()
+            self.assertEqual(render.call_count, 1)
+        after = self.displayed()
+        self.assertEqual(after.pop(116), 'Last updated: ABSOLUTE 2000')
+        before.pop(116)
+        self.assertEqual(after, before)
+        self.assertNotIn(117, self.displayed())
+
+    def test_whole_dashboard_delayed_automatic_read_and_late_poll_warn(self):
+        w = self.whole_window()
+        w.render()
+        self.now = 310
+        w.process_pending()
+        self.assertNotIn(117, self.displayed())
+        self.now += 25
+        w.process_pending()
+        self.assertIn(117, self.displayed())
+        self.assertEqual(self.ui.state.last_success, 1000)
+        self.ui.worker.result = (self.ui.token, result(at=2000))
+        w.process_pending()
+        self.assertNotIn(117, self.displayed())
+        self.now += 400  # resume polling well past the next deadline
+        w.process_pending()
+        self.assertIsNotNone(self.ui.token)
+        self.assertIn(117, self.displayed())
+
+    def test_automatic_retry_keeps_partial_or_failed_warning(self):
+        w = self.whole_window()
+        for item in (result(error=True), result(error=True, coherent=False)):
+            self.ui.state.merge(item)
+            self.now += 300
+            w.process_pending()
+            self.assertIsNotNone(self.ui.token)
+            self.assertIn(117, self.displayed())
+            self.ui.worker.result = (self.ui.token, item)
+            w.process_pending()
 
     def test_owned_setting_read_paths_preserve_legacy_and_boolean_settings(self):
         adapter = self.adapter()

@@ -518,6 +518,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
             self._dashboard_ui.render()
             return
         self._label(116, '')
+        self._label(117, '')
         data = self._current_data()
         view_label = self.t(VIEW_KEYS[self.view])
         if self.demo_allowed():
