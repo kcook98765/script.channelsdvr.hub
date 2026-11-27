@@ -623,7 +623,10 @@ class ChannelsWindow(xbmcgui.WindowXML):
                 state = 'guide_unavailable' if self._guide_runtime.error else 'preparing_guide'
             else:
                 state = 'no_listings'
-            self._label(112, self.library.breadcrumb if self.view == 'Recordings' else
+            # Deferred source retirement can leave the old breadcrumb in memory.
+            accepted_empty = (self.view == 'Recordings' and state == 'empty_update'
+                              and self._guide_runtime._mode is None)
+            self._label(112, self.library.breadcrumb if accepted_empty else
                         self.t('empty_view', view=view_label, status=self.t(state)))
             self._label(113, self.t('refresh_hint') if self._live_session is not None else
                         self.t('demo_hint') if self.demo_allowed() else self.t('connection_prompt'))

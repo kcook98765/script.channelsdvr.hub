@@ -398,6 +398,34 @@ class NavigationTests(unittest.TestCase):
         w.render()
         self.assertEqual((w.library.selected, w.library.position, w.library.top), (None, 0, 0))
         self.assertFalse(self.hits('row'))
+        self.assertEqual(w.controls[112].properties['setLabel'], (w.library.breadcrumb,))
+        self.assertIn(w.t('recordings_all'), w.library.breadcrumb)
+        w._playback_ui.request.assert_not_called()
+
+    def test_recordings_disconnect_hides_breadcrumb_while_retirement_is_busy(self):
+        self.seed()
+        self.enter('Recordings')
+        w = self.w
+        self.click(CONTENT)  # Synthetic Atlas (DVR)
+        self.click(CONTENT)  # Season 1
+        library = w.library
+        breadcrumb = library.breadcrumb
+        self.assertIn('Synthetic Atlas', breadcrumb)
+        self.assertTrue(breadcrumb.endswith('Season 1'))
+        self.assertEqual(w.controls[112].properties['setLabel'], (breadcrumb,))
+        hit = next(iter(self.hits('row').values()))
+
+        with patch.object(w._metadata_loader, 'offer_retirement', return_value=None) as offer:
+            w._close_demo()
+            w.onClick(hit)  # Old hit arrives before the blocked view has repainted.
+            w.process_pending()
+        offer.assert_called_once()
+        self.assertIs(w.library, library)
+        self.assertEqual(w.library.breadcrumb, breadcrumb)
+        self.assertEqual(w.controls[112].properties['setLabel'], (
+            w.t('empty_view', view=w.t('recordings'), status=w.t('not_connected')),))
+        self.assertFalse(self.hits('row'))
+        self.dialog.textviewer.assert_not_called()
         w._playback_ui.request.assert_not_called()
 
     def test_recordings_play_is_explicit_and_stale_or_ineligible_intent_cannot_dispatch(self):
