@@ -674,6 +674,43 @@ class NavigationTests(unittest.TestCase):
         self.dialog.textviewer.assert_not_called()
         w._playback_ui.request.assert_not_called()
 
+    def test_deferred_live_source_switch_withdraws_old_recordings_and_scheduled_rows(self):
+        self.seed()
+        w = self.w
+        library, repository = w.library, w.repository
+        old = SimpleNamespace(loading=False, incarnation=object(), _generation=1, _catalog_epoch=1,
+                              jobs=Mock(side_effect=w.data_session.jobs),
+                              recordings=Mock(side_effect=w.data_session.recordings))
+        w._live_session = old
+        w.transient_demo_mode = False
+        self.enter('DVR')
+        self.assertTrue(self.hits('row'))
+        self.enter('Recordings')
+        hit = next(iter(self.hits('row').values()))
+        w._guide_runtime.result = object()  # Still held by the old source's retirement.
+        w._series_ui = SimpleNamespace(close=Mock(), poll=Mock())
+        w._series_ui.close.side_effect = lambda: self.assertIsNone(w._guide_runtime._mode)
+        w._guide_runtime.mode('live', SimpleNamespace(namespace='different-source'))
+        w._series_ui.close.assert_called_once()
+        w._series_ui.close.side_effect = None
+        old.jobs.reset_mock()
+        old.recordings.reset_mock()
+        self.click(hit)  # Retired logically even before repaint removes the native hit.
+        for view in ('Recordings', 'DVR'):
+            with self.subTest(view=view):
+                self.enter(view)
+                self.assertTrue(w._current_data().loading)
+                self.assertFalse(w._current_data().can_browse)
+                self.assertEqual(w._rows(), ())
+                self.assertIsNone(w._chrome.capture(CONTENT))
+                self.assertFalse(self.hits('row'))
+        self.assertIs(w._live_session, old)
+        self.assertIs(w.library, library)
+        self.assertIs(w.repository, repository)
+        old.jobs.assert_not_called()
+        old.recordings.assert_not_called()
+        self.dialog.textviewer.assert_not_called()
+
     def test_recordings_play_is_explicit_and_stale_or_ineligible_intent_cannot_dispatch(self):
         self.seed()
         w = self.w
@@ -922,7 +959,7 @@ class NavigationTests(unittest.TestCase):
         w._save_development.assert_not_called()
         w._metadata_loader.request.assert_not_called()
 
-    def test_more_revalidates_recording_status_after_native_dropdown(self):
+    def connected_guide_fixture(self):
         self.seed()
         self.enter('Guide')
         w = self.w
@@ -936,6 +973,10 @@ class NavigationTests(unittest.TestCase):
         w._addon.getSettingBool = lambda _: True
         w._guide_runtime.presentation = lambda data: data
         w._recording_ui._current_config = Mock(return_value=config)
+
+    def test_more_revalidates_recording_status_after_native_dropdown(self):
+        self.connected_guide_fixture()
+        w = self.w
         w._recording_ui.request = Mock()
         first, second = w.repository.events[:2]
         w.guide.focus_event(first)
@@ -953,6 +994,27 @@ class NavigationTests(unittest.TestCase):
         self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('recording_status'))
         self.action(CONTEXT)
         w._recording_ui.request.assert_called_once_with(schedule=False)
+
+    def test_eligible_guide_more_dispatches_schedule_and_series_only_to_review(self):
+        self.connected_guide_fixture()
+        w = self.w
+        event = w.repository.events[0]
+        self.assertTrue(w.guide.focus_event(event))
+        w.utc_now = lambda: event.start - 3600
+        w._recording_ui.request = Mock()
+        w._series_manager_request = Mock()
+        w.render()
+        self.assertIs(w.selected_indexed_event(), event)
+        self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('schedule_short'))
+        self.action(CONTEXT)
+        w._recording_ui.request.assert_called_once_with(schedule=True)
+        w._series_manager_request.assert_not_called()
+        self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('series_manager'))
+        self.action(CONTEXT)
+        w._series_manager_request.assert_called_once_with(self.gui)
+        w._metadata_loader.request.assert_not_called()
+        w._playback_ui.request.assert_not_called()
+        w._save_development.assert_not_called()
 
     def test_storage_poll_fences_only_when_native_dialog_runs(self):
         from channels_dvr.storage_ui import StorageResult

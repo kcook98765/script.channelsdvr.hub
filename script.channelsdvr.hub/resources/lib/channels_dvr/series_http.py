@@ -273,7 +273,6 @@ class SeriesHTTP:
             if operation in {'pause', 'resume'}:
                 expected_suffix += '/' + operation
             need(suffix == expected_suffix and (canonical(body) if body is not None else None) == proof.body, 'consent')
-            consume_dispatch(proof, self.binding)  # Same proof cannot be replayed through a NEW client.
         else:
             need(proof is None and capture is None)
             if operation == 'preview':
@@ -303,6 +302,10 @@ class SeriesHTTP:
         status, media, encoding = 0, 'other', 'other'
         deadline = min(self._deadline, self._clock() + 5)
         failure = False
+        if proof is not None:
+            # Last step before open, outside the exception/wire capture path.
+            # A revocation here is provably unsent; no lock spans the open.
+            consume_dispatch(proof, self.binding)
         try:
             try:
                 response = self._opener.open(request, timeout=5)

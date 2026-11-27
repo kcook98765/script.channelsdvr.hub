@@ -1854,11 +1854,11 @@ msgid "Read only: unsupported rule, pending operation, or management consent req
 msgstr ""
 
 msgctxt "#30651"
-msgid "Series operation stopped. Refresh details and reconfirm external changes. Unknown outcomes stay read only. Storage or history capacity failures require review; history is never evicted."
+msgid "Series stopped. Refresh details and reconfirm external changes. Unknown outcomes stay read only. Review storage/capacity failures; history is never evicted."
 msgstr ""
 
 msgctxt "#30652"
-msgid "Linked job activity is active or unknown. No change was sent. Fresh inactivity is only a current observation, not a guarantee against future jobs."
+msgid "Linked jobs active or unknown. No change sent. Current inactivity does not rule out future jobs."
 msgstr ""
 
 msgctxt "#30653"
@@ -2251,4 +2251,8 @@ msgstr ""
 
 msgctxt "#30986"
 msgid "Pass changed. Review refreshed list first."
+msgstr ""
+
+msgctxt "#30987"
+msgid "Intent cleared; not sent."
 msgstr ""

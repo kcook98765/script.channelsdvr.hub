@@ -3,6 +3,7 @@ from collections.abc import Mapping, Sequence
 from typing import overload
 
 from .browser import Row
+from .dvr_catalog import STATUS_MESSAGES
 from .normalization import DataState
 from .pass_browser import display_text
 from .series_http import segment
@@ -124,7 +125,7 @@ class DvrUI:
     def poll(self):
         w = self.w
         w._dispatcher.assert_owner()
-        if not self.passes and self.notice == 'dvr_series_verified':
+        if not self.passes and self.notice in STATUS_MESSAGES.values():
             self.notice = None  # Do not carry a prior success through Guide controls.
         scope = self._scope()
         changed = scope != self._frame
@@ -253,6 +254,19 @@ class DvrUI:
             return None
         return row
 
+    def status_finished(self, result):
+        """Apply an exact-source status result, independent of the current view."""
+        if result.operation != 'status':
+            return
+        if result.error == 'pending':
+            self.notice = 'dvr_series_pending'
+        elif result.error is None:
+            self.notice = STATUS_MESSAGES.get(result.status_outcome) if result.status_outcome else None
+            self.refresh()
+        else:
+            return  # A failed read cannot release a pending source-wide notice.
+        self.w._paint_pending = True
+
     def request(self, manager, *, status=False):
         row = None if status else self.manageable()
         scope = self._scope()
@@ -272,18 +286,21 @@ class DvrUI:
                     and self._selection_epoch == selection and self.selected() is row)))
 
         def finished(result):
+            if result.operation == 'status':
+                self.status_finished(result)
+                return
             if result.error == 'pending':
                 self.notice = 'dvr_series_pending'
             elif result.error is None:
                 self.notice = 'dvr_series_verified'
-            elif self.notice == 'dvr_series_verified':
+            elif self.notice in STATUS_MESSAGES.values():
                 self.notice = None
             if result.error is None or result.error == 'stale':
                 self.refresh()
             self.w._paint_pending = True
 
         if manager.request_dvr(row, current, finished, source_current=source_current):
-            if self.notice == 'dvr_series_verified':
+            if self.notice in STATUS_MESSAGES.values():
                 self.notice = None  # An earlier success says nothing about this request.
 
     def show(self, dialog, *, advanced=False):

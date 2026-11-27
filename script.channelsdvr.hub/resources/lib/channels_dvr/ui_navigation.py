@@ -83,7 +83,7 @@ def command_label(w, code):
     if code == 'connection.menu' and view != 'Settings':
         return None
     if code == 'series.manager':
-        return label if w._recording_ui._current_config() is not None else None
+        return label if w._guide_runtime._mode is None and w._recording_ui._current_config() is not None else None
     if code in ('recording.status', 'programme.tools'):
         session = w._live_session
         if (view != 'Guide' or session is None or w._recording_ui._current_config() is None):
@@ -265,6 +265,9 @@ def _execute_workflow(w, gui, selected, origin):
 def settings(w):
     if w._addon is None:
         return
+    series = getattr(w, '_series_ui', None)
+    if series is not None:
+        series.close()  # Native Settings can revoke the source before it returns.
     w._guide_runtime.latest_status = None
     modal_call(w, w._addon.openSettings)
     w._revoke_demo()
