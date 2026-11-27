@@ -316,12 +316,16 @@ class PackageTests(unittest.TestCase):
         for method in window.body:
             if isinstance(method, ast.FunctionDef) and method.name in ("onInit", "onAction", "onClick"):
                 if method.name == 'onAction':
-                    read_id, ignore, enqueue = method.body
+                    read_id, mouse, live_guide_select, enqueue = method.body
                     self.assertEqual(ast.unparse(read_id), 'ident = action.getId()')
-                    self.assertIsInstance(ignore, ast.If)
-                    self.assertEqual(ast.unparse(ignore.test), 'ident == xbmcgui.ACTION_MOUSE_LEFT_CLICK')
-                    self.assertEqual([ast.unparse(node) for node in ignore.body], ['return'])
-                    self.assertEqual(ignore.orelse, [])
+                    self.assertEqual(ast.unparse(mouse.test), 'ident == xbmcgui.ACTION_MOUSE_LEFT_CLICK')
+                    self.assertEqual(ast.unparse(live_guide_select.test),
+                                     "ident == xbmcgui.ACTION_SELECT_ITEM and self.view == 'Guide' "
+                                     "and (self._live_session is not None) and (not self.transient_demo_mode) "
+                                     "and (self._large_exercise is None)")
+                    for guard in (mouse, live_guide_select):
+                        self.assertEqual([ast.unparse(node) for node in guard.body], ['return'])
+                        self.assertEqual(guard.orelse, [])
                     self.assertEqual(ast.unparse(enqueue),
                                      "self._dispatcher.post(('action', self._chrome.capture_action(ident)))")
                 else:
