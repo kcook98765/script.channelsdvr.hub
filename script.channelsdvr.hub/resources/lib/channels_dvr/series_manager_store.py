@@ -1,6 +1,7 @@
 """Worker-only bounded Series root. Claims/CAS are provided by OperationStore."""
 import base64
 from copy import deepcopy
+from collections.abc import Callable
 from dataclasses import dataclass, field
 import json
 import secrets
@@ -19,6 +20,7 @@ RESERVE = 5592408 + 262144
 SUCCESSOR_RESERVE = 196608
 _DISPATCH = object()
 _CONSUMED = object()
+_REFUSED = object()
 _DISPATCH_GATE = Lock()
 
 
@@ -168,6 +170,7 @@ class DispatchProof:
     identity: str | None = field(repr=False)
     body: str | None = field(repr=False)
     token: str = field(repr=False)
+    _admit: Callable[[], bool] | None = field(repr=False)
     _seal: object = field(repr=False)
 
     def __repr__(self):
@@ -183,7 +186,11 @@ def checked_dispatch(proof, binding):
 def consume_dispatch(proof, binding):
     with _DISPATCH_GATE:
         checked_dispatch(proof, binding)
-        object.__setattr__(proof, '_seal', _CONSUMED)
+        # The worker predicate shares its short state lock with close(). This
+        # decision is the mutation admission point, not the earlier journal burn.
+        admitted = proof._admit is None or proof._admit()
+        object.__setattr__(proof, '_seal', _CONSUMED if admitted else _REFUSED)
+    need(admitted, 'closed')
 
 
 class SeriesManagerStore:
@@ -253,7 +260,7 @@ class SeriesManagerStore:
         self.root = prospective
         self.save()  # Durable intent, separate from burn.
 
-    def dispatch(self):
+    def dispatch(self, *, admit: Callable[[], bool] | None = None):
         need(self.root is not None and self.root['pending'] is not None, 'pending')
         prospective = deepcopy(self.root)
         entry = prospective['history'][prospective['pending']]
@@ -262,13 +269,29 @@ class SeriesManagerStore:
         validate(prospective)
         self._admit(prospective)  # Burn state and full headers/body/baseline must still fit.
         self.root = prospective
-        self.save()  # Durable one-way dispatch burn BEFORE handing proof to HTTP.
+        self.save()  # Durable pre-admission burn; a crash defaults to unknown.
         proof = object.__new__(DispatchProof)
         for key, value in dict(operation=entry['operation'], binding=self.binding, identity=entry['id'],
             body=canonical(entry['body']) if entry['body'] is not None else None,
-            token=entry['token'], _seal=_DISPATCH).items():
+             token=entry['token'], _admit=admit, _seal=_DISPATCH).items():
             object.__setattr__(proof, key, value)
         return proof
+
+    def mark_undispatched(self, proof):
+        # Revoke an unused proof before recording that it could not have sent.
+        # A consumed proof (even if open/read failed) must stay uncertain.
+        with _DISPATCH_GATE:
+            if type(proof) is not DispatchProof or proof._seal not in (_DISPATCH, _REFUSED):
+                return False
+            object.__setattr__(proof, '_seal', _REFUSED)
+        pending = self.root['pending']
+        need(pending is not None and proof.binding == self.binding, 'pending')
+        entry = self.root['history'][pending]
+        need(entry['token'] == proof.token and entry['state'] == 'unknown' and entry['dispatched']
+             and entry['wire'] is None and entry['returned_id'] is None, 'pending')
+        entry['dispatched'], entry['state'] = False, 'intent'
+        self.save()  # Still pending until an explicit, read-only reconciliation.
+        return True
 
     def capture(self, wire, returned_id=None):
         need(self.root is not None and self.root['pending'] is not None, 'pending')

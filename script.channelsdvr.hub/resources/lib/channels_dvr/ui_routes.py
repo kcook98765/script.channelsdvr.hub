@@ -1,6 +1,7 @@
 """Closed Hub routes and owner-only transitions; never a transport or settings API."""
-from dataclasses import dataclass
-from .models import ChannelKey
+from dataclasses import dataclass, field
+from .models import Job
+from .search_projection import SearchCategory, SearchId
 
 PRIMARY = ('Dashboard', 'Guide', 'Recordings', 'DVR', 'Search', 'Settings')
 VIEW_KEYS = dict(zip(PRIMARY, ('dashboard', 'guide', 'recordings', 'dvr_view', 'search', 'settings')))
@@ -18,8 +19,9 @@ class Route:
     parent: str | None = None
 
     def __post_init__(self):
-        if self.view not in PRIMARY or (self.parent is not None and
-                                       (self.view, self.parent) != ('Guide', 'Search')):
+        if self.view not in PRIMARY or (self.parent is not None and not (
+                self.view == 'Search' and self.parent in ('Guide', 'Recordings', 'DVR')
+                or self.parent == 'Search' and self.view in ('Guide', 'DVR'))):
             raise ValueError('Unknown Hub route')
 
     @property
@@ -28,19 +30,29 @@ class Route:
 
 
 @dataclass(frozen=True)
+class ScheduledReveal:
+    job: Job
+    observation: tuple = field(repr=False)
+
+
+@dataclass(frozen=True)
 class SearchReturn:
-    airing: tuple[ChannelKey, str, int]
+    identity: SearchId
+    category: SearchCategory
+    query: str
     position: int  # Also determines the page when the result order is unchanged.
     focus: int
+    scheduled: ScheduledReveal | None = None
 
 
-def route_fence(w):
+def route_fence(w, *, guide=True):
     # A queued Back/Select is not navigation in the next logical frame, even
     # when a child and its parent share the same physical WindowXML controls.
     w._dispatcher.fence_input()
     w._chrome.layout = object()
     w._playback_ui.cancel()
-    w._guide_runtime.invalidate_view()
+    if guide:
+        w._guide_runtime.invalidate_view()
 
 
 def presentation_scope(w):
@@ -48,31 +60,52 @@ def presentation_scope(w):
     return getattr(getattr(w, '_chrome', None), 'layout', None)
 
 
-def enter(w, target, *, guide_return=None, search_return=None, returning=False):
+def enter(w, target, *, guide_return=None, dvr_return=None, search_return=None,
+          search_context=None, returning=False):
     w._dispatcher.assert_owner()
     if w._closed:
         return
     old = w._route
-    route = Route(target, 'Search' if guide_return is not None else None)
+    origin = getattr(w, '_search_origin', None)
+    from_result = returning and old.parent == target == 'Search'
+    from_context = returning and old.view == 'Search' and old.parent == target
+    parent = ('Search' if search_return is not None else old.view if search_context is not None
+              else origin[0] if from_result and origin is not None else None)
+    route = Route(target, parent)
     if old == route and target == 'Dashboard':
         return
     with w._dispatcher.modal_input():  # no ingress during native control rebinding
         if old.parent == 'Search' and w._guide_return is not None:
             w.guide.restore_bookmark(w._guide_return)
             w._intended_anchor = None
+        if old.parent == 'Search' and w._dvr_return is not None:
+            w._dvr.restore_bookmark(w._dvr_return)
         preferred = None
-        if returning and old.parent == target == 'Search' and w._search_return is not None:
+        if from_result and w._search_return is not None:
             bookmark = w._search_return
-            w.search_selection = bookmark.airing
+            w._search_ui.category = bookmark.category
+            w.search_query = bookmark.query
+            w.search_selection = bookmark.identity
             w.positions['Search'] = bookmark.position
-            w._search_page_key = None
+            w._search_ui.invalidate()
             preferred = bookmark.focus
+        if search_context is not None:
+            category, focus = search_context
+            w._search_origin = old.view, focus
+            w._search_ui.set_category(category)
+        elif search_return is None and not from_result:
+            if from_context and origin is not None:
+                preferred = origin[1]
+            w._search_origin = None
         w._guide_return = guide_return
+        w._dvr_return = dvr_return
         w._search_return = search_return
         if old.view == 'Dashboard' and route.view != 'Dashboard':
             w._dashboard_ui.suspend()
         w._route = route
         route_fence(w)
+        if from_context and target == 'DVR':
+            w._dvr.resume_search_origin()
         w.render()
         w._chrome.initialize_focus(preferred)
 

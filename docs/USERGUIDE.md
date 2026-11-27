@@ -24,8 +24,8 @@ The minimum valid backend build is `2026.08.07.0346` or newer. A newer version
 passing the floor does not establish compatibility with every future API change.
 
 Once installed, the intended entry is **Add-ons → Program add-ons → Channels DVR
-Hub**. The Program script opens a Dashboard with Guide, Recordings, Scheduled,
-Pass list, Search and Connection navigation. It is not a native PVR replacement.
+Hub**. The Program script opens a Dashboard with Guide, Recordings, DVR, Search
+and Settings navigation. It is not a native PVR replacement.
 
 Dashboard cards are read-only summaries. Reported totals and accepted loaded
 listings can differ. Unknown / unavailable is not zero or No, and a reported tuner
@@ -83,18 +83,49 @@ return to Dashboard and stale statistics with automatic refresh disabled still w
   not imply that a programme is available to record or play.
 - Browse recordings by show, season and episode, Recent or Movies, or search
   loaded data locally. DVR, Imported and Unknown provenance stay distinct.
-- **OK opens details; it does not start playback.** An explicit Play action can
+- **OK opens details by default.** An explicit Play action can
   hand an eligible completed DVR recording or advertised live channel to Kodi's
   native player after fresh checks. Imported or unknown-provenance entries are
   not automatically eligible for DVR playback.
 - Live tuning requires separate consent when shared tuner availability is unknown.
   Channels DVR may use another available source; a guide selection does not prove
   a particular tuner is free or will be used.
+- In Kodi's add-on settings under **Playback**, **Start video in background**
+  requests windowed playback on the next admitted start. It is off by default
+  (fullscreen requested). Kodi still handles playback and Stop.
+- **Guide OK: Watch live (on now)** is also off by default. If enabled, OK on a
+  visible, currently airing programme from fresh eligible primary Guide listings
+  opens the same default-No Watch Live flow after a metadata check. Other OK
+  presses keep Details or Gap. Info, pointer hits, and Search are unchanged.
 - There is no autoplay. Closing the Guide or changing the connected source does
   not automatically stop playback. Use Kodi's playback controls to stop it.
 
 Kodi loads, decodes, scales and caches artwork. Missing artwork can leave text-only
 presentation; the client does not provide a separate image-processing pipeline.
+
+### Search local listings
+
+Use the Hub's **Search** destination for **All**, **Guide programmes**,
+**Recordings**, **Scheduled recordings** or **Passes**. From Guide, Recordings or
+DVR, the Search command under **More** opens that category and Back returns to
+the invoking view. The Recordings tab named Search is still the local library
+filter. In unified Search, enter up to 128 characters. All groups results by
+category and shows up to 100 across the groups; select a category to search it
+separately if earlier groups fill the page.
+
+Search does not ask the DVR for more listings. **Coverage** shows each selected
+category's availability and limits, including the accepted Guide time window
+and selected channel collection. An accepted empty listing is not the same as
+an unavailable listing. Live passes are searchable only after an accepted
+Passes browse from the current source. Older or incomplete listings can remain
+visible with a warning and do not guarantee that a result can be opened.
+
+Use **Info** for details, **Open recording** for recording details, or **Show
+in Guide / DVR** to reveal the selected listing. Back from a reveal returns to
+the Search result if it is still present. These actions do not start playback
+or schedule, cancel or change anything on the DVR.
+When an eligible programme result offers **Watch**, it is a separate live
+channel action, not playback of the selected airing. Confirmation defaults to No.
 
 ## Scheduling and passes
 

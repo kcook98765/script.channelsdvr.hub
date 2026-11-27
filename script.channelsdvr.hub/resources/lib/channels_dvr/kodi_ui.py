@@ -15,7 +15,7 @@ import xbmcgui
 from .browser import Row, scheduled_rows
 from .dvr_ui import DvrUI, PassRows
 from .event_details_ui import show_event_details
-from .guide import GuideController, Selection, time_label
+from .guide import GuideController, Selection
 from .guide_runtime import GuideRuntime, display_repository
 from .guide_fixture_data import FixtureMode as FixtureMode
 from .guide_gap import show_station_gap
@@ -33,24 +33,28 @@ from .normalization import DataState
 from .repository import MockRepository as MockRepository
 from .recording_ui import RecordingUI
 from .storage_ui import StorageUI
-from .search import ProgrammeSearchIndex, SearchPage, airing_key, normalize_query
+from .search import ProgrammeSearchIndex, normalize_query
+from .search_projection import SearchId
 from .session import OfflineDataSession, Presentation
 from .series_manager_models import RuleRow
 from .ui_dispatch import UiDispatcher
 from .ui_text import capture, text
-from .ui_menu import CONNECTION, group_label, select
+from .ui_menu import CONNECTION
 from .ui_navigation import execute_command
 from .ui_routes import Route, SearchReturn, VIEW_KEYS, enter, launch_view, presentation_scope
 from .ui_hits import Hit
 from .ui_modal import ModalGui, dialog_for, modal_input
-from .ui_browse_navigation import search_menu
 from .ui_recordings import rows_status
+from .ui_search import SearchUI
 from .ui_status import STATUS_KEYS
 from .artwork_ui import ArtworkUI, show_media_details
 from .playback_ui import PlaybackUI
 from .dashboard_ui import DashboardUI, format_timestamp
 from .ui_chrome import BACK, CONTEXT, DOWN, LEFT, NAV_BACK, RIGHT, UP, WindowChrome
 
+
+# Kodi 21.3 GetTopmostModalDialog returns WINDOW_INVALID when no modal is active.
+_OMEGA_NO_MODAL = 9999
 
 
 class SettingsProtocol(Protocol):
@@ -85,6 +89,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._route = Route(start_view)
         self._guide_return: tuple[str, Selection, int, int] | None = None
         self._search_return: SearchReturn | None = None
+        self._search_origin: tuple[str, int] | None = None
+        self._dvr_return: tuple | None = None
         self._native_window: int | None = None
         self.positions: dict[str, int] = {}
         self._dvr_selected: str | None = None
@@ -105,13 +111,11 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self.data_session = OfflineDataSession(self.repository)
         self.library = LibraryBrowser(self.repository.recordings)
         self.search_query = ""
-        self.search_selection: tuple[ChannelKey, str, int] | None = None
+        self.search_selection: SearchId | None = None
         self._search_index: ProgrammeSearchIndex | None = None
         self._search_snapshot: tuple[Event, ...] | None = None
         self._search_channels: tuple[Channel, ...] | None = None
-        self._search_page_key: object = None
-        self._search_page_value: SearchPage | None = None
-        self._search_rows_value: tuple[Row, ...] = ()
+        self._search_ui = SearchUI(self)
         self._recording_ui = RecordingUI(self)
         self._storage_ui = StorageUI(self)
         self._series_ui = None
@@ -149,6 +153,17 @@ class ChannelsWindow(xbmcgui.WindowXML):
         except (RuntimeError, TypeError, ValueError):
             return False
 
+    def _owns_playback_foreground(self) -> bool:
+        """An unrelated native modal can cover Hub without changing its base ID."""
+        self._dispatcher.assert_owner()
+        try:
+            if self._closed or not self._owns_input():
+                return False
+            dialog_id = xbmcgui.getCurrentWindowDialogId()
+        except Exception:
+            return False
+        return type(dialog_id) is int and dialog_id == _OMEGA_NO_MODAL
+
     def process_pending(self) -> None:
         self._dispatcher.assert_owner()
         if self._closed or self._dispatcher.modal_active:
@@ -177,7 +192,13 @@ class ChannelsWindow(xbmcgui.WindowXML):
         if not self._closed and self.initialized and self._live_session is not None and self.view not in ('Dashboard', 'Settings'):
             now = monotonic()
             if self._status_tick is None or now - self._status_tick >= 1:
-                self._label(114, self._current_data().banner)
+                if self.view == 'Search':
+                    previous = self._search_ui.publication
+                    self._search_ui.page()
+                    if previous is not self._search_ui.publication:
+                        self.render()
+                else:
+                    self._label(114, self._current_data().banner)
                 if self.view == 'Guide':
                     paint_clock(self)
                 self._status_tick = now
@@ -193,6 +214,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._dispatcher.assert_owner()
         if self._closed:
             return
+        if self._series_ui is not None:
+            self._series_ui.close()  # Revoke Series admission before other teardown.
         self._closed = True
         self._dashboard_ui.close()
         self._playback_ui.close()
@@ -201,8 +224,6 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._recording_ui.close()
         self._storage_ui.close()
         self._dvr.refresh()
-        if self._series_ui is not None:
-            self._series_ui.close()
         self._guide_runtime.close()
         self._dispatcher.close()
         self._chrome.reset()
@@ -219,12 +240,12 @@ class ChannelsWindow(xbmcgui.WindowXML):
         if self._series_ui is None:
             self._series_ui = SeriesManagerUI(assert_owner=self._dispatcher.assert_owner,
                 dialog=ModalGui(self, gui).Dialog, profile=self._recording_ui._programme_profile,
-                config=self._recording_ui._current_config,
+                config=lambda: None if self._guide_runtime._mode is not None else self._recording_ui._current_config(),
                 selection=self._series_selection,
                 viewer=lambda heading, body: _programme_scope(self.path, heading, body, self.strings, modal_owner=self),
                 source_scope=lambda: self._recording_ui.preview._control_context()[0],
                 strings=self.strings, default_no=gui.DLG_YESNO_NO_BTN,
-                presentation_scope=lambda: presentation_scope(self))
+                presentation_scope=lambda: presentation_scope(self), status_finished=self._dvr.status_finished)
         return self._series_ui
 
     def _series_manager_request(self, gui):
@@ -271,11 +292,13 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._chrome.initialize_focus()
 
     def get_setting(self, key: str) -> str | bool:
-        if key not in ("server_origin", "server_expected_version", "development_metadata_enabled", "ShowDeveloperTools", "dashboard_refresh_minutes"):
+        toggles = ('development_metadata_enabled', 'ShowDeveloperTools',
+                   'playback_start_windowed', 'guide_ok_watch_live')
+        if key not in (*toggles, 'server_origin', 'server_expected_version', 'dashboard_refresh_minutes'):
             raise ValueError("Unknown owned setting")
         if self._addon is None:
-            return False if key in ("development_metadata_enabled", "ShowDeveloperTools") else ""
-        if key in ("development_metadata_enabled", "ShowDeveloperTools"):
+            return False if key in toggles else ""
+        if key in toggles:
             return self._addon.getSettingBool(key)
         if key == "server_origin":
             return self._addon.getSettingString("server_origin")
@@ -308,6 +331,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._dispatcher.assert_owner()
         if not self.developer_enabled() or self._closed:
             return
+        if self._series_ui is not None:
+            self._series_ui.close()  # Revoke before the flag invalidates the live source.
         self.transient_demo_mode = True
         self._development_blocked = None
         cancel_large(self, 'demo opened')
@@ -368,6 +393,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
 
     def _save_development(self, config: DevelopmentConfig | None = None,
                           enabled: bool | None = None) -> bool:
+        series = getattr(self, '_series_ui', None)
+        if series is not None and (enabled is False or (config is not None and config != self._development_config)):
+            series.close()  # Revoke before changing the saved source/opt-in.
         try:
             if self._addon is None:
                 raise ValueError
@@ -408,9 +436,11 @@ class ChannelsWindow(xbmcgui.WindowXML):
 
     def _reset_search(self) -> None:
         self._search_return = None
+        self._dvr_return = None
         self.positions.pop('Search', None)
         self.search_query = ""
         self.search_selection = None
+        self._search_ui.reset()
         self._clear_search_cache()
 
     def _reset_dvr(self) -> None:
@@ -425,9 +455,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._search_index = None
         self._search_snapshot = None
         self._search_channels = None
-        self._search_page_key = None
-        self._search_page_value = None
-        self._search_rows_value = ()
+        self._search_ui.invalidate()
 
     def _request_live(self, anchor: int) -> None:
         self._dispatcher.assert_owner()
@@ -515,21 +543,26 @@ class ChannelsWindow(xbmcgui.WindowXML):
             return ()
         if self.view == 'Settings':
             return tuple(Row(code, self.t(label), '') for code, label in CONNECTION)
+        if self.view == 'Search':
+            return self._search_ui.rows()
         if self._dvr.passes:
             return self._dvr.rows()
+        if self.view in ('Recordings', 'DVR') and self._guide_runtime._mode is not None:
+            return ()  # Retained for worker handoff, not for the active presentation.
         if self._development_blocked is not None or (self._live_session is None and not self.demo_allowed()):
             return ()
-        if self.view == "Search":
-            self._search_page()
-            return self._search_rows_value
         if self.view == 'DVR':
             demo = self.demo_allowed()
             r = self.repository
             session = self._live_session
-            key = (id(r.jobs), id(r.events), id(r.channels), self._guide_runtime.revision,
+            child_data = self._search_ui.scheduled_child_data() if self._dvr.child else None
+            if child_data is not None and not child_data.can_browse:
+                return ()
+            jobs = child_data.items if child_data is not None else r.jobs
+            key = (id(jobs), id(r.events), id(r.channels), self._guide_runtime.revision,
                    session._catalog_epoch if session is not None else None, demo, id(self.strings))
             if key != self._dvr_rows_key:
-                self._dvr_rows = scheduled_rows(r, self.strings, demo=demo)
+                self._dvr_rows = scheduled_rows(r, self.strings, demo=demo, jobs=jobs)
                 self._dvr_rows_key = key
                 if self._dvr_rows:
                     self._select_list(self._dvr_rows, next((i for i, row in enumerate(self._dvr_rows)
@@ -559,7 +592,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
         else:
             self.positions[self._position_key()] = index
             if rows and self.view == 'Search':
-                self.search_selection = airing_key(self._search_page().matches[index])
+                self._search_ui.select(index)
             elif rows and self.view == 'DVR':
                 self._dvr_selected = rows[index].id
 
@@ -570,6 +603,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
             return self.view == 'Guide' and self._guide_runtime.ready and self.guide.focus_cell(channel, event_id, start)
         if kind != 'row' or self.view not in ('Recordings', 'DVR', 'Search', 'Settings'):
             return False
+        if self.view == 'Search':
+            return self._search_ui.select_hit(key[0])
         if self._dvr.passes:
             data = self._dvr.data()
             return data.can_browse and self._dvr.hit(data.items, key[0])
@@ -587,10 +622,15 @@ class ChannelsWindow(xbmcgui.WindowXML):
             return Presentation((), DataState.EMPTY, False, False, None, None, '', '', False)
         if self.view == 'DVR' and self._dvr.passes:
             return self._dvr.data()
+        if self._dvr.child:
+            return self._search_ui.scheduled_child_data()
         if self._development_blocked is not None or (self._live_session is None and not self.demo_allowed()):
             return Presentation((), DataState.OUTAGE, False, False, None, None,
                                 self.t('not_connected'), self.t('connection_prompt'),
                                 False)
+        if self.view in ('Recordings', 'DVR') and self._guide_runtime._mode is not None:
+            loading = self.t('live_loading')
+            return Presentation((), None, True, False, None, None, loading, loading, False)
         if self._live_session is not None:
             if self.view in ("Guide", "Search"):
                 return self._guide_runtime.presentation(self._live_session.guide())
@@ -642,7 +682,6 @@ class ChannelsWindow(xbmcgui.WindowXML):
             return
         self._label(116, '')
         self._label(117, '')
-        data = self._current_data()
         view_label = self.t(VIEW_KEYS[self.view])
         if self.demo_allowed():
             view_label = self.t('demo_guide') if self.view == 'Guide' else self.t('demo_view', view=view_label)
@@ -653,8 +692,12 @@ class ChannelsWindow(xbmcgui.WindowXML):
             self._label(120 + row_index, "")
         self._label(112, "")
         self._label(113, "")
-        self._label(114, data.banner)
         self._status_tick = monotonic() if self._live_session is not None else None
+        if self.view == 'Search':
+            self._search_ui.render()
+            return
+        data = self._current_data()
+        self._label(114, data.banner)
         self._label(115, self.t('demo_footer') if self.demo_allowed() else self.t('listings_footer'))
         if self.view == 'Settings':
             self._label(112, self.t('connection'))
@@ -684,7 +727,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
                 state = 'no_listings'
             elif data.state == DataState.EMPTY:
                 state = 'empty_update'
-            elif self.view in ('Guide', 'Search') and not self._guide_runtime.ready:
+            elif self.view == 'Guide' and not self._guide_runtime.ready:
                 state = 'guide_unavailable' if self._guide_runtime.error else 'preparing_guide'
             else:
                 state = 'no_listings'
@@ -701,17 +744,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
         else:
             rows = self._rows()
             selected = self._render_rows(rows)
-            if self.view == "Search":
-                page = self._search_page()
-                self._label(112, self.t('search_heading', query=page.query[:80] or self.t('search_query_prompt'),
-                                       group=group_label(self.strings, self.guide.group)))
-                status = self.t('search_no_matches' if page.query else 'search_choose')
-                if rows:
-                    status = self.t('search_rows_status', position=selected + 1, count=len(rows))
-                if page.truncated:
-                    status += self.t('results_limited')
-                self._label(113, status)
-            elif self.view == "Recordings":
+            if self.view == "Recordings":
                 self._label(112, self.library.breadcrumb)
                 self._label(113, rows_status(self, rows, selected))
 
@@ -719,13 +752,14 @@ class ChannelsWindow(xbmcgui.WindowXML):
         selected = self._selected_position(rows)
         recordings = self.view == 'Recordings'
         first = self.library.top if recordings else selected // PAGE_ROWS * PAGE_ROWS
-        y, stride, height = (311, 82, 72) if recordings else (250, 95, 85)
+        y, stride, height = (311, 82, 72) if recordings or self.view == 'Search' else (250, 95, 85)
         visible = rows[first:first + PAGE_ROWS]
         self._ensure_pool(len(visible))
         for index, row in enumerate(visible):
             rect = (80, y + index * stride, 1760, height)
             self._draw(index, *rect, row.label, first + index == selected)
-            self._hit_plan.append(Hit(rect, ('row', row.id)))
+            key = self._search_ui.hit_key(first + index) if self.view == 'Search' else row.id
+            self._hit_plan.append(Hit(rect, ('row', key)))
         return selected
 
     def _details(self, allow_search_action: bool = True, *, origin=100) -> None:
@@ -734,6 +768,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
         if self.view == 'Settings':
             rows = self._rows()
             execute_command(self, xbmcgui, rows[self._selected_position(rows)].id)
+            return
+        if self.view == 'Search':
+            self._search_ui.details(xbmcgui, allow_search_action, origin)
             return
         if self._dvr.passes:
             self._dvr.show(dialog_for(self, xbmcgui))
@@ -748,22 +785,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
         if not data.can_browse:
             dialog_for(self, xbmcgui).ok(self.t('demo_status') if self.demo_allowed() else self.t('connection'), data.message)
             return
-        if self.view == "Search":
-            event = self._selected_search_event()
-            if event is None:
-                dialog_for(self, xbmcgui).ok(self.t('search_programmes'), self.t('search_select_result'))
-                return
-            if allow_search_action:
-                entries = (('result.details', 'event_details'), ('result.guide', 'show_in_guide'))
-                choice = select(dialog_for(self, xbmcgui), self.strings, 'search_result', entries)
-                if choice is None:
-                    return
-                if choice == 'result.guide':
-                    self._show_search_in_guide(event, origin=origin)
-                    return
-            if self._selected_search_event() is event:
-                self._show_event_details(event)
-        elif self.view == "Guide":
+        if self.view == "Guide":
             event = self.selected_indexed_event()
             if event is None:
                 dialog_for(self, xbmcgui).ok(self.t('no_listing'), self.t('temporal_gap'))
@@ -785,17 +807,6 @@ class ChannelsWindow(xbmcgui.WindowXML):
             if not self._artwork_ui.ready() or show_media_details(self, row) is not True:
                 dialog_for(self, xbmcgui).textviewer(row.label, row.detail)
 
-    def _show_search_in_guide(self, event: Event | None = None, *, origin=100):
-        if self._closed or self.view != 'Search':
-            return
-        selected = self._selected_search_event()
-        bookmark = self.guide.bookmark()
-        if selected is None or (event is not None and event is not selected) or not self.guide.focus_event(selected):
-            dialog_for(self, xbmcgui).ok(self.t('search_programmes'), self.t('search_airing_gone'))
-            return
-        enter(self, 'Guide', guide_return=bookmark,
-              search_return=SearchReturn(airing_key(selected), self.positions.get('Search', 0), origin))
-
     def selected_indexed_event(self, event: Event | None = None) -> Event | None:
         return self._guide_runtime.selected(event)
 
@@ -810,46 +821,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
         # Keep original input: Unicode normalization may expand 128 characters.
         self.search_query = text
 
-    def _search_page(self) -> SearchPage:
-        if self._development_blocked is not None or (self._live_session is None and not self.demo_allowed()):
-            self._search_rows_value = ()
-            return SearchPage(self.search_query, (), 0, False, False)
-        events, channels = self.repository.events, self.repository.channels
-        if (self._search_index is None or self._search_snapshot is not events
-                or self._search_channels is not channels):
-            self._search_index = ProgrammeSearchIndex(events, channels)
-            self._search_snapshot, self._search_channels = events, channels
-            self._search_page_key = None
-        allowed = tuple(channel.key for channel in self.guide.channels)
-        key = (id(events), id(channels), normalize_query(self.search_query), allowed,
-               self.repository.horizon)
-        if key != self._search_page_key:
-            page = self._search_index.search(self.search_query, allowed_channels=allowed,
-                                             horizon=self.repository.horizon)
-            position = next((i for i, event in enumerate(page.matches)
-                             if airing_key(event) == self.search_selection),
-                            min(self.positions.get("Search", 0), max(0, len(page.matches) - 1)))
-            self.positions["Search"] = position
-            self.search_selection = airing_key(page.matches[position]) if page.matches else None
-            inventory = {channel.key: channel for channel in channels}
-            self._search_rows_value = tuple(
-                Row(repr(airing_key(event)),
-                     self.t('search_row', title=event.title, number=inventory[event.channel].number,
-                            source=self._source_label(event.channel), time=time_label(event.start)), self.t('search_result'))
-                for event in page.matches)
-            self._search_page_value, self._search_page_key = page, key
-        assert self._search_page_value is not None
-        return self._search_page_value
-
     def _selected_search_event(self) -> Event | None:
-        if not self._guide_runtime.ready:
-            return None
-        page = self._search_page()
-        position = min(self.positions.get("Search", 0), max(0, len(page.matches) - 1))
-        return self.selected_indexed_event(page.matches[position]) if page.matches else None
-
-    def _search_menu(self) -> None:
-        search_menu(self, xbmcgui)
+        return self._search_ui.event() if self.view == 'Search' else None
 
     def _diagnostics(self) -> None:
         if not self.developer_enabled():
@@ -881,13 +854,13 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._playback_ui.cancel()
         started = perf_counter()
         try:
-            data = self._current_data()
-            if self.view == 'Settings':
+            if self.view in ('Settings', 'Search'):
                 if action_id in (UP, DOWN):
                     rows = self._rows()
                     self._select_list(rows, self._selected_position(rows) + (PAGE_ROWS if page else 1) * (-1 if action_id == UP else 1))
                 self.render()
                 return
+            data = self._current_data()
             if self._development_blocked is not None:
                 self.render()
                 return

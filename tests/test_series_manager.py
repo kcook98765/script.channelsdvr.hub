@@ -12,11 +12,12 @@ import unittest
 from unittest.mock import patch
 
 from channels_dvr.live_loader import DevelopmentConfig
+from channels_dvr.dvr_ui import DvrUI
 from channels_dvr.newbuild_compatibility import profile_binding
 from channels_dvr.operation_storage import OperationStore, Scope, StorageError
 from channels_dvr.series_manager_models import (GeneralSeriesPlan, ManagerError, ManagerView,
     rule_rows, associated_inactive)
-from channels_dvr.series_manager_store import SeriesManagerStore, decode, encode, MAX_BYTES
+from channels_dvr.series_manager_store import SeriesManagerStore, consume_dispatch, decode, encode, MAX_BYTES
 from channels_dvr.series_manager_commands import SeriesManagerCommands
 from channels_dvr.series_manager_worker import SeriesManagerWorker
 from channels_dvr.series_manager_reconciliation import successor
@@ -56,6 +57,7 @@ class FakeBackend:
         self.writes = []
         self.store = None
         self.on_write = None
+        self.on_jobs = None
         self.fail_reply = False
         self.actual = '2026.10.24.0621'
 
@@ -66,7 +68,10 @@ class FakeBackend:
             namespace = config.namespace
             def verify_status(self): return backend.actual
             def rules(self): return deepcopy(backend.rows)
-            def jobs(self): return deepcopy(backend.internal)
+            def jobs(self):
+                if backend.on_jobs:
+                    backend.on_jobs()
+                return deepcopy(backend.internal)
             def public_jobs(self): return deepcopy(backend.public)
             def rule_detail(self, key): return deepcopy(next((r for r in backend.rows if r['ID'] == key), None))
             def public_channels(self): return ['qualified-catalog-double']
@@ -78,6 +83,7 @@ class FakeBackend:
                 entry = pending['history'][pending['pending']]
                 assert entry['dispatched'] is True and entry['state'] == 'unknown'
                 assert backend.store.store._db.in_transaction is False
+                consume_dispatch(proof, self.binding)
                 backend.writes.append(proof.operation)
                 if proof.operation == 'create':
                     row = dict(ID='created-ID', **json.loads(proof.body), Paused=False,
@@ -320,6 +326,146 @@ class ManagerTests(unittest.TestCase):
         self.assertTrue(blocked.control_blocked)
         self.assertIsNone(blocked.token)
 
+    def test_incomplete_wrong_id_cannot_reconcile_with_positive_target_readback(self):
+        self.adopt()
+        approval = self.commands.details('rule-A')
+        self.assertIn('pause', approval.actions)
+        prior = self.backend.rows[0]
+        afterward = dict(prior, Paused=True, UpdatedAt=2)
+        self.store.intent('pause', 'a'*64, RuleSnapshot.parse(prior), None, self.backend.actual)
+        response = Response(dict(sparse(afterward), ID='rule-B'))
+        read = response.read1
+
+        def interrupted(amount):
+            if not response.raw:
+                raise OSError('interrupted fake stream')
+            return read(amount)
+
+        response.read1 = interrupted
+        status = dict(version=self.backend.actual)
+        opener = Opener([Response(status), response])
+        client = SeriesHTTP(CONFIG, opener=opener)
+        client.verify_status()
+        with self.assertRaises(ManagerError):
+            client.mutate(self.store.dispatch(), capture=self.store.capture)
+        burned = deepcopy(self.store.root)
+        entry = burned['history'][burned['pending']]
+        self.assertEqual(entry['returned_id'], 'rule-B')
+        self.assertFalse(entry['wire']['complete'])
+
+        # Fully qualified, independent GETs prove A's expected state, not the
+        # identity of the incomplete mutation receipt.
+        status_opener = Opener([Response(status), Response(status), Response([afterward]),
+                                Response([]), Response([]), Response(afterward), Response(status)])
+        commands = SeriesManagerCommands(CONFIG, self.store, lambda config: SeriesHTTP(config, opener=status_opener))
+        self.assertEqual(commands.status().error, 'pending')
+        durable = decode(OperationStore.inspect(self.temp.name, Scope.SERIES).payload)
+        self.assertTrue(durable['blocked'])
+        self.assertEqual((durable['pending'], durable['history']), (burned['pending'], burned['history']))
+        self.assertEqual(durable['records'][0]['last'], prior)
+        self.assertEqual(len(status_opener.requests), 7)
+        self.assertTrue(all(request.method == 'GET' for request in status_opener.requests))
+        self.backend.rows = [afterward]
+        with self.assertRaises(ManagerError) as caught:
+            self.commands.execute('pause', token=approval.token, confirmed=True)
+        self.assertEqual(caught.exception.code, 'pending')
+        view = self.commands.details('rule-A')
+        self.assertTrue(view.control_blocked)
+        self.assertEqual(view.actions, ())
+        self.assertIsNone(view.token)
+        self.assertEqual(self.backend.writes, [])
+
+        # Compatibility controls: no identity annotation in older entries, or
+        # an incomplete receipt naming the exact intended rule, do not conflict.
+        for returned in (None, 'rule-A'):
+            with self.subTest(returned=returned):
+                root = deepcopy(burned)
+                test_entry = root['history'][root['pending']]
+                test_entry['returned_id'] = returned
+                test_entry['wire'] = (None if returned is None else dict(test_entry['wire'],
+                    raw_base64=base64.b64encode(json.dumps(sparse(afterward)).encode()).decode()))
+                raw, outcome = successor(encode(root), BINDING, self.backend.actual,
+                    dict(rules=[afterward], jobs=[], public=[], details={'rule-A': afterward}))
+                self.assertEqual(outcome, 'clear')
+                self.assertIsNone(decode(raw)['pending'])
+
+    def test_incomplete_wire_only_checkpoint_checks_id_against_exact_readback(self):
+        self.adopt()
+        before = self.backend.rows[0]
+        after = dict(before, Paused=True, UpdatedAt=2)
+        status = dict(version=self.backend.actual)
+        self.store.intent('pause', 'a'*64, RuleSnapshot.parse(before), None, self.backend.actual)
+        response = Response(dict(sparse(after), ID='rule-B'))
+        read = response.read1
+
+        def interrupted(amount):
+            if not response.raw:
+                raise OSError('interrupted fake stream')
+            return read(amount)
+
+        def raw_checkpoint_only(wire, returned_id=None):
+            if returned_id is not None:
+                self.assertEqual(returned_id, 'rule-B')
+                raise ManagerError('storage')  # Stop between raw and decoded-ID checkpoints.
+            self.store.capture(wire)
+
+        response.read1 = interrupted
+        client = SeriesHTTP(CONFIG, opener=Opener([Response(status), response]))
+        client.verify_status()
+        with self.assertRaises(ManagerError) as stopped:
+            client.mutate(self.store.dispatch(), capture=raw_checkpoint_only)
+        self.assertEqual(stopped.exception.code, 'storage')
+        payload = OperationStore.inspect(self.temp.name, Scope.SERIES).payload
+        burned = decode(payload)
+        index = burned['pending']
+        entry = burned['history'][index]
+        self.assertIsNone(entry['returned_id'])
+        self.assertFalse(entry['wire']['complete'])
+        self.assertEqual(json.loads(base64.b64decode(entry['wire']['raw_base64']))['ID'], 'rule-B')
+
+        reads = dict(rules=[after], jobs=[], public=[], details={'rule-A': after})
+        raw, outcome = successor(payload, BINDING, self.backend.actual, reads)
+        blocked = decode(raw)
+        self.assertEqual(outcome, 'blocked')
+        self.assertEqual((blocked['pending'], blocked['history']), (index, burned['history']))
+        self.assertEqual(blocked['records'][0]['last'], before)
+
+        # Same interruption, same intended reply ID, and the same qualified readback.
+        entry['wire']['raw_base64'] = base64.b64encode(json.dumps(sparse(after)).encode()).decode()
+        raw, outcome = successor(encode(burned), BINDING, self.backend.actual, reads)
+        cleared = decode(raw)
+        self.assertEqual(outcome, 'clear')
+        self.assertIsNone(cleared['pending'])
+        self.assertEqual(cleared['records'][0]['last'], after)
+        self.assertIsNone(cleared['history'][index]['returned_id'])
+        self.assertFalse(cleared['history'][index]['wire']['complete'])
+
+    def test_status_distinguishes_cleared_unsent_intent_from_verified_write(self):
+        self.adopt()
+        before = self.backend.rows[0]
+        status = dict(version=self.backend.actual)
+
+        def status_for(row):
+            opener = Opener([Response(status), Response(status), Response([row]), Response([]), Response([]),
+                             Response(row), Response(status)])
+            commands = SeriesManagerCommands(CONFIG, self.store, lambda config: SeriesHTTP(config, opener=opener))
+            result = commands.status()
+            self.assertIsNone(result.error)
+            self.assertIsNone(decode(OperationStore.inspect(self.temp.name, Scope.SERIES).payload)['pending'])
+            self.assertTrue(all(request.method == 'GET' for request in opener.requests))
+            return result
+
+        self.store.intent('pause', 'a'*64, RuleSnapshot.parse(before), None, self.backend.actual)
+        self.assertEqual(status_for(before).status_outcome, 'unsent')
+        self.assertEqual(self.store.record('rule-A')['last'], before)
+        self.assertFalse(self.store.root['history'][-1]['dispatched'])
+
+        self.store.intent('pause', 'b'*64, RuleSnapshot.parse(before), None, self.backend.actual)
+        consume_dispatch(self.store.dispatch(), BINDING)  # Simulate initiated write with missing reply.
+        after = dict(before, Paused=True, UpdatedAt=2)
+        self.assertEqual(status_for(after).status_outcome, 'verified')
+        self.assertEqual(self.store.record('rule-A')['last'], after)
+
     def test_capacity_failure_before_http_and_no_eviction(self):
         self.adopt()
         record = self.store.record('rule-A')
@@ -457,11 +603,11 @@ class TransportTests(unittest.TestCase):
         self.store.open()
     def tearDown(self):
         self.store.close(); self.temp.cleanup()
-    def proof(self, operation='create'):
+    def proof(self, operation='create', *, admit=None):
         self.store.intent(operation, 'a'*64, None if operation == 'create' else RuleSnapshot.parse(full()),
                           GeneralSeriesPlan('SH', 'Name').body() if operation == 'create' else None,
                           '2026.10.24.0621')
-        return self.store.dispatch()
+        return self.store.dispatch(admit=admit)
     def client(self, response):
         opener = Opener([Response({'version': '2026.10.24.0621'}), response])
         client = SeriesHTTP(CONFIG, opener=opener)
@@ -526,6 +672,22 @@ class TransportTests(unittest.TestCase):
         client.mutate(proof, capture=self.store.capture)
         second, second_opener = self.client(Response(full()))
         with self.assertRaises(ManagerError): second.mutate(proof, capture=self.store.capture)
+        self.assertEqual(len(second_opener.requests), 1)
+
+    def test_revoked_burn_never_opens_or_captures_and_cannot_be_replayed(self):
+        client, opener = self.client(Response(full()))
+        proof = self.proof('pause', admit=lambda: False)
+        with self.assertRaises(ManagerError) as caught:
+            client.mutate(proof, capture=self.store.capture)
+        self.assertEqual(caught.exception.code, 'closed')
+        self.assertTrue(self.store.mark_undispatched(proof))
+        root = decode(OperationStore.inspect(self.temp.name, Scope.SERIES).payload)
+        entry = root['history'][root['pending']]
+        self.assertEqual((entry['state'], entry['dispatched'], entry['wire']), ('intent', False, None))
+        self.assertEqual(len(opener.requests), 1)
+        second, second_opener = self.client(Response(full()))
+        with self.assertRaises(ManagerError):
+            second.mutate(proof, capture=self.store.capture)
         self.assertEqual(len(second_opener.requests), 1)
 
     def test_late_reply_id_checkpoint_precedes_deadline_refusal(self):
@@ -595,6 +757,35 @@ class UITests(unittest.TestCase):
         self.answers = [0]
         self.ui.request()
         self.assertEqual(self.calls, [('list', {})])
+
+    def test_dvr_status_does_not_show_verified_for_undispatched_intent(self):
+        dvr = DvrUI(SimpleNamespace(_paint_pending=False))
+        dvr.notice = 'dvr_series_pending'
+        self.ui.request_dvr(None, lambda: True, dvr.status_finished, source_current=lambda: True)
+        self.results = [ManagerView('status', status_outcome='unsent')]
+        self.ui.poll()
+        self.assertEqual(self.shown, [FALLBACK['dvr_series_unsent']])
+        self.assertEqual(dvr.notice, 'dvr_series_unsent')
+        self.assertTrue(dvr.w._paint_pending)
+
+    def test_guide_status_releases_only_the_exact_source_notice(self):
+        dvr = DvrUI(SimpleNamespace(_paint_pending=False))
+        self.ui._status_finished = dvr.status_finished
+        for same_source in (False, True):
+            with self.subTest(same_source=same_source):
+                dvr.notice = 'dvr_series_pending'
+                self.answers = [2]  # Guide's explicit read-only status.
+                self.ui.request()
+                self.assertEqual(self.calls[-1], ('status', {}))
+                self.presentation = object()  # Route changed; no stale modal or follow-up list.
+                if not same_source:
+                    self.scope = object()
+                self.results = [ManagerView('status', status_outcome='unsent')]
+                self.ui.poll()
+                self.assertEqual(dvr.notice, 'dvr_series_unsent' if same_source else 'dvr_series_pending')
+                self.assertFalse(self.shown)
+                self.assertNotIn(('list', {}), self.calls)
+                self.results.clear()
 
     def test_late_pass_list_does_not_open_over_another_route(self):
         self.answers = [0]
@@ -816,6 +1007,55 @@ class UITests(unittest.TestCase):
 
 
 class WorkerTests(unittest.TestCase):
+    def test_disconnect_while_dequeued_preflight_read_is_blocked_never_dispatches(self):
+        with tempfile.TemporaryDirectory(prefix='series-manager-test-') as profile:
+            backend = FakeBackend()
+            blocked, release = threading.Event(), threading.Event()
+
+            def factory(path, binding):
+                backend.store = SeriesManagerStore(path, binding)
+                return backend.store
+
+            worker = SeriesManagerWorker(CONFIG, profile, client_factory=backend.client, store_factory=factory)
+
+            def run(operation, **values):
+                self.assertTrue(worker.submit(operation, **values))
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    result = worker.poll()
+                    if result is not None:
+                        return result
+                    time.sleep(.002)
+                self.fail('worker result timeout')
+
+            def hold_preflight():
+                blocked.set()
+                if not release.wait(5):
+                    raise AssertionError('test did not release preflight')
+
+            try:
+                review = run('details', key='rule-A')
+                self.assertIsNone(run('adopt', token=review.token, confirmed=True).error)
+                review = run('details', key='rule-A')
+                backend.on_jobs = hold_preflight
+                self.assertTrue(worker.submit('pause', token=review.token, confirmed=True))
+                self.assertTrue(blocked.wait(5))
+                worker.close()  # Owner-side disconnect: must return without joining this read.
+                self.assertFalse(worker.finished)
+            finally:
+                worker.close()
+                release.set()
+                if worker._thread is not None:
+                    worker._thread.join(5)
+                    self.assertFalse(worker._thread.is_alive())
+            self.assertEqual(backend.writes, [])
+            self.assertFalse(backend.rows[0]['Paused'])
+            self.assertIsNone(worker.poll())
+            root = decode(OperationStore.inspect(profile, Scope.SERIES).payload)
+            entry = root['history'][root['pending']]
+            self.assertEqual((entry['operation'], entry['state'], entry['dispatched']), ('pause', 'intent', False))
+            self.assertIsNone(entry['wire'])
+
     def test_post_dispatch_checkpoint_failures_remain_uncertain_and_block_retry(self):
         for checkpoint in ('capture', 'finish'):
             with self.subTest(checkpoint=checkpoint), tempfile.TemporaryDirectory(prefix='series-manager-test-') as profile:
@@ -891,10 +1131,12 @@ class WorkerTests(unittest.TestCase):
                     self.assertIsNotNone(result)
                     if final_build == '2026.10.24.0621':
                         self.assertEqual(result.rows, rule_rows([full()]))
+                        self.assertEqual(result.browse_version, final_build)
                         self.assertIsNone(result.token)
                         self.assertIsNone(result.error)
                     else:
                         self.assertEqual((result.rows, result.error), ((), 'source'))
+                        self.assertIsNone(result.browse_version)
                 finally:
                     worker.close()
                     if worker._thread is not None:

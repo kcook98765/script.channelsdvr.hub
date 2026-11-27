@@ -490,6 +490,9 @@ class GuideRuntime:
         if kind in ('normal', 'stress') and not (self.window.transient_demo_mode is True
                 and self.window.developer_enabled() and not self.window._closed):
             return
+        series = getattr(self.window, '_series_ui', None)
+        if series is not None:
+            series.close()  # Revoke before the old session can be held for retirement.
         if kind in ('live', 'no_connection'):
             self.window.transient_demo_mode = False
         self._mode = (kind, config)
@@ -497,6 +500,7 @@ class GuideRuntime:
         # search/index references still follow the worker retirement handoff.
         self.window._guide_return = None
         self.window._search_return = None
+        self.window._dvr_return = None
         # Paint admission changes even when the swap finishes synchronously or
         # awaits retirement. Existing controller/repository/display pins stay
         # until _change_mode obtains its worker hold; painting does not detach.

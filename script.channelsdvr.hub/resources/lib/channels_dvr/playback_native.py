@@ -29,7 +29,7 @@ class NativePlayer:
         self._descriptor = None
         self._player = None
 
-    def handoff(self, descriptor, *, admit=lambda: True) -> bool | None:
+    def handoff(self, descriptor, *, admit=lambda: True, windowed: bool = False) -> bool | None:
         """False if refused, True if sent, None if SDK send outcome is unknown."""
         self._owner()
         if self._closed or self._dispatch_attempted:
@@ -68,7 +68,7 @@ class NativePlayer:
         self._dispatch_attempted = True  # do not repeat an ambiguous send if the SDK raises
         self._descriptor, self._player = descriptor, player
         try:
-            player.play(descriptor.url, item, windowed=False)
+            player.play(descriptor.url, item, windowed=windowed is True)
         except Exception:
             # Kodi may already have accepted the async message. Retain only the
             # same owner-scoped readback and never emit the SDK exception text.

@@ -11,7 +11,7 @@ TABS = {220: 'recording.tab.recent', 221: 'recording.tab.shows', 222: 'recording
         223: 'recording.tab.all', 224: 'recording.tab.search'}
 SOURCE, SORT, QUERY = 320, 321, 322
 TOOLS = {SOURCE: ('recording.source',), SORT: ('recording.sort',), QUERY: ('recording.query',)}
-ACTION_SLOTS = (300, 301, *TOOLS, 305)  # Fixed coordinates even when some commands are unavailable.
+ACTION_SLOTS = (300, 301, *TOOLS, 304, 305)  # Fixed coordinates even when some commands are unavailable.
 LABELS = {code: MODE_LABELS[mode] for code, mode in TAB_MODES.items()} | {
     'recording.source': 'recording_source', 'recording.sort': 'recordings_sort',
     'recording.query': 'search_recordings',

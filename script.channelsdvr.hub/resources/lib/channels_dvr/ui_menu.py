@@ -11,8 +11,6 @@ PROGRAMME = (
     ('programme.prepare', 'prepare_pass'), ('programme.status', 'pass_status'),
     ('programme.history', 'operation_history'),
 )
-SEARCH = (('search.enter', 'search_enter'), ('search.previous', 'search_previous'),
-          ('search.clear', 'search_clear'))
 DEVELOPER = (
     ('demo.open', 'open_demo'), ('demo.close', 'close_demo'),
     ('demo.status', 'demo_status'), ('demo.stress', 'demo_stress'),

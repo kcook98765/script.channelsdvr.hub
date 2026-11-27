@@ -30,12 +30,14 @@ Hub's parent WindowXML receives activation via `onClick`. The raw
 actual click callbacks (even stale targets) and every other action still do.
 This handles either callback order without pairing, timing, or reissuing a
 Play lease. None of the existing final handoff or live consent guards is removed.
-The owner also rechecks the active Hub window and its modal fence before using
-an intent and at final admission. A raw-only click with no Hub command and no
-sampled foreground change does not revoke Play. Native delivery for background,
-disabled, and retired targets, a transient foreground switch between samples,
-and Kodi-owned overlays are not qualified by those checks. Do not infer gesture
-pairing, pointer target, or continuous foreground authority from a raw action.
+The owner rechecks the active Hub window, its modal fence, and Kodi's topmost
+modal before opening live confirmation, on return, and at final admission.
+On Omega 21.3, `getCurrentWindowDialogId()` must return `WINDOW_INVALID` (9999);
+the base window can still be Hub when an unrelated modal covers it. A failed
+read blocks playback. This check does not change navigation or dialog focus
+return. A raw-only click with no Hub command or sampled foreground change does
+not revoke Play. These point-in-time checks do not establish continuous
+foreground authority, infer a pointer target, or detect non-modal overlays.
 
 Live review requires a fresh descriptor (0–30 seconds in the same monotonic
 clock) at the dialog boundary. Only Yes on that exact display label and source
@@ -44,8 +46,9 @@ must match exactly, in addition to the existing input, selection and source
 lease. The first locator is not retained in consent. A logical scope is not
 server authentication, and no recheck establishes physical tuner capacity.
 
-The script requests native video with `Player.play(..., windowed=False)` once.
-That is the non-windowed start request, not proof of actual fullscreen. After
+The script calls `Player.play` once, with `windowed=False` by default and
+`windowed=True` only when the native background preference is literally true.
+This requests presentation, not playback success. After
 an admitted recording send attempt, `NativePlayer.recording_readback()` can
 sample the recording on the owner. The readback in Connection status
 is a closed code (`recording_exact_video`, `recording_player_idle`,
@@ -54,7 +57,7 @@ require a callback, does not run continuously, and is absent without an admitted
 recording send attempt. A stable but different locator is a nonmatch, never a
 normalized alias; an external player, failed or inconsistent reads are unknown.
 Even a stable exact locator identifies media, not a native start. No new player
-controls, backend checks, or playback preferences are wired. If `Player.play`
+controls or backend checks are wired. If `Player.play`
 raises after admission, the status is `handoff_unknown`: the same readback is
 available, but neither it nor advisory callbacks prove what that send did.
 There is no automatic retry. A new explicit Play detaches the older observer
@@ -66,17 +69,28 @@ In the earlier private retained-file run, explicit Recording Play reached Kodi
 and opened one recording stream, but video remained at the spinner during the
 observation. Physical Kodi Stop returned to browsing with idle readback, and
 the observed stream later cleared. The Watch Live check reached default No and
-was declined without tuning. These observations do not qualify fullscreen AV,
-audio, provider reception, a live Yes, or the corrected source in this worktree.
+was declined without tuning. A bounded retest on prior candidate `6dfd117`
+showed fullscreen video for the retained recording, with Kodi start and close
+logs. This does not qualify audio, a live Yes, or the revised source here.
 
-No visible background preference is enabled. Omega's `windowed=True` requests
-windowed video; it does not prove that this `WindowXML` (with a full-screen Hub
-background) retains usable input/focus alongside playback or restores the route
-and selection afterward. The #17 route must qualify before exposing an option.
-For a later Phase 6 merge, keep it a standalone native playback setting, default
-off, read only for an explicit admitted start, and independent of startup route,
-per-source bookmarks, and live consent. Do not use a global fullscreen toggle,
-restart the stream, or enable compact controls based on the preference.
+The separate silent synthetic MP4 fixture on Omega/Estuary established fullscreen
+pixels with `windowed=False`, keyboard pause/resume, and return to its validation
+window with exact-video-to-idle readback on Kodi Stop. `windowed=True` left that
+window foreground while the file played and also returned to idle on Stop.
+This qualifies the SDK behavior in that fixture, not this merged Hub WindowXML's
+background browsing, focus, or route restoration, nor decoded provider media.
+Physical Guide OK callback delivery on the merged Hub also remains unqualified.
+
+The standalone native Playback settings both default off and are independent of
+Phase 6 route/bookmark settings. The background flag is sampled only at handoff;
+it issues no window/focus, restart, or control command. Guide OK is limited to a
+focused content activation on the active primary Guide. A fresh READY listing
+and an exact visible indexed airing with a known end and `start <= now < end`
+are required. The same accepted snapshot, index ticket and airing must remain
+current through the default-No question and final handoff, under the original
+input lease and a five-minute OK deadline. The second metadata result still
+must match the reviewed station label, provider scope and pin. Pointer hits,
+Info, past/future or unknown-end airings, gaps, and Search do not use this opt-in.
 
 ## Future ownership integration (plan)
 
@@ -111,15 +125,15 @@ restart the stream, or enable compact controls based on the preference.
    target a replaced player between read and dispatch.
 5. Keep browsing suspension and route/selection restoration independent of
    this model. The desired full-screen default and optional background mode
-   need separate native qualification (see [Omega Player.cpp](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/interfaces/legacy/Player.cpp));
-   no background preference or browsing behavior is wired. Physical Stop,
+   need merged-Hub qualification (see [Omega Player.cpp](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/interfaces/legacy/Player.cpp));
+   no custom browse restoration or Stop behavior is wired. Physical Stop,
    active-to-idle readback, and backend stream/tuner release are separate claims.
 
 ## Focused offline check
 
 ```sh
 PYTHONPATH=script.channelsdvr.hub/resources/lib:tests python3 -B -m unittest test_navigation test_ui_dispatch test_playback_adapter test_native_playback test_player_ownership -v
-PYTHONPATH=script.channelsdvr.hub/resources/lib:tests python3 -B -m unittest test_package.PackageTests.test_gui_settings_protocol_and_callbacks_are_closed_boundaries test_package.PackageTests.test_ast_no_playback_resolver_external_execution_or_persistent_writes -v
+PYTHONPATH=script.channelsdvr.hub/resources/lib:tests python3 -B -m unittest test_package -v
 ```
 
 The cohort uses explicit doubles, not Kodi modules/stubs or providers. For later

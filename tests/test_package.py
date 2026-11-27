@@ -139,6 +139,20 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(version.findtext("default"), "2026.08.07.0346")
         self.assertEqual(root.findtext(".//setting[@id='development_metadata_enabled']/default"), "false")
 
+    def test_playback_preferences_are_separate_visible_boolean_opt_ins(self):
+        from channels_dvr.ui_text import IDS
+        root = ET.parse(ADDON / 'resources/settings.xml').getroot()
+        category = root.find(".//category[@id='playback']")
+        self.assertEqual(category.get('label'), str(IDS['playback']))
+        settings = category.findall('./group/setting')
+        self.assertEqual({s.get('id') for s in settings}, {'playback_start_windowed', 'guide_ok_watch_live'})
+        for setting in settings:
+            self.assertEqual(setting.get('label'), str(IDS[setting.get('id')]))
+            self.assertEqual(setting.get('type'), 'boolean')
+            self.assertEqual(setting.findtext('default'), 'false')
+            self.assertEqual(setting.findtext('level'), '0')
+            self.assertEqual(setting.find('control').get('type'), 'toggle')
+
     def test_combined_english_catalog_matches_all_active_localization_ids(self):
         from channels_dvr.ui_text import FALLBACK, IDS
         entries = {}
@@ -333,7 +347,7 @@ class PackageTests(unittest.TestCase):
                     elif path == LIB / 'playback_native.py' and qualified == 'player.play':
                         # Exactly the reviewed direct script adapter, not a global
                         # exemption for Player/play/resolvers/builtins elsewhere.
-                        self.assertEqual(ast.unparse(node), 'player.play(descriptor.url, item, windowed=False)')
+                        self.assertEqual(ast.unparse(node), 'player.play(descriptor.url, item, windowed=windowed is True)')
                         self.assertEqual(sum(isinstance(n,ast.Call) and dotted(n.func) == 'player.play'
                                              for n in ast.walk(tree)),1)
                     elif path == LIB / 'playback_native.py' and qualified.startswith(('player.', 'self._player.')):

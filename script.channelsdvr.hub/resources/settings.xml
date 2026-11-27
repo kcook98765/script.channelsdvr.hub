@@ -49,5 +49,19 @@
         </setting>
       </group>
     </category>
+    <category id="playback" label="30700">
+      <group id="1">
+        <setting id="playback_start_windowed" type="boolean" label="30714">
+          <level>0</level>
+          <default>false</default>
+          <control type="toggle"/>
+        </setting>
+        <setting id="guide_ok_watch_live" type="boolean" label="30715">
+          <level>0</level>
+          <default>false</default>
+          <control type="toggle"/>
+        </setting>
+      </group>
+    </category>
   </section>
 </settings>

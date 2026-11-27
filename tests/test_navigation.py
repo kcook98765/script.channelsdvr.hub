@@ -23,6 +23,7 @@ from channels_dvr.playback_ui import PlaybackUI
 from channels_dvr.playback_worker import PlaybackResult
 from channels_dvr.repository import MockRepository
 from channels_dvr.search import airing_key
+from channels_dvr.search_projection import PassId, ProgrammeId, RecordingId, ScheduledId, SearchCategory
 from channels_dvr.series_manager_models import GeneralSeriesPlan, ManagerView, rule_rows
 from channels_dvr.session import OfflineDataSession
 from channels_dvr.ui_chrome import (ACTIONS, CONTENT, CONTEXT, DOWN, INFO, LEFT, NAV, NAV_BACK,
@@ -33,6 +34,7 @@ from channels_dvr.ui_routes import PRIMARY, Route, launch_view
 
 ADDON = Path(__file__).resolve().parents[1] / 'script.channelsdvr.hub'
 ADAPTER = ADDON / 'resources/lib/channels_dvr/kodi_ui.py'
+PASS_BUILD = '2026.10.24.0621'
 
 
 class Control:
@@ -89,10 +91,12 @@ class WindowXML:
 class NavigationTests(unittest.TestCase):
     def setUp(self):
         self.front = 10000
+        self.native_dialog = 9999  # Omega WINDOW_INVALID: no active modal.
         self.dialog = SimpleNamespace(select=Mock(return_value=-1), textviewer=Mock(), ok=Mock(),
                                       input=Mock(return_value=''), yesno=Mock(return_value=False))
         self.gui = SimpleNamespace(WindowXML=WindowXML, ControlLabel=Control, ControlImage=Control, ControlButton=Control,
                                    getCurrentWindowId=lambda: self.front, Dialog=lambda: self.dialog, INPUT_ALPHANUM=0,
+                                   getCurrentWindowDialogId=lambda: self.native_dialog,
                                    ACTION_MOUSE_LEFT_CLICK=100, ACTION_STOP=13, DLG_YESNO_NO_BTN=10)
         fakes = patch.dict(sys.modules, {'xbmc': SimpleNamespace(), 'xbmcgui': self.gui, 'xbmcvfs': SimpleNamespace()})
         fakes.start()
@@ -679,6 +683,66 @@ class NavigationTests(unittest.TestCase):
         self.dialog.textviewer.assert_not_called()
         w._playback_ui.request.assert_not_called()
 
+    def test_entering_demo_revokes_series_before_live_eligibility_changes(self):
+        w = self.w
+        config = object()
+        w._saved_config = lambda: config
+        w._development_config = config
+        w._live_session = object()
+        w._addon.getSettingBool = lambda _: True
+        config_at_close = []
+        close = Mock(side_effect=lambda: config_at_close.append(w._recording_ui._current_config()))
+        w._series_ui = SimpleNamespace(close=close)
+
+        def enter_demo_mode(kind):
+            self.assertEqual(kind, 'normal')
+            close.assert_called_once_with()
+            self.assertTrue(w.transient_demo_mode)
+            self.assertIsNone(w._recording_ui._current_config())
+
+        with patch.object(w._guide_runtime, 'mode', side_effect=enter_demo_mode) as mode, patch.object(self.adapter, 'enter'):
+            w._open_demo()
+        mode.assert_called_once_with('normal')
+        self.assertEqual(config_at_close, [config])
+        w._save_development.assert_not_called()
+
+    def test_deferred_live_source_switch_withdraws_old_recordings_and_scheduled_rows(self):
+        self.seed()
+        w = self.w
+        library, repository = w.library, w.repository
+        old = SimpleNamespace(loading=False, incarnation=object(), _generation=1, _catalog_epoch=1,
+                              jobs=Mock(side_effect=w.data_session.jobs),
+                              recordings=Mock(side_effect=w.data_session.recordings))
+        w._live_session = old
+        w.transient_demo_mode = False
+        self.enter('DVR')
+        self.assertTrue(self.hits('row'))
+        self.enter('Recordings')
+        hit = next(iter(self.hits('row').values()))
+        w._guide_runtime.result = object()  # Still held by the old source's retirement.
+        w._series_ui = SimpleNamespace(close=Mock(), poll=Mock())
+        w._series_ui.close.side_effect = lambda: self.assertIsNone(w._guide_runtime._mode)
+        w._guide_runtime.mode('live', SimpleNamespace(namespace='different-source'))
+        w._series_ui.close.assert_called_once()
+        w._series_ui.close.side_effect = None
+        old.jobs.reset_mock()
+        old.recordings.reset_mock()
+        self.click(hit)  # Retired logically even before repaint removes the native hit.
+        for view in ('Recordings', 'DVR'):
+            with self.subTest(view=view):
+                self.enter(view)
+                self.assertTrue(w._current_data().loading)
+                self.assertFalse(w._current_data().can_browse)
+                self.assertEqual(w._rows(), ())
+                self.assertIsNone(w._chrome.capture(CONTENT))
+                self.assertFalse(self.hits('row'))
+        self.assertIs(w._live_session, old)
+        self.assertIs(w.library, library)
+        self.assertIs(w.repository, repository)
+        old.jobs.assert_not_called()
+        old.recordings.assert_not_called()
+        self.dialog.textviewer.assert_not_called()
+
     def test_recordings_play_is_explicit_and_stale_or_ineligible_intent_cannot_dispatch(self):
         self.seed()
         w = self.w
@@ -734,7 +798,7 @@ class NavigationTests(unittest.TestCase):
         worker = Mock(submit=Mock(return_value=True), poll=Mock(return_value=None))
         start = Mock()
 
-        def handoff(descriptor, *, admit):
+        def handoff(descriptor, *, admit, windowed):
             if admit() is not True:
                 return False
             start(descriptor)
@@ -772,6 +836,174 @@ class NavigationTests(unittest.TestCase):
         self.click(304)
         worker.submit.assert_called_once()
         return worker, player, start
+
+    def guide_ok_fixture(self, *, enabled=True):
+        worker, player, start = self.playback_fixture('Guide')
+        w = self.w
+        w.utc_now = lambda: w.repository.now
+        w._addon.getSettingBool = lambda key: (True if key == 'development_metadata_enabled'
+                                                else enabled if key == 'guide_ok_watch_live' else False)
+        self.publish_search_guide(w.repository)
+        w._guide_runtime.selected = type(w._guide_runtime).selected.__get__(w._guide_runtime)
+        w._show_event_details = Mock()
+        w.render()
+        event = w.selected_indexed_event()
+        self.assertIsNotNone(event)
+        self.assertIn((event.channel, event.id, event.start), self.hits('cell'))
+        worker.submit.assert_not_called()
+        return worker, player, start
+
+    def test_playback_windowed_setting_is_read_only_at_single_handoff(self):
+        for value in (False, True, 'true', RuntimeError('setting unavailable')):
+            with self.subTest(value=value):
+                self.w = w = self.window()
+                worker, player, start = self.playback_fixture()
+
+                def get_setting(key):
+                    if key == 'playback_start_windowed':
+                        if isinstance(value, Exception):
+                            raise value
+                        return value
+                    return key == 'development_metadata_enabled'
+
+                w._addon.getSettingBool = Mock(side_effect=get_setting)
+                w.render()
+                self.click(301)
+                self.assertFalse(any(c.args == ('playback_start_windowed',)
+                                     for c in w._addon.getSettingBool.call_args_list))
+                descriptor = self.prepare_playback_result(worker)
+                focus, route = w.getFocusId(), w._route
+                w.process_pending()
+                w.process_pending()
+                start.assert_called_once_with(descriptor)
+                self.assertIs(player.handoff.call_args.kwargs['windowed'], value is True)
+                self.assertEqual(sum(c.args == ('playback_start_windowed',)
+                                     for c in w._addon.getSettingBool.call_args_list), 1)
+                self.assertEqual(w.getFocusId(), focus)
+                self.assertIs(w._route, route)
+
+    def test_guide_ok_default_info_and_pointer_still_open_details(self):
+        worker, _, _ = self.guide_ok_fixture(enabled=False)
+        w = self.w
+        event = w.selected_indexed_event()
+        self.click(CONTENT)
+        w._show_event_details.assert_called_once_with(event)
+        w._addon.getSettingBool = lambda key: key in ('development_metadata_enabled', 'guide_ok_watch_live')
+        w._show_event_details.reset_mock()
+        self.action(INFO)
+        self.click(self.hits('cell')[(event.channel, event.id, event.start)])
+        self.assertEqual(w._show_event_details.call_count, 2)
+        worker.submit.assert_not_called()
+
+    def test_guide_ok_ineligible_airings_and_snapshots_never_submit(self):
+        for reason in ('stale', 'partial', 'loading', 'future', 'ended', 'open-end', 'gap', 'not-painted', 'search-child'):
+            with self.subTest(reason=reason):
+                self.w = w = self.window()
+                worker, _, _ = self.guide_ok_fixture()
+                event = w.selected_indexed_event()
+                data = w._live_session.guide()
+                if reason in ('stale', 'partial', 'loading'):
+                    changed = {'stale': {'stale': True}, 'partial': {'state': DataState.PARTIAL},
+                               'loading': {'loading': True}}[reason]
+                    w._live_session.guide = lambda: replace(data, **changed)
+                elif reason == 'future':
+                    future = next(item for item in data.items
+                                  if item.channel == event.channel and item.start > w.utc_now())
+                    self.assertTrue(w.guide.focus_event(future))
+                elif reason == 'ended':
+                    w.utc_now = lambda: event.end
+                elif reason == 'open-end':
+                    open_end = next(item for item in data.items if item.channel == event.channel and item.end is None)
+                    self.assertTrue(w.guide.focus_event(open_end))
+                    w.utc_now = lambda: open_end.start
+                elif reason == 'gap':
+                    w.guide.jump(w.repository.horizon[0] + 4500)
+                    self.assertIsNone(w.guide.selected_event())
+                elif reason == 'search-child':
+                    w._route = Route('Guide', 'Search')
+                w.render()
+                if reason == 'not-painted':
+                    w._chrome.presented = {i: a for i, a in w._chrome.presented.items()
+                                           if a.target != ('cell', event.channel, event.id, event.start)}
+                self.click(CONTENT)
+                worker.submit.assert_not_called()
+                self.dialog.yesno.assert_not_called()
+
+    def test_guide_ok_only_exact_live_yes_requalifies_and_sends_once(self):
+        worker, player, start = self.guide_ok_fixture()
+        w = self.w
+        self.dialog.yesno.return_value = True
+        self.click(CONTENT)
+        first = self.prepare_playback_result(worker)
+        self.assertEqual(first.selection.identity, w.selected_indexed_event().channel)
+        w._show_event_details.assert_not_called()
+        w.process_pending()
+        self.assertEqual(self.dialog.yesno.call_args.kwargs['defaultbutton'], self.gui.DLG_YESNO_NO_BTN)
+        self.assertEqual(worker.submit.call_count, 2)
+        player.handoff.assert_not_called()
+        second = self.prepare_playback_result(worker)
+        self.assertNotEqual(first.attempt, second.attempt)
+        w.process_pending()
+        w.process_pending()
+        start.assert_called_once_with(second)
+        self.assertEqual(w.getFocusId(), CONTENT)
+
+    def test_guide_ok_yes_does_not_follow_new_airing_on_same_channel(self):
+        worker, player, _ = self.guide_ok_fixture()
+        w = self.w
+
+        def confirm(*args, **kwargs):
+            before = w.guide.selection
+            w.guide.horizontal(1)
+            self.assertEqual(w.guide.selection.channel, before.channel)
+            self.assertNotEqual(w.guide.selection.event_start, before.event_start)
+            return True
+
+        self.dialog.yesno.side_effect = confirm
+        self.click(CONTENT)
+        self.prepare_playback_result(worker)
+        w.process_pending()
+        self.dialog.yesno.assert_called_once()
+        worker.submit.assert_called_once()
+        player.handoff.assert_not_called()
+
+    def test_guide_ok_rechecks_on_now_at_final_admission(self):
+        worker, player, start = self.guide_ok_fixture()
+        w = self.w
+        event = w.selected_indexed_event()
+        self.dialog.yesno.return_value = True
+        self.click(CONTENT)
+        self.prepare_playback_result(worker)
+        w.process_pending()
+        self.assertEqual(worker.submit.call_count, 2)
+        self.prepare_playback_result(worker)
+        handoff = player.handoff.side_effect
+
+        def prepare_then_admit(descriptor, *, admit, windowed):
+            w.utc_now = lambda: event.end
+            return handoff(descriptor, admit=admit, windowed=windowed)
+
+        player.handoff.side_effect = prepare_then_admit
+        w.process_pending()
+        self.assertEqual(w._playback_ui.state, 'handoff_refused')
+        start.assert_not_called()
+
+    def test_guide_ok_yes_does_not_survive_replaced_snapshot_with_same_airing(self):
+        worker, player, _ = self.guide_ok_fixture()
+        w = self.w
+        self.dialog.yesno.return_value = True
+        self.click(CONTENT)
+        self.prepare_playback_result(worker)
+        w.process_pending()
+        self.assertEqual(worker.submit.call_count, 2)
+        self.prepare_playback_result(worker)
+        data = w._live_session.guide()
+        replacement = tuple(list(data.items))
+        self.assertIsNot(replacement, data.items)
+        w._live_session.guide = lambda: replace(data, items=replacement)
+        w.process_pending()
+        self.assertEqual(w._playback_ui.state, 'selection_changed')
+        player.handoff.assert_not_called()
 
     def test_playback_mouse_action_before_or_after_click_keeps_one_exact_handoff(self):
         for raw_first in (True, False):
@@ -829,9 +1061,9 @@ class NavigationTests(unittest.TestCase):
         self.prepare_playback_result(worker)
         handoff = player.handoff.side_effect
 
-        def prepare_then_admit(descriptor, *, admit):
+        def prepare_then_admit(descriptor, *, admit, windowed):
             self.post_action(self.gui.ACTION_STOP)
-            return handoff(descriptor, admit=admit)
+            return handoff(descriptor, admit=admit, windowed=windowed)
 
         player.handoff.side_effect = prepare_then_admit
         self.w.process_pending()
@@ -854,9 +1086,9 @@ class NavigationTests(unittest.TestCase):
                 if during_prep:
                     handoff = player.handoff.side_effect
 
-                    def prepare_then_admit(descriptor, *, admit):
+                    def prepare_then_admit(descriptor, *, admit, windowed):
                         leave_foreground()
-                        return handoff(descriptor, admit=admit)
+                        return handoff(descriptor, admit=admit, windowed=windowed)
 
                     player.handoff.side_effect = prepare_then_admit
                 else:
@@ -870,6 +1102,49 @@ class NavigationTests(unittest.TestCase):
                     self.front = w._native_window
                 w.process_pending()  # recovering foreground does not revive the old request
                 start.assert_not_called()
+
+    def test_playback_dialog_read_fails_closed_without_changing_navigation_ownership(self):
+        worker, player, _ = self.playback_fixture()
+        w = self.w
+        for value in (12001, None, '9999', 9999.0, RuntimeError('dialog read failed')):
+            with self.subTest(value=value):
+                locks_at_read = []
+
+                def dialog_id():
+                    locks_at_read.append(w._dispatcher._lock.locked())
+                    if isinstance(value, Exception):
+                        raise value
+                    return value
+
+                with patch.object(self.gui, 'getCurrentWindowDialogId', side_effect=dialog_id) as read:
+                    self.assertTrue(w._owns_input())  # the matching base window stays authoritative for navigation
+                    read.assert_not_called()
+                    self.click(301)
+                    read.assert_called_once()
+                self.assertEqual(locks_at_read, [False])
+                w.process_pending()  # a clear dialog read cannot revive a refused request
+                worker.submit.assert_not_called()
+                player.handoff.assert_not_called()
+
+    def test_unrelated_modal_blocks_playback_at_final_admission_with_same_base(self):
+        worker, player, start = self.playback_fixture()
+        w = self.w
+        self.click(301)
+        self.prepare_playback_result(worker)
+        handoff = player.handoff.side_effect
+
+        def prepare_then_admit(descriptor, *, admit, windowed):
+            self.native_dialog = 12001
+            self.assertEqual(self.front, w._native_window)
+            return handoff(descriptor, admit=admit, windowed=windowed)
+
+        player.handoff.side_effect = prepare_then_admit
+        w.process_pending()
+        self.assertEqual(w._playback_ui.state, 'handoff_refused')
+        self.native_dialog = 9999
+        w.process_pending()
+        player.handoff.assert_called_once()
+        start.assert_not_called()
 
     def test_new_pending_play_does_not_sample_or_publish_the_previous_player(self):
         worker, previous, _ = self.playback_fixture()
@@ -896,8 +1171,8 @@ class NavigationTests(unittest.TestCase):
     def test_unknown_send_stays_distinct_from_advisory_callbacks_and_does_not_retry(self):
         worker, player, start = self.playback_fixture()
         handoff = player.handoff.side_effect
-        player.handoff.side_effect = lambda descriptor, *, admit: (
-            None if handoff(descriptor, admit=admit) is True else False)
+        player.handoff.side_effect = lambda descriptor, *, admit, windowed: (
+            None if handoff(descriptor, admit=admit, windowed=windowed) is True else False)
         player.poll.return_value = ('error_observed',)
         player.recording_readback.return_value = SimpleNamespace(value='recording_player_idle')
         self.click(301)
@@ -939,8 +1214,9 @@ class NavigationTests(unittest.TestCase):
                     worker.close.assert_called_once()
 
     def test_watch_live_defaults_to_no_and_only_current_yes_gets_fresh_descriptor(self):
-        for confirm, mapped_during_modal in ((False, False), (True, True), (True, False)):
-            with self.subTest(confirm=confirm, mapped_during_modal=mapped_during_modal):
+        for confirm, mapped_during_modal, replaced in (
+                (False, False, False), (True, True, False), (True, False, False), (True, False, True)):
+            with self.subTest(confirm=confirm, mapped_during_modal=mapped_during_modal, replaced=replaced):
                 self.w = w = self.window()
                 worker, player, start = self.playback_fixture('Guide')
                 self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('watch_short'))
@@ -948,10 +1224,14 @@ class NavigationTests(unittest.TestCase):
 
                 def answer(*args, **kwargs):
                     self.assertTrue(w._dispatcher.modal_active)
-                    self.post_action(self.gui.ACTION_MOUSE_LEFT_CLICK)
-                    if mapped_during_modal:
-                        self.post_action(self.gui.ACTION_STOP)
-                    return confirm
+                    self.native_dialog = 10100  # Hub's own blocking Yes/No is active.
+                    try:
+                        self.post_action(self.gui.ACTION_MOUSE_LEFT_CLICK)
+                        if mapped_during_modal:
+                            self.post_action(self.gui.ACTION_STOP)
+                        return confirm
+                    finally:
+                        self.native_dialog = 12001 if replaced else 9999
 
                 self.dialog.yesno.side_effect = answer
                 w.focus_id = 304
@@ -965,9 +1245,10 @@ class NavigationTests(unittest.TestCase):
                 self.dialog.yesno.assert_called_once()
                 self.assertEqual(self.dialog.yesno.call_args.kwargs['defaultbutton'], self.gui.DLG_YESNO_NO_BTN)
                 player.handoff.assert_not_called()
-                if not confirm or mapped_during_modal:
+                if not confirm or mapped_during_modal or replaced:
                     worker.submit.assert_called_once()
                     self.assertEqual(w._playback_ui.state, 'cancelled')
+                    self.native_dialog = 9999
                     w.process_pending()
                     start.assert_not_called()
                 else:
@@ -981,6 +1262,27 @@ class NavigationTests(unittest.TestCase):
                     w.process_pending()
                     start.assert_called_once_with(second)
                     self.assertEqual(w._playback_ui.state, 'handoff')
+
+    def test_unrelated_modal_blocks_guide_ok_consent_at_dialog_boundary(self):
+        worker, player, _ = self.guide_ok_fixture()
+        w = self.w
+        self.click(CONTENT)
+        self.prepare_playback_result(worker)
+
+        def prepare_dialog():
+            self.native_dialog = 12001  # Another modal appears after the earlier poll gates.
+            self.assertEqual(self.front, w._native_window)
+            return self.dialog
+
+        with patch.object(self.gui, 'Dialog', side_effect=prepare_dialog) as create:
+            w.process_pending()
+            create.assert_called_once()
+        self.assertEqual(w._playback_ui.state, 'selection_changed')
+        self.native_dialog = 9999
+        w.process_pending()
+        worker.submit.assert_called_once()
+        self.dialog.yesno.assert_not_called()
+        player.handoff.assert_not_called()
 
     def test_watch_live_refuses_stale_or_unresolved_review_before_opening(self):
         for changes, state in (({'prepared_at': -20.001}, 'expired'),
@@ -1049,7 +1351,8 @@ class NavigationTests(unittest.TestCase):
         self.enter('Search')
         w._set_search_query('synthetic')
         w.render()
-        self.action(DOWN)  # from the empty Search fallback into the newly available results
+        self.action(DOWN)  # destination → category
+        self.action(DOWN)  # category → results
         self.action(PAGE_DOWN)
         result = w._selected_search_event()
         self.assertEqual(w.positions['Search'], 6)
@@ -1075,7 +1378,9 @@ class NavigationTests(unittest.TestCase):
         w.search_selection = None
         self.action(NAV_BACK)
         self.assertEqual(w.view, 'Search')
-        self.assertEqual(w.search_selection, airing_key(result))
+        self.assertIsInstance(w.search_selection, ProgrammeId)
+        ident = w.search_selection
+        self.assertEqual((ident.channel, ident.event_id, ident.start), airing_key(result))
         self.assertEqual(w.positions['Search'], 6)
         self.assertEqual(set(self.hits('row')), page_ids)
         self.assertEqual(w.getFocusId(), 302)
@@ -1096,6 +1401,359 @@ class NavigationTests(unittest.TestCase):
         self.action(NAV_BACK)
         self.assertEqual(w._selected_search_event(), event)
         self.assertEqual(w.getFocusId(), 300)
+
+    def search_fixture(self):
+        repo = self.seed()
+        w = self.w
+        repo.events = (replace(repo.events[0], title='Sample Café'),)
+        repo.recordings = (replace(repo.recordings[0], title='Sample Café'),)
+        repo.jobs = (replace(repo.jobs[0], title='Sample Café'),)
+        w.data_session = OfflineDataSession(repo, strings=w.strings)
+        w.library = LibraryBrowser(repo.recordings, strings=w.strings)
+        w.guide = GuideController(repo, strings=w.strings)
+        w._dvr._factory = self.forbidden('pass request from Search')
+        return repo
+
+    def test_unified_search_disconnected_keeps_all_categories_and_honest_empty(self):
+        w = self.w
+        self.enter('Search')
+        self.assertEqual(tuple(w._chrome.capture(i).command for i in range(220, 225)),
+                         tuple('search.tab.' + c.value for c in SearchCategory))
+        self.assertEqual(w.controls[113].properties['setLabel'], (w.t('search_query_prompt'),))
+        self.click(224)
+        self.assertEqual((w._search_ui.category, w.getFocusId()), (SearchCategory.PASSES, 224))
+        self.dialog.select.return_value = 0
+        self.dialog.input.return_value = 'sample'
+        self.click(306)
+        group, = w._search_ui.page().groups
+        self.assertFalse(group.has_snapshot)
+        self.assertTrue(group.coverage.unavailable)
+        self.assertNotIn(w.t('search_no_matches'), w.controls[113].properties['setLabel'][0])
+        self.click(304)
+        body = self.dialog.textviewer.call_args.args[1]
+        self.assertIn(w.t('search_local'), body)
+        self.assertIn(w.t('cache_none'), body)
+        self.assertIn(w.t('unavailable'), body)
+        w._metadata_loader.request.assert_not_called()
+        w._playback_ui.request.assert_not_called()
+
+    def test_all_search_mixed_scope_and_status_then_exact_recording_open(self):
+        self.search_fixture()
+        w = self.w
+        recordings = w.data_session.recordings()
+        with patch.object(w.data_session, 'recordings', return_value=replace(
+                recordings, stale=True, state=DataState.PARTIAL)):
+            self.enter('Search')
+            w._set_search_query('sample')
+            w.render()
+            guide, recordings_group, jobs, passes = w._search_ui.page().groups
+            self.assertEqual(tuple(type(g.hits[0].id) for g in (guide, recordings_group, jobs, passes)),
+                             (ProgrammeId, RecordingId, ScheduledId, PassId))
+            self.assertTrue(recordings_group.coverage.stale and recordings_group.coverage.partial)
+            self.assertIn(w.t('search_partial'), w.controls[114].properties['setLabel'][0])
+            self.assertEqual(w._search_ui.page().guide_scope.horizon, w.repository.horizon)
+            self.click(self.hits('row')[(recordings_group.hits[0].id,)])
+            self.dialog.textviewer.assert_not_called()
+            self.assertEqual(w.search_selection, recordings_group.hits[0].id)
+            self.assertFalse(w._search_ui.actionable())
+        w.render()
+        self.assertEqual(w._chrome.capture(300).label_key, 'search_open_recording')
+        self.click(300)
+        self.assertIn('Sample Café', self.dialog.textviewer.call_args.args[0])
+        self.assertEqual(w.view, 'Search')
+        w._dvr._factory.assert_not_called()
+        w._metadata_loader.request.assert_not_called()
+        w._playback_ui.request.assert_not_called()
+
+    def test_contextual_dvr_search_uses_local_reveal_and_two_back_levels(self):
+        self.search_fixture()
+        w = self.w
+        self.enter('DVR')
+        self.click(231)
+        origin = w._dvr.bookmark()
+        self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('search'))
+        self.click(304)
+        self.assertEqual(w._route, Route('Search', 'DVR'))
+        self.assertIs(w._search_ui.category, SearchCategory.PASSES)
+        w._set_search_query('sample')
+        w.render()
+        target = next(key[0] for key in self.hits('row') if key[0].pass_id == 'demo-pass-2')
+        self.assertTrue(w._search_ui.select_hit(target))
+        w.render()
+        self.click(302)
+        self.assertEqual(w._route, Route('DVR', 'Search'))
+        self.assertEqual(w._dvr.selected().key, target.pass_id)
+        self.assertIsNone(command_label(w, 'dvr.refresh'))
+        self.assertIsNone(command_label(w, 'dvr.manage'))
+        self.action(NAV_BACK)
+        self.assertEqual(w._route, Route('Search', 'DVR'))
+        self.assertEqual((w._search_ui.category, w.search_query, w.search_selection, w.getFocusId()),
+                         (SearchCategory.PASSES, 'sample', target, 302))
+        self.action(NAV_BACK)
+        self.assertEqual((w._route, w._dvr.bookmark(), w.getFocusId()), (Route('DVR'), origin, 304))
+        w._dvr._factory.assert_not_called()
+        w._recording_ui.request.assert_not_called()
+
+    def test_guide_and_recordings_context_keep_origin_focus(self):
+        self.search_fixture()
+        w = self.w
+        for view, key, category in (('Guide', 'search_programmes', SearchCategory.GUIDE),
+                                    ('Recordings', 'search', SearchCategory.RECORDINGS)):
+            with self.subTest(view=view):
+                self.enter(view)
+                self.dialog.select.side_effect = lambda _, labels: labels.index(w.t(key))
+                with self.subTest(control=304):
+                    self.click(304)
+                    self.assertEqual(w._route, Route('Search', view))
+                    self.assertIs(w._search_ui.category, category)
+                    self.action(NAV_BACK)
+                    self.assertEqual((w._route, w.getFocusId()), (Route(view), 304))
+        w._dvr._factory.assert_not_called()
+        w._metadata_loader.request.assert_not_called()
+
+    def test_live_pass_search_reads_only_accepted_browse_and_fences_generation(self):
+        workers, rows = self.connected_pass_fixture()
+        w = self.w
+        w._live_session.guide = w.data_session.guide
+        w._live_session.recordings = w.data_session.recordings
+        self.pass_result(workers[0], rows)
+        self.assertEqual(len(workers), 1)
+        self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('search'))
+        self.click(304)
+        w._set_search_query('fake')
+        w.render()
+        self.assertEqual({identity[0].pass_id for identity in self.hits('row')}, {row.key for row in rows})
+        self.click(302)
+        self.assertEqual(w._route, Route('DVR', 'Search'))
+        self.action(NAV_BACK)
+        old = w._chrome.capture(302)
+        w._live_session._generation += 1
+        w._dispatcher.post(('chrome', old))
+        w.process_pending()
+        self.assertEqual(w._route, Route('Search', 'DVR'))
+        self.assertFalse(w._search_ui.page().groups[0].has_snapshot)
+        self.assertEqual(len(workers), 1)
+        workers[0].submit.assert_called_once_with('browse')
+        w._metadata_loader.request.assert_not_called()
+
+    def test_pass_browse_on_newer_build_is_not_search_coverage_for_current_build(self):
+        workers, rows = self.connected_pass_fixture()
+        w = self.w
+        w._live_session.guide = w.data_session.guide
+        w._live_session.recordings = w.data_session.recordings
+        self.pass_result(workers[0], rows, version='2026.10.24.0622')
+        self.assertEqual(w._current_data().items, rows)  # Independent DVR browse is unchanged.
+        self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('search'))
+        self.click(304)
+        w._set_search_query('fake')
+        w.render()
+        group, = w._search_ui.page().groups
+        self.assertFalse(group.has_snapshot)
+        self.assertTrue(group.coverage.unavailable)
+        self.assertFalse(self.hits('row'))
+        self.assertIsNone(w._chrome.capture(302))
+        self.assertEqual(len(workers), 1)
+
+    def connect_search_fixture(self, *, guide_product=None):
+        w = self.w
+        w.transient_demo_mode = False
+        config = SimpleNamespace(namespace=w.repository.channels[0].key.namespace)
+        w._development_config = config
+        w._saved_config = Mock(return_value=config)
+        w._addon.getSettingBool = lambda key: key == 'development_metadata_enabled'
+        w._dashboard_ui.poll = Mock(return_value=False)
+        w._live_session = SimpleNamespace(guide=w.data_session.guide, recordings=w.data_session.recordings,
+            jobs=w.data_session.jobs, incarnation=object(), _generation=1, _catalog_epoch=1, loading=False,
+            actual_version=PASS_BUILD, accepts_index_origin=lambda product: product is guide_product)
+        return config
+
+    def test_scheduled_reveal_rechecks_saved_config_generation_and_snapshot(self):
+        self.search_fixture()
+        w = self.w
+        config = self.connect_search_fixture()
+        jobs = w.data_session.jobs()
+        for reason in ('saved address', 'generation', 'replaced snapshot', 'stale'):
+            with self.subTest(reason=reason):
+                w._saved_config.return_value = config
+                w._live_session.jobs = lambda: jobs
+                self.enter('Search')
+                w._set_search_query('sample')
+                w.render()
+                self.click(223)
+                self.click(302)
+                self.assertEqual(w._route, Route('DVR', 'Search'))
+                self.assertEqual(w._rows()[0].id, jobs.items[0].id)
+                self.action(INFO)
+                self.dialog.textviewer.assert_called_once()
+                self.dialog.textviewer.reset_mock()
+                if reason == 'saved address':
+                    w._saved_config.return_value = SimpleNamespace(namespace='other-dvr')
+                elif reason == 'generation':
+                    w._live_session._generation += 1
+                elif reason == 'replaced snapshot':
+                    w._live_session.jobs = lambda: replace(jobs, items=(replace(jobs.items[0]),))
+                else:
+                    w._live_session.jobs = lambda: replace(jobs, stale=True)
+                self.action(INFO)
+                self.dialog.textviewer.assert_not_called()
+                self.assertFalse(self.hits('row'))
+                self.assertFalse(w._rows())
+                self.action(NAV_BACK)
+        w._metadata_loader.request.assert_not_called()
+        w._recording_ui.request.assert_not_called()
+
+    def test_first_stale_pointer_withdraws_rows_in_same_owner_turn(self):
+        self.search_fixture()
+        self.enter('Search')
+        w = self.w
+        w._set_search_query('sample')
+        w.render()
+        self.click(223)
+        self.assertEqual(w.controls[223].properties['setLabel'],
+                         (w.t('recordings_active_tab', tab=w.t('scheduled')),))
+        self.assertIn(w.t('search_category_scheduled'), w.controls[112].properties['setLabel'][0])
+        ident = next(iter(self.hits('row').values()))
+        w.data_session.choose('empty')
+        w.focus_writes.clear()
+        self.click(ident)
+        self.assertIsNone(w._chrome.capture(ident))
+        self.assertFalse(self.hits('row'))
+        self.assertFalse(w.focus_writes)
+        self.dialog.select.assert_not_called()
+        self.dialog.textviewer.assert_not_called()
+
+    def publish_search_guide(self, repo):
+        w = self.w
+        w.guide = GuideController(repo, deferred=True, strings=w.strings)
+        source = IndexInput(repo.events, repo.channels, repo.channels[0].key.namespace, PASS_BUILD,
+                            repo.horizon, w.data_session.guide().updated_at, 1, object(),
+                            w._guide_runtime.synthetic_owner)
+        product = build_index(source)
+        self.assertTrue(w.guide.adopt_prepared(product, source))
+        return product
+
+    def test_same_source_guide_rebuild_restores_exact_selected_airing(self):
+        repo = self.search_fixture()
+        w = self.w
+        self.publish_search_guide(repo)
+        self.enter('Search')
+        w._set_search_query('sample')
+        w.render()
+        airing = w.search_selection
+        self.assertIsInstance(airing, ProgrammeId)
+        repo.events = w.data_session._events = (replace(repo.events[0], description='New description'),)
+        w.data_session.choose('healthy')
+        w._clear_search_cache()
+        w.render()  # Metadata applied; Guide index is still for the old event tuple.
+        self.assertTrue(w._search_ui.page().groups[0].coverage.loading)
+        self.assertIsInstance(w.search_selection, RecordingId)
+        self.publish_search_guide(repo)
+        w._clear_search_cache()
+        w.render()
+        self.assertEqual(w.search_selection, airing)
+        self.assertIn((airing,), self.hits('row'))
+        self.assertIs(w._selected_search_event(), repo.events[0])
+
+    def test_stale_search_content_can_reach_fresh_sibling_without_activating(self):
+        self.search_fixture()
+        w = self.w
+        guide = w.data_session.guide()
+        with patch.object(w.data_session, 'guide', return_value=replace(guide, stale=True)):
+            self.enter('Search')
+            w._set_search_query('sample')
+            w.render()
+            self.click(220)
+            self.action(DOWN)
+            self.assertEqual(w.getFocusId(), CONTENT)
+            self.assertEqual(w._chrome.capture(CONTENT).command, 'selection.focus')
+            self.click(CONTENT)
+            self.action(INFO)
+            self.dialog.textviewer.assert_not_called()
+            self.action(DOWN)
+            self.assertIsInstance(w.search_selection, RecordingId)
+            self.assertEqual(w._chrome.capture(CONTENT).command, 'selection.activate')
+            self.action(INFO)
+            self.dialog.textviewer.assert_called_once()
+        w._playback_ui.request.assert_not_called()
+
+    def test_search_watch_uses_existing_live_confirmation_only_on_explicit_click(self):
+        repo = self.search_fixture()
+        w = self.w
+        product = self.publish_search_guide(repo)
+        self.connect_search_fixture(guide_product=product)
+        w._addon.getSettingBool = lambda key: key in ('development_metadata_enabled', 'guide_ok_watch_live')
+        w._show_event_details = Mock()
+        ui = w._playback_ui
+        ui.request = type(ui).request.__get__(ui)
+        worker = Mock()
+        worker.poll.return_value = None
+        worker.submit.return_value = True
+        ui._factory = Mock(return_value=worker)
+        ui._clock = lambda: 10.0
+        ui._player_factory = self.forbidden('native playback after No')
+        self.gui.DLG_YESNO_NO_BTN = 10
+        self.dialog.yesno = Mock(return_value=False)
+        with patch.object(type(w._guide_runtime), 'ready', True):
+            self.enter('Search')
+            w._set_search_query('sample')
+            w.render()
+            self.action(INFO)
+            w._show_event_details.assert_called_once_with(repo.events[0])
+            self.click(CONTENT)  # Guide OK opt-in does not change Search activation.
+            ui._factory.assert_not_called()
+            self.assertEqual(w._chrome.capture(301).label_key, 'watch_short')
+            self.click(301)
+            selection, _ = worker.submit.call_args.args
+            self.assertEqual((selection.kind, selection.identity), ('live', repo.events[0].channel))
+            self.prepare_playback_result(worker, source_pinned=True, resolved_label='Station',
+                                         live_scope=LiveProviderScope(PASS_BUILD, selection.identity.source_id))
+            w.process_pending()
+            self.assertEqual(self.dialog.yesno.call_args.kwargs['defaultbutton'], self.gui.DLG_YESNO_NO_BTN)
+            self.assertEqual(worker.submit.call_count, 1)
+            ui._player_factory.assert_not_called()
+
+    def test_search_reports_empty_collection_with_channels_and_other_guide_airings(self):
+        repo = self.search_fixture()
+        w = self.w
+        non_favorite = next(c for c in repo.channels if 'Favorites' not in c.groups)
+        repo.events = (replace(repo.events[0], channel=non_favorite.key),)
+        w.data_session = OfflineDataSession(repo, strings=w.strings)
+        w.guide = GuideController(repo, strings=w.strings)
+        w.guide.set_group('Favorites')
+        self.enter('Search')
+        self.click(221)
+        w._set_search_query('sample')
+        w.render()
+        self.assertTrue(w._search_ui.page().guide_scope.channels)
+        self.assertFalse(self.hits('row'))
+        self.assertEqual(w.controls[113].properties['setLabel'], (w.t('live_empty'),))
+
+    def test_search_rejects_old_pointer_and_does_not_retarget_modal(self):
+        self.search_fixture()
+        w = self.w
+        self.enter('Search')
+        w._set_search_query('sample')
+        w.render()
+        self.click(223)  # Scheduled category
+        old = next(w._chrome.capture(i) for i in self.hits('row').values())
+        self.assertIsInstance(old.target[1], ScheduledId)
+
+        def stale_after_modal(*args):
+            w.data_session.choose('empty')
+            return 1
+
+        self.dialog.select.side_effect = stale_after_modal
+        self.click(300)
+        self.assertEqual(w._route, Route('Search'))
+        self.dialog.textviewer.assert_not_called()
+        self.dialog.select.reset_mock(side_effect=True)
+        w._dispatcher.post(('chrome', old))
+        w.process_pending()
+        self.dialog.select.assert_not_called()
+        self.assertFalse(w._rows())
+        self.assertTrue(w._search_ui.page().groups[0].has_snapshot)
+        w._metadata_loader.request.assert_not_called()
+        w._recording_ui.request.assert_not_called()
 
     def test_list_mouse_hit_is_identity_bound_and_data_never_steals_focus(self):
         repo = self.seed()
@@ -1248,7 +1906,7 @@ class NavigationTests(unittest.TestCase):
         w._save_development.assert_not_called()
         w._metadata_loader.request.assert_not_called()
 
-    def test_more_revalidates_recording_status_after_native_dropdown(self):
+    def connected_guide_fixture(self):
         self.seed()
         self.enter('Guide')
         w = self.w
@@ -1262,6 +1920,10 @@ class NavigationTests(unittest.TestCase):
         w._addon.getSettingBool = lambda _: True
         w._guide_runtime.presentation = lambda data: data
         w._recording_ui._current_config = Mock(return_value=config)
+
+    def test_more_revalidates_recording_status_after_native_dropdown(self):
+        self.connected_guide_fixture()
+        w = self.w
         w._recording_ui.request = Mock()
         first, second = w.repository.events[:2]
         w.guide.focus_event(first)
@@ -1279,6 +1941,27 @@ class NavigationTests(unittest.TestCase):
         self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('recording_status'))
         self.action(CONTEXT)
         w._recording_ui.request.assert_called_once_with(schedule=False)
+
+    def test_eligible_guide_more_dispatches_schedule_and_series_only_to_review(self):
+        self.connected_guide_fixture()
+        w = self.w
+        event = w.repository.events[0]
+        self.assertTrue(w.guide.focus_event(event))
+        w.utc_now = lambda: event.start - 3600
+        w._recording_ui.request = Mock()
+        w._series_manager_request = Mock()
+        w.render()
+        self.assertIs(w.selected_indexed_event(), event)
+        self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('schedule_short'))
+        self.action(CONTEXT)
+        w._recording_ui.request.assert_called_once_with(schedule=True)
+        w._series_manager_request.assert_not_called()
+        self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('series_manager'))
+        self.action(CONTEXT)
+        w._series_manager_request.assert_called_once_with(self.gui)
+        w._metadata_loader.request.assert_not_called()
+        w._playback_ui.request.assert_not_called()
+        w._save_development.assert_not_called()
 
     def test_storage_poll_fences_only_when_native_dialog_runs(self):
         from channels_dvr.storage_ui import StorageResult
@@ -1449,7 +2132,7 @@ class NavigationTests(unittest.TestCase):
         config = SimpleNamespace(namespace='fake-dvr-source')
         w._development_config = config
         w._live_session = SimpleNamespace(jobs=w.data_session.jobs, incarnation=object(), _generation=1,
-                                         _catalog_epoch=1, loading=False)
+                                         _catalog_epoch=1, loading=False, actual_version=PASS_BUILD)
         w._dashboard_ui.poll = Mock(return_value=False)
         w._recording_ui._current_config = Mock(return_value=config)
         workers = []
@@ -1470,8 +2153,9 @@ class NavigationTests(unittest.TestCase):
         self.click(231)
         return workers, rows
 
-    def pass_result(self, worker, rows):
-        worker.poll.return_value = ManagerView('browse', rows=rows, observed_at=self.w.utc_now())
+    def pass_result(self, worker, rows, *, version=PASS_BUILD):
+        worker.poll.return_value = ManagerView('browse', rows=rows, observed_at=self.w.utc_now(),
+                                               browse_version=version)
         self.w.process_pending()
 
     def test_late_pass_reads_do_not_publish_or_replay_and_refresh_restores_exact_id(self):
@@ -1551,6 +2235,46 @@ class NavigationTests(unittest.TestCase):
         self.assertFalse(current())
         self.assertFalse(status_current())
         self.assertIsNone(command_label(w, 'recording.status'))
+
+    def test_passes_status_finishes_on_scheduled_only_for_the_same_source(self):
+        for same_source in (True, False):
+            with self.subTest(same_source=same_source):
+                if not same_source:
+                    self.w = self.window()
+                workers, rows = self.connected_pass_fixture()
+                w = self.w
+                self.pass_result(workers[0], rows)
+                w._dvr.notice = 'dvr_series_pending'
+                w.render()
+                self.assertIsNone(w._chrome.capture(303))
+
+                self.gui.DLG_YESNO_NO_BTN = 10  # Inert SDK stub; no confirmation is expected.
+                manager = w._series_manager(self.gui)
+                worker = SimpleNamespace(submit=Mock(return_value=True), poll=Mock(return_value=None), close=Mock())
+                manager._profile = lambda: '/unused-test-profile'
+                manager._factory = Mock(return_value=worker)
+                manager._viewer = self.forbidden('cross-route Series result dialog')
+                self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('dvr_series_status'))
+                self.click(304)
+                worker.submit.assert_called_once_with('status')
+
+                self.click(230)
+                self.assertEqual(w._dvr.tab, 'dvr.scheduled')
+                if not same_source:
+                    w._live_session.incarnation = object()
+                worker.poll.return_value = ManagerView('status', status_outcome='verified')
+                w.process_pending()
+                self.assertEqual(w._dvr.notice, 'dvr_series_verified' if same_source else 'dvr_series_pending')
+                self.assertEqual(w._dvr.tab, 'dvr.scheduled')
+                manager._viewer.assert_not_called()
+                worker.submit.assert_called_once_with('status')
+
+                w.render()  # Publish fresh tab input after the simulated incarnation change.
+                self.click(231)
+                self.assertEqual(w._dvr.tab, 'dvr.passes')
+                self.assertEqual(len(workers), 2)
+                self.pass_result(workers[-1], rows)
+                self.assertEqual(w._chrome.capture(303) is not None, same_source)
 
     def test_confirmed_series_success_refreshes_without_moving_the_other_selection(self):
         workers, rows = self.connected_pass_fixture()

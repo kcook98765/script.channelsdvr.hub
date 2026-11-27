@@ -1,5 +1,6 @@
 """General Series plans and private frozen projections. No I/O or Kodi imports."""
 from dataclasses import dataclass, field
+from typing import Literal
 import hashlib
 import json
 
@@ -56,6 +57,7 @@ class RuleRow:
     key: str = field(repr=False)
     raw: str = field(repr=False)
     supported: bool
+    name: str = field(default='', repr=False, compare=False)
 
     def payload(self):
         return json.loads(self.raw)
@@ -122,7 +124,8 @@ def rule_rows(payload):
                          and all(row[k] is None for k in MAPS if k != 'EQ'))
         except Exception:
             pass  # Optional/advanced schema affects this row, never empties the DVR.
-        result.append(RuleRow(key, raw, supported))
+        name = row.get('Name')
+        result.append(RuleRow(key, raw, supported, name if type(name) is str else ''))
     return tuple(result)
 
 
@@ -222,8 +225,10 @@ class ManagerView:
     matches: tuple[EpisodePreview, ...] = field(default=(), repr=False)
     observed_at: int = 0
     provenances: tuple[tuple[str, str], ...] = field(default=(), repr=False)
+    browse_version: str | None = field(default=None, repr=False)
     control_blocked: bool = False
     activity_blocked: bool = False
+    status_outcome: Literal['verified', 'unsent'] | None = None
 
     def __repr__(self):
         return 'ManagerView(operation=' + self.operation + ', private=True)'

@@ -67,6 +67,15 @@ class PlaybackAdapterTests(unittest.TestCase):
         self.assertFalse(self.native.handoff(self.descriptor, admit=admit))
         self.play.assert_called_once_with(LOCATOR, self.item, windowed=False)
 
+    def test_native_windowed_requires_literal_true(self):
+        for flag in (True, False, 'true', 1):
+            with self.subTest(flag=flag):
+                native = type(self.native)(self.owner)
+                self.play.reset_mock()
+                self.assertTrue(native.handoff(self.descriptor, windowed=flag))
+                self.play.assert_called_once_with(LOCATOR, self.item, windowed=flag is True)
+                native.close()
+
     def test_denied_or_preparation_failure_never_creates_recording_readback(self):
         self.assertIsNone(self.native.recording_readback())
         self.assertFalse(self.native.handoff(self.descriptor, admit=lambda: False))

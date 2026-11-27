@@ -1,4 +1,6 @@
-"""Stable DVR tab copy: 30960–30969 and 30985–30986."""
+"""Stable DVR tab copy: 30960–30969 and 30985–30987."""
+
+STATUS_MESSAGES = {'verified': 'dvr_series_verified', 'unsent': 'dvr_series_unsent'}
 
 ROWS = (
     ('dvr_passes', 30960, 'Passes'),
@@ -13,4 +15,5 @@ ROWS = (
     ('dvr_series_pending', 30969, 'Outcome unknown. Check Series status; do not retry.'),
     ('dvr_series_verified', 30985, 'Series result verified.'),
     ('dvr_pass_changed', 30986, 'Pass changed. Review refreshed list first.'),
+    ('dvr_series_unsent', 30987, 'Intent cleared; not sent.'),
 )

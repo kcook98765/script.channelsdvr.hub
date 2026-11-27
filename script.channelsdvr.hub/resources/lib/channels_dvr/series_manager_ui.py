@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from collections.abc import Callable
 
+from .dvr_catalog import STATUS_MESSAGES
 from .series_manager_worker import SeriesManagerWorker
 from .series_manager_models import ManagerView, RuleRow
 from .ui_menu import command
@@ -27,7 +28,7 @@ class DvrReview:
 class SeriesManagerUI:
     def __init__(self, *, assert_owner, dialog, profile, config, selection, viewer,
                  strings, default_no, source_scope, worker_factory=SeriesManagerWorker,
-                 presentation_scope=lambda: None):
+                 presentation_scope=lambda: None, status_finished=lambda result: None):
         self._owner, self._dialog, self._profile, self._config = assert_owner, dialog, profile, config
         self._selection, self._viewer, self.strings = selection, viewer, strings
         self._factory = worker_factory
@@ -42,6 +43,7 @@ class SeriesManagerUI:
         self._generation = 0
         self._readers = {}
         self._presentation_scope = presentation_scope
+        self._status_finished = status_finished
         self._presentation = None
         self._dvr: DvrReview | None = None
         self._confirmed: str | None = None
@@ -285,6 +287,9 @@ class SeriesManagerUI:
             else:
                 self._dvr_result(generation, result, dvr)
             return
+        if result.operation == 'status' and self._valid(generation):
+            # Status is source-wide, but dialogs and the follow-up list are not.
+            self._status_finished(result)
         if self._presentation is not self._presentation_scope():
             if result.operation == 'prepare':
                 self.close()  # Drop the unconfirmed review without cross-route activation.
@@ -311,6 +316,10 @@ class SeriesManagerUI:
             self._event = None
         elif result.operation == 'details':
             self._details(generation, result)
+        elif result.operation == 'status':
+            key = STATUS_MESSAGES.get(result.status_outcome) if result.status_outcome else None
+            if key is None or self._show(generation, self.t(key)):
+                self._queue(generation, 'list')
         elif result.operation != 'abort':
             self._queue(generation, 'list')
 
@@ -321,6 +330,12 @@ class SeriesManagerUI:
                 'unchanged': 'series_name_unchanged'}.get(error, 'series_stopped')
 
     def _dvr_result(self, generation, result, review):
+        status = review.row is None and result.operation == 'status'
+        if status:
+            if not review.source_current():
+                self.close()
+                return
+            review.finished(result)  # Same-source status survives leaving Passes.
         if self._presentation is not self._presentation_scope() or not review.current():
             self.close()  # Already-completed transport outcomes remain journaled.
             return
@@ -339,9 +354,13 @@ class SeriesManagerUI:
             else:
                 self._details(generation, result)
                 return
+        elif result.operation == 'status':
+            key = STATUS_MESSAGES.get(result.status_outcome) if result.status_outcome else None
+            if key is not None:
+                self._show(generation, self.t(key))
         elif result.operation != 'abort':
             self._show(generation, self.t('dvr_series_verified'))
-        if result.operation != 'abort' and review.current():
+        if not status and result.operation != 'abort' and review.current():
             review.finished(result)
         self._dvr = None
 
