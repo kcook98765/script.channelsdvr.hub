@@ -3,8 +3,13 @@
 from dataclasses import FrozenInstanceError, replace
 import unittest
 
-from channels_dvr.models import Channel, ChannelKey, Event
+from channels_dvr.library import LibraryBrowser
+from channels_dvr.models import Channel, ChannelKey, Event, Job, Recording
 from channels_dvr.search import ProgrammeSearchIndex, SearchPage, airing_key, normalize_query
+from channels_dvr.search_projection import (MAX_LISTING_RECORDS, GuideScope, GuideSnapshot,
+                                            Listing, ListingCoverage, PassEntry, PassId,
+                                            ProgrammeId, RecordingId, ScheduledId, SearchCategory,
+                                            project_search)
 
 
 class SearchTests(unittest.TestCase):
@@ -216,6 +221,184 @@ class SearchTests(unittest.TestCase):
             index._records = ()
         with self.assertRaises(FrozenInstanceError):
             page.matches[0].end = 999
+
+
+class UnifiedSearchTests(unittest.TestCase):
+    source = 'fixture-one'
+    channel = ChannelKey('ns', 'device', '7')
+
+    def guide(self, events, *, keys=None, allowed=None, **kwargs):
+        keys = (self.channel,) if keys is None else keys
+        channels = tuple(Channel(key, '7', 'Same channel name') for key in keys)
+        return Listing(GuideSnapshot(ProgrammeSearchIndex(events, channels, **kwargs),
+                                     GuideScope((10, 20), keys if allowed is None else allowed)))
+
+    def test_all_groups_literal_unicode_and_stable_per_category_order(self):
+        other = replace(self.channel, source_id='device-2')
+        early = Event('same', self.channel, 10, 13, 'ＣＡＦÉ', 'Straße')
+        events = (replace(early, start=15, end=17), replace(early, channel=other), early)
+        older = Recording('same', 'ＣＡＦÉ', 'Straße', None, None, False, 100, None,
+                          namespace='ns', provenance='dvr')
+        newer = replace(older, created=200, provenance='import')
+        records = (older, newer, replace(newer, namespace='ns-2'))
+        jobs = (Job('same', 'Straße CAFÉ', 12, 15, ()), Job('A', 'Straße CAFÉ', 12, 15, ()))
+        passes = (PassEntry('Ａ', 'Straße CAFÉ'), PassEntry('A', 'STRASSE cafe\u0301'),
+                  PassEntry('same', 'Tours Straße CAFÉ'))
+
+        def page(reverse):
+            def order(rows):
+                return rows[::-1] if reverse else rows
+
+            return project_search('  cafe\u0301\tSTRASSE ', source=self.source,
+                                  guide=self.guide(order(events), keys=(self.channel, other)),
+                                  recordings=Listing(order(records)), scheduled=Listing(order(jobs)),
+                                  passes=Listing(order(passes)))
+
+        result = page(False)
+        self.assertEqual(result, page(True))
+        self.assertEqual(result.query, 'café strasse')
+        self.assertEqual(tuple(g.category for g in result.groups), tuple(SearchCategory)[1:])
+        self.assertEqual(tuple(tuple(hit.id for hit in group.hits) for group in result.groups), (
+            (ProgrammeId(self.source, self.channel, 'same', 10),
+             ProgrammeId(self.source, other, 'same', 10),
+             ProgrammeId(self.source, self.channel, 'same', 15)),
+            (RecordingId(self.source, 'ns', 'import', 'same'),
+             RecordingId(self.source, 'ns-2', 'import', 'same'),
+             RecordingId(self.source, 'ns', 'dvr', 'same')),
+            (ScheduledId(self.source, 'A'), ScheduledId(self.source, 'same')),
+            (PassId(self.source, 'A'), PassId(self.source, 'Ａ'), PassId(self.source, 'same')),
+        ))
+        ids = {hit.id for group in result.groups for hit in group.hits}
+        self.assertEqual(len(ids), 11)
+
+    def test_guide_scope_exact_channels_and_half_open_horizon(self):
+        other = replace(self.channel, source_id='another-device')
+        inside = Event('same', self.channel, 9, 11, 'Match')
+        events = (inside, replace(inside, channel=other), replace(inside, id='before', end=10),
+                  replace(inside, id='unknown-end', end=None),
+                  replace(inside, id='future', start=20, end=21))
+        guide = self.guide(events, keys=(self.channel, other), allowed=(self.channel,))
+        page = project_search('match', source=self.source, category=SearchCategory.GUIDE, guide=guide)
+        self.assertEqual(page.guide_scope, GuideScope((10, 20), (self.channel,)))
+        group, = page.groups
+        self.assertEqual(tuple(h.id for h in group.hits),
+                         (ProgrammeId(self.source, self.channel, 'same', 9),))
+        self.assertTrue(group.coverage_complete)
+        self.assertFalse(group.truncated)
+        empty = project_search('match', source=self.source, category=SearchCategory.GUIDE,
+                               guide=self.guide((), keys=()))
+        self.assertEqual(empty.guide_scope, GuideScope((10, 20), ()))
+        self.assertTrue(empty.groups[0].coverage_complete)
+        self.assertEqual(empty.groups[0].hits, ())
+
+    def test_listings_distinguish_admitted_empty_missing_and_retained_fallback(self):
+        fallback = Listing((Job('same', 'Match', 12, 15, ()),),
+                           ListingCoverage(stale=True, partial=True, unavailable=True, capped=True))
+        loading = Listing(coverage=ListingCoverage(loading=True))
+        for query in ('missing', 'match', ' \u2003\t'):
+            page = project_search(query, source=self.source, recordings=Listing(()),
+                                  scheduled=fallback, passes=loading)
+            guide, recording, scheduled, passes = page.groups
+            self.assertEqual(tuple(g.has_snapshot for g in page.groups), (False, True, True, False))
+            self.assertEqual(tuple(g.coverage_complete for g in page.groups), (False, True, False, False))
+            self.assertEqual(guide.coverage, ListingCoverage())
+            self.assertEqual(recording.hits, ())
+            self.assertEqual(scheduled.coverage, fallback.coverage)
+            self.assertEqual(len(scheduled.hits), int(query == 'match'))
+            self.assertEqual(passes.coverage, loading.coverage)
+            self.assertFalse(any(g.truncated for g in page.groups))
+            self.assertIsNone(page.guide_scope)
+        cold = project_search('match', source=self.source, category=SearchCategory.PASSES,
+                              passes=Listing(coverage=ListingCoverage(unavailable=True)))
+        self.assertTrue(cold.groups[0].coverage.unavailable)
+        self.assertFalse(cold.groups[0].has_snapshot)
+
+    def test_shared_result_limit_reports_only_proven_omissions(self):
+        event = Event('same', self.channel, 10, 11, 'Match')
+        job = Job('same', 'Match', 10, 11, ())
+        listings = dict(guide=self.guide((event,)), scheduled=Listing((job,)),
+                        recordings=Listing(()), passes=Listing((PassEntry('same', 'Other'),)))
+        for limit, expected in ((1, (False, False, True, False)), (2, (False,) * 4)):
+            page = project_search('match', source=self.source, limit=limit, **listings)
+            self.assertEqual(sum(len(g.hits) for g in page.groups), limit)
+            self.assertEqual(tuple(g.truncated for g in page.groups), expected)
+            self.assertTrue(all(g.coverage_complete for g in page.groups))
+        # A user can still search just the category omitted by the shared budget.
+        page = project_search('match', source=self.source, category=SearchCategory.SCHEDULED,
+                              limit=1, **listings)
+        group, = page.groups
+        self.assertEqual(group.hits[0].id, ScheduledId(self.source, 'same'))
+        self.assertIsNone(page.guide_scope)
+
+    def test_input_caps_and_guide_rejections_are_not_result_truncation(self):
+        event = Event('same', self.channel, 10, 11, 'Match')
+        pass_entry = PassEntry('same', 'Other')
+        page = project_search('match', source=self.source, limit=1,
+                              guide=self.guide((event, replace(event, id='later')), max_events=1),
+                              passes=Listing((pass_entry,) * MAX_LISTING_RECORDS
+                                             + (PassEntry('late', 'Match'),)))
+        guide, _, _, passes = page.groups
+        for group in (guide, passes):
+            self.assertEqual(group.coverage, ListingCoverage(capped=True))
+            self.assertFalse(group.truncated)
+        self.assertEqual(passes.hits, ())
+        rejected = self.guide((replace(event, end=9),))
+        group = project_search('match', source=self.source, guide=rejected).groups[0]
+        self.assertEqual(group.coverage, ListingCoverage(partial=True))
+        self.assertFalse(group.truncated)
+        complete = self.guide((event, replace(event, id='later')))
+        group = project_search('match', source=self.source, guide=complete, limit=1).groups[0]
+        self.assertTrue(group.coverage_complete)
+        self.assertTrue(group.truncated)
+
+    def test_exact_identity_across_refresh_and_source_replacement(self):
+        a = PassEntry('a', 'First Match')
+        b = PassEntry('b', 'Second Match')
+        selected = PassId(self.source, 'b')
+
+        def project(rows, source=self.source):
+            return project_search('match', source=source, category=SearchCategory.PASSES, passes=Listing(rows))
+
+        before = project((a, b, replace(b, name='Replacement Match'),
+                          PassEntry('c', 'Other'), PassEntry('c', 'Last Match')))
+        self.assertEqual(len(before.groups[0].hits), 2)
+        self.assertEqual(before.groups[0].hits[1], before.find(selected))
+        after = project((a, replace(b, name='Earlier Match')))
+        self.assertEqual(after.groups[0].hits[0], after.find(selected))
+        self.assertIsNone(project((a,)).find(selected))
+        self.assertIsNone(project((a, b), 'fixture-two').find(selected))
+        with self.assertRaises(FrozenInstanceError):
+            selected.pass_id = 'a'
+
+    def test_recordings_adapter_uses_leaves_and_matches_legacy_library(self):
+        record = Recording('match', 'Cooking', 'Summer recipes', 2, 1, False, 100, None,
+                           namespace='ns', provenance='import')
+        browser = LibraryBrowser((record, replace(record, id='other', show='Winter recipes')))
+        browser.set_provenance_filter('dvr')
+        self.assertEqual(browser.rows(), ())
+        page = project_search('SUM cook', source=self.source, category=SearchCategory.RECORDINGS,
+                              recordings=Listing(browser.search_records))
+        self.assertEqual(tuple(h.id for h in page.groups[0].hits),
+                         (RecordingId(self.source, 'ns', 'import', 'match'),))
+        self.assertEqual(browser.provenance_filter, 'dvr')
+        browser.set_provenance_filter('all')
+        browser.set_query('SUM cook')
+        self.assertEqual(browser.selected_recording(), record)
+
+    def test_query_and_limit_bounds_and_blank_query(self):
+        entries = tuple(PassEntry(str(i), 'ss' * 128) for i in range(201))
+        guide = self.guide((Event('a', self.channel, 10, 11, 'ss' * 128),))
+        for text, limit in ((' ' * 129, 1), (None, 1), ('', True), ('', 0), ('', 201)):
+            with self.subTest(text=text, limit=limit), self.assertRaises(ValueError):
+                project_search(text, source=self.source, limit=limit)
+        page = project_search('ß' * 128, source=self.source, guide=guide, passes=Listing(entries), limit=200)
+        self.assertEqual(len(page.groups[0].hits), 1)
+        self.assertEqual(len(page.groups[-1].hits), 199)
+        self.assertTrue(page.groups[-1].truncated)
+        blank = project_search('\u2003', source=self.source, passes=Listing(entries), limit=1)
+        self.assertEqual(blank.query, '')
+        self.assertTrue(blank.groups[-1].coverage_complete)
+        self.assertFalse(any(g.hits or g.truncated for g in blank.groups))
 
 
 if __name__ == "__main__":
