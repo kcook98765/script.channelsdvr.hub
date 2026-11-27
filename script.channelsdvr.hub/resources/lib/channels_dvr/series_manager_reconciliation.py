@@ -100,6 +100,7 @@ def successor(raw, binding, actual, reads):
                     record['removed'] = True
                 else:
                     need(before is not None and after is not None)
+                    assert before is not None
                     planned = entry['body']['Name'] if entry['operation'] == 'rename' else None
                     complete_wire = entry['wire'] is not None and entry['wire']['complete']
                     if entry['operation'] == 'rename' and not complete_wire:
