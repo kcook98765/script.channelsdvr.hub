@@ -264,7 +264,10 @@ class ManagerTests(unittest.TestCase):
         entry = root['history'][root['pending']]
         self.assertEqual(entry['returned_id'], 'rule-A')
         self.assertTrue(json.loads(base64.b64decode(entry['wire']['raw_base64']))['Paused'])
-        self.assertEqual(self.commands.details('rule-A').actions, ())
+        blocked = self.commands.details('rule-A')
+        self.assertEqual(blocked.actions, ())
+        self.assertTrue(blocked.control_blocked)
+        self.assertIsNone(blocked.token)
 
     def test_capacity_failure_before_http_and_no_eviction(self):
         self.adopt()
@@ -608,6 +611,79 @@ class UITests(unittest.TestCase):
             self.assertEqual(self.calls[-1][0], 'abort')
         self.assertFalse(any(k in {'rename', 'pause', 'resume', 'remove', 'refresh_consent'} for k, _ in self.calls))
 
+    def test_dvr_details_and_confirmation_are_bound_to_the_originating_selection(self):
+        row = rule_rows([full()])[0]
+        origin = self.presentation
+        self.ui.request_dvr(row, lambda: self.presentation is origin, lambda result: self.fail('late result'))
+        self.assertEqual(self.calls, [('details', {'key': row.key})])
+        self.presentation = object()
+        self.results = [ManagerView('details', row=row, token='a'*64, actions=('adopt',))]
+        self.answers = [0]
+        self.ui.poll()
+        self.assertFalse(self.shown)
+        self.assertEqual(self.answers, [0])
+        self.assertEqual([operation for operation, _ in self.calls], ['details', 'close'])
+
+    def test_dvr_adoption_routes_only_after_confirmation_and_never_queues_legacy_list(self):
+        row = rule_rows([full()])[0]
+        completed = []
+        dialog = self.ui._dialog()
+        original = dialog.yesno
+        self.ui._dialog = lambda: dialog
+        self.ui.request_dvr(row, lambda: True, completed.append)
+        self.answers = [0]
+        self.results = [ManagerView('details', row=row, token='a'*64, actions=('adopt',))]
+        self.ui.poll()
+        self.assertEqual(self.calls[-1], ('abort', {}))
+        self.results = [ManagerView('abort')]
+        self.ui.poll()
+        self.assertEqual(completed, [])
+
+        def confirm(*args, **kwargs):
+            original(*args, **kwargs)  # asserts the named default No affordance
+            return True
+
+        dialog.yesno = confirm
+        self.ui.request_dvr(row, lambda: True, completed.append)
+        self.answers = [0]
+        self.results = [ManagerView('details', row=row, token='b'*64, actions=('adopt',))]
+        self.ui.poll()
+        self.assertEqual(self.calls[-1], ('adopt', {'token': 'b'*64, 'confirmed': True}))
+        result = ManagerView('adopt')
+        self.results = [result]
+        self.ui.poll()
+        self.assertEqual(completed, [result])
+        self.assertNotIn('list', [operation for operation, _ in self.calls])
+
+    def test_dvr_yes_from_retired_selection_never_dispatches(self):
+        row = rule_rows([full()])[0]
+        origin = self.presentation
+        dialog = self.ui._dialog()
+
+        def late_yes(*args, **kwargs):
+            self.assertEqual(kwargs.get('defaultbutton'), 10)
+            self.presentation = object()
+            return True
+
+        dialog.yesno = late_yes
+        self.ui._dialog = lambda: dialog
+        self.ui.request_dvr(row, lambda: self.presentation is origin, lambda result: self.fail('late result'))
+        self.answers = [0]
+        self.results = [ManagerView('details', row=row, token='a'*64, actions=('pause',))]
+        self.ui.poll()
+        self.assertEqual([operation for operation, _ in self.calls], ['details', 'close'])
+
+    def test_dvr_does_not_retarget_a_changed_snapshot(self):
+        row, other = rule_rows([full(), full('rule-B')])
+        completed = []
+        self.ui.request_dvr(row, lambda: True, completed.append)
+        self.results = [ManagerView('details', row=other, token='a'*64, actions=('remove',))]
+        self.answers = [0]
+        self.ui.poll()
+        self.assertEqual(self.answers, [0])
+        self.assertEqual([result.error for result in completed], ['stale'])
+        self.assertEqual([operation for operation, _ in self.calls], ['details', 'close'])
+
     def test_pagination_uses_captured_keys_and_preserves_all_rows(self):
         self.answers = [0]
         self.ui.request()
@@ -631,6 +707,42 @@ class UITests(unittest.TestCase):
 
 
 class WorkerTests(unittest.TestCase):
+    def test_browse_worker_is_get_only_and_never_opens_operation_storage(self):
+        for final_build in ('2026.10.24.0621', '2026.10.24.0622'):
+            with self.subTest(final_build=final_build):
+                opener = Opener([Response({'version': '2026.10.24.0621'}), Response([full()]),
+                                 Response({'version': final_build})])
+                stores = []
+                worker = SeriesManagerWorker(CONFIG, None,
+                    client_factory=lambda config: SeriesHTTP(config, opener=opener),
+                    store_factory=lambda *args: stores.append(args))
+                try:
+                    for operation in ('list', 'status', 'details', 'prepare', 'adopt', 'rename', 'pause', 'resume', 'remove'):
+                        self.assertFalse(worker.submit(operation))
+                    self.assertFalse(worker.submit('browse', key='rule-A'))
+                    self.assertTrue(worker.submit('browse'))
+                    result = None
+                    deadline = time.monotonic() + 5
+                    while result is None and time.monotonic() < deadline:
+                        result = worker.poll()
+                        if result is None:
+                            time.sleep(.002)
+                    self.assertIsNotNone(result)
+                    if final_build == '2026.10.24.0621':
+                        self.assertEqual(result.rows, rule_rows([full()]))
+                        self.assertIsNone(result.token)
+                        self.assertIsNone(result.error)
+                    else:
+                        self.assertEqual((result.rows, result.error), ((), 'source'))
+                finally:
+                    worker.close()
+                    if worker._thread is not None:
+                        worker._thread.join(5)
+                        self.assertFalse(worker._thread.is_alive())
+                self.assertEqual(stores, [])
+                self.assertEqual([(r.method, r.full_url.removeprefix(CONFIG.origin), r.data) for r in opener.requests],
+                                 [('GET', '/status', None), ('GET', '/dvr/rules', None), ('GET', '/status', None)])
+
     def test_close_during_write_persists_identity_and_no_owner_io_or_join(self):
         owner = threading.get_ident()
         with tempfile.TemporaryDirectory(prefix='series-manager-test-') as profile:

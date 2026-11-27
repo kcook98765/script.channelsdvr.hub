@@ -80,8 +80,9 @@ class SeriesManagerCommands:
         record = self.store.record(key)
         actions: tuple[str, ...] = ()
         token = None
-        if (row.supported and self.store.root['pending'] is None and not self.store.root['blocked']
-                and not self.store.store.pending_reconciliation):
+        blocked = (self.store.root['pending'] is not None or self.store.root['blocked']
+                   or self.store.store.pending_reconciliation)
+        if row.supported and not blocked:
             snap = RuleSnapshot.parse(row.payload())
             token = secrets.token_hex(32)
             drift = record is not None and canonical(record['last']) != row.raw
@@ -91,7 +92,7 @@ class SeriesManagerCommands:
             elif not record['removed']:
                 actions = ('refresh_consent',) if drift else ('rename', 'resume' if row.payload()['Paused'] else 'pause', 'remove')
         return ManagerView('details', row=row, token=token, actions=actions,
-                           provenance=record['provenance'] if record else None)
+                           provenance=record['provenance'] if record else None, control_blocked=blocked)
 
     def prepare(self, event):
         self._review = None

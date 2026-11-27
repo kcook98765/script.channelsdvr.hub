@@ -2,6 +2,7 @@
 from collections.abc import Mapping
 from types import MappingProxyType
 
+from .dvr_ui import TABS
 from .guide_render import RenderMemo
 from .ui_activation import ButtonActivation, ShortcutActivation
 from .ui_hits import ContentHits
@@ -16,7 +17,8 @@ ACTIONS = {
     306: ('search.programmes',), 307: ('search.clear',),
     308: ('connection.configure',), 309: ('connection.connect',), 310: ('dashboard.refresh',),
 }
-VIEW_ACTIONS = {('Guide', 306): ('guide.collection',), ('Recordings', 306): ('recording.tools',)}
+VIEW_ACTIONS = {('Guide', 306): ('guide.collection',), ('Recordings', 306): ('recording.tools',),
+                ('DVR', 303): ('dvr.manage',), ('DVR', 306): ('dvr.refresh',)}
 # Kodi Omega ActionIDs; Select is delivered by native onClick (including mouse).
 LEFT, RIGHT, UP, DOWN, PAGE_UP, PAGE_DOWN = 1, 2, 3, 4, 5, 6
 BACK, INFO, NAV_BACK, CONTEXT = 10, 11, 92, 117
@@ -85,6 +87,10 @@ class WindowChrome:
                 scope += (w.positions.get('Settings', 0),)
             return ButtonActivation(ident, code, label, scope, target=target)
         data = w._current_data()
+        if w.view == 'DVR' and w._dvr.passes:
+            if target is None:
+                scope += w._dvr.selection_identity(data)
+            return ButtonActivation(ident, code, label, scope, w._dvr.snapshot(data), target=target)
         if target is None:
             if w.view == 'Recordings':
                 row = w.library.selected
@@ -117,7 +123,7 @@ class WindowChrome:
             return None
         if type(ident) is not int:
             return None
-        return ident if ident in (CONTENT, *NAV, *ACTIONS) else CONTENT if ident in self.presented else None
+        return ident if ident in (CONTENT, *NAV, *TABS, *ACTIONS) else CONTENT if ident in self.presented else None
 
     def _set_focus(self, target):
         self.w._dispatcher.assert_owner()
@@ -138,10 +144,16 @@ class WindowChrome:
             return preferred
         if CONTENT in self.presented:
             return CONTENT
+        if (tab := self._active_tab()) is not None:
+            return tab
         if self.w.view == 'Guide' and 304 in self.presented:
             return 304  # Search/Settings remain reachable without a channel.
         active = next((i for i in NAV if i in self.presented and DESTINATIONS[NAV[i]] == self.w.view), None)
         return active if active is not None else next(iter(self.presented), None)
+
+    def _active_tab(self):
+        return next((ident for ident in TABS if ident in self.presented
+                     and TABS[ident][0] == self.w._dvr.tab), None)
 
     def initialize_focus(self, preferred=None):
         target = self.entry_target(preferred)
@@ -156,11 +168,13 @@ class WindowChrome:
         w = self.w
         visible = {ident: (code, label) for ident, code in NAV.items() if w.view != 'Guide'
                    if (label := command_label(w, code)) is not None}
+        if w.view == 'DVR':
+            visible.update(TABS)
         slots = {
             'Dashboard': (304, 305, 308, 309, 310),
             'Guide': (300, 301, 302, 303, 306, 304, 305),
             'Recordings': (300, 301, 306, 304, 305),
-            'DVR': (300, 303, 304, 305),
+            'DVR': (300, 303, 306, 304, 305),
             'Search': (306, 307, 300, 302, 304, 305),
             'Settings': (300, 304, 305),
         }[w.view]
@@ -177,7 +191,7 @@ class WindowChrome:
         available = self.available()
         rail = tuple(ident for ident in available if ident in ACTIONS)
         spacing, width = (290, 280) if len(rail) <= 6 else (252, 242)
-        for ident in (*NAV, *ACTIONS):
+        for ident in (*NAV, *TABS, *ACTIONS):
             control = self.control(ident)
             if control is None:
                 self._withdraw(ident)
@@ -196,6 +210,8 @@ class WindowChrome:
                 committed = self.memo.best_effort(control, method, *args) and committed
             if shown and committed:
                 active = NAV.get(ident) == 'view.' + w.view.lower()
+                if ident in TABS:
+                    active = TABS[ident][0] == w._dvr.tab
                 self.memo.best_effort(control, 'setTextColor', 'FFDEB560' if active else 'FFFFFFFF')
             else:
                 available.pop(ident, None)
@@ -264,19 +280,30 @@ class WindowChrome:
             self.initialize_focus()
             return True
         nav = tuple(i for i in self.presented if i in NAV)
+        tabs = tuple(i for i in self.presented if i in TABS)
         rail = tuple(i for i in self.presented if i in ACTIONS)
         active = next((i for i in nav if DESTINATIONS[NAV[i]] == self.w.view), CONTENT)
-        if focus in nav or focus in rail:
+        tab = self._active_tab()
+        if focus in tabs:
+            if action in (LEFT, RIGHT):
+                target = tabs[(tabs.index(focus) + (-1 if action == LEFT else 1)) % len(tabs)]
+            elif action == UP:
+                target = active
+            else:
+                target = CONTENT if CONTENT in self.presented else rail[0] if rail else focus
+        elif focus in nav or focus in rail:
             siblings = nav if focus in nav else rail
             if action in (LEFT, RIGHT):
                 target = siblings[(siblings.index(focus) + (-1 if action == LEFT else 1)) % len(siblings)]
             else:
                 if focus in nav:
-                    target = CONTENT if CONTENT in self.presented else rail[0] if rail and action == DOWN else focus
+                    target = tab if tab is not None and action == DOWN else (
+                        CONTENT if CONTENT in self.presented else rail[0] if rail and action == DOWN else focus)
                 else:
-                    target = CONTENT if action == UP and CONTENT in self.presented else active if nav else focus
+                    target = CONTENT if action == UP and CONTENT in self.presented else (
+                        tab if action == UP and tab is not None else active if nav else focus)
         elif action == UP and nav and self.w._content_edge(UP):
-            target = active
+            target = tab if tab is not None else active
         elif action == DOWN and rail and self.w._content_edge(DOWN):
             target = rail[0]
         else:

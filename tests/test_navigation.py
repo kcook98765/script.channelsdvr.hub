@@ -8,12 +8,15 @@ import unittest
 from unittest.mock import Mock, patch
 
 from channels_dvr.guide import GuideController
+from channels_dvr.dvr_ui import TABS
 from channels_dvr.library import LibraryBrowser
+from channels_dvr.normalization import DataState
 from channels_dvr.repository import MockRepository
 from channels_dvr.search import airing_key
+from channels_dvr.series_manager_models import GeneralSeriesPlan, ManagerView, rule_rows
 from channels_dvr.session import OfflineDataSession
-from channels_dvr.ui_chrome import ACTIONS, CONTENT, CONTEXT, DOWN, INFO, NAV, NAV_BACK, PAGE_DOWN, UP
-from channels_dvr.ui_navigation import execute_command
+from channels_dvr.ui_chrome import ACTIONS, CONTENT, CONTEXT, DOWN, INFO, NAV, NAV_BACK, PAGE_DOWN, RIGHT, UP
+from channels_dvr.ui_navigation import command_label, execute_command
 from channels_dvr.ui_routes import PRIMARY, Route, launch_view
 
 ADDON = Path(__file__).resolve().parents[1] / 'script.channelsdvr.hub'
@@ -37,7 +40,7 @@ class Control:
 
 class WindowXML:
     def __init__(self, *args, **kwargs):
-        ids = (100, 110, *range(112, 118), *range(120, 126), *range(140, 144), *NAV, *ACTIONS, *range(400, 406))
+        ids = (100, 110, *range(112, 118), *range(120, 126), *range(140, 144), *NAV, *TABS, *ACTIONS, *range(400, 406))
         self.controls = {ident: Control() for ident in ids}
         self.serial = 3000
         self.focus_id = 100
@@ -155,7 +158,7 @@ class NavigationTests(unittest.TestCase):
                 with self.subTest(view=view, focus=focus):
                     self.enter(view)
                     self.assertEqual(w.getFocusId(), {'Guide': 304, 'Recordings': 202,
-                                                      'DVR': 203, 'Search': 204, 'Settings': CONTENT}[view])
+                                                       'DVR': 230, 'Search': 204, 'Settings': CONTENT}[view])
                     w.focus_id = focus
                     self.action(NAV_BACK)
                     self.assertEqual(w.view, 'Dashboard')
@@ -495,18 +498,176 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(hits.sync(gui, 'scope', (Hit((0, 0, 1, 1), ('row', 'r')),)), ())
         self.assertNotIn(button.ident, native.controls)
 
-    def test_dvr_and_settings_reuse_explicit_pass_and_connection_workflows(self):
+    def test_disconnected_tabs_and_settings_do_not_open_operation_workflows(self):
         w = self.w
-        w._series_manager_request = Mock()
+        w._series_manager = self.forbidden('Series control')
         self.enter('DVR')
-        w._series_manager_request.assert_not_called()
+        self.assertEqual(w._dvr.tab, 'dvr.scheduled')
+        self.action(RIGHT)
+        self.assertEqual((w.getFocusId(), w._dvr.tab), (231, 'dvr.scheduled'))
+        self.click(231)
         self.click(303)
-        w._series_manager_request.assert_called_once_with(self.gui)
+        w._series_manager.assert_not_called()
+        self.assertEqual(w._dvr.tab, 'dvr.passes')
+        self.assertFalse(w._current_data().can_browse)
         self.enter('Settings')
         w._addon.openSettings.assert_not_called()
         self.click(self.hits('row')[('connection.settings',)])
         w._addon.openSettings.assert_called_once()
         w._addon.setSettingBool.assert_not_called()
+
+    def test_demo_tabs_restore_both_ids_and_child_back_keeps_the_pass_parent(self):
+        self.seed()
+        w = self.w
+        w._dvr._factory = self.forbidden('DVR read in demo')
+        self.enter('DVR')
+        self.click(self.hits('row')[('job-2',)])
+        self.click(231)
+        self.assertEqual(w.getFocusId(), 231)
+        self.action(DOWN)
+        self.assertEqual(w.getFocusId(), CONTENT)
+        self.action(UP)
+        self.assertEqual(w.getFocusId(), 231)
+        self.dialog.textviewer.side_effect = lambda *_: self.post_action(NAV_BACK)
+        self.click(self.hits('row')[('demo-pass-2',)])
+        self.assertEqual(w.view, 'DVR')
+        self.assertEqual(w._dvr.selected().key, 'demo-pass-2')
+        body = self.dialog.textviewer.call_args.args[1]
+        self.assertIn(w.t('dvr_pass_readonly'), body)
+        self.assertIn(w.t('unknown'), body)
+        self.assertIsNone(command_label(w, 'dvr.manage'))
+        self.assertIsNone(command_label(w, 'dvr.status'))
+        w.data_session.choose('partial')
+        w.render()
+        self.assertEqual(w._current_data().state, DataState.PARTIAL)
+        self.assertTrue(w._current_data().stale)
+        self.assertEqual(w._dvr.selected().key, 'demo-pass-2')
+        w.data_session.choose('healthy')
+        self.click(230)
+        self.assertEqual(w._dvr_selected, 'job-2')
+        self.click(231)
+        self.enter('Settings')
+        self.click(self.hits('row')[('connection.settings',)])
+        self.action(NAV_BACK)
+        self.assertEqual(w.view, 'Dashboard')
+        self.enter('DVR')
+        self.assertEqual((w._dvr.tab, w._dvr.selected().key), ('dvr.passes', 'demo-pass-2'))
+        w._dvr._factory.assert_not_called()
+        w._recording_ui.request.assert_not_called()
+
+    def connected_pass_fixture(self):
+        self.seed()
+        w = self.w
+        w.transient_demo_mode = False
+        config = SimpleNamespace(namespace='fake-dvr-source')
+        w._development_config = config
+        w._live_session = SimpleNamespace(jobs=w.data_session.jobs, incarnation=object(), _generation=1,
+                                         _catalog_epoch=1, loading=False)
+        w._dashboard_ui.poll = Mock(return_value=False)
+        w._recording_ui._current_config = Mock(return_value=config)
+        workers = []
+
+        def factory(binding, profile):
+            self.assertIs(binding, config)
+            self.assertIsNone(profile)
+            worker = SimpleNamespace(close=Mock(), poll=Mock(return_value=None), submit=Mock(return_value=True),
+                                     finished=True)
+            workers.append(worker)
+            return worker
+
+        w._dvr._factory = factory
+        rows = rule_rows([dict(ID='test-series', Paused=False, NumJobs=0, Priority=0, UpdatedAt=1,
+                               **GeneralSeriesPlan('SH00000001', 'Fake Series').body()),
+                          dict(ID='test-advanced', Name='Fake advanced')])
+        self.enter('DVR')
+        self.click(231)
+        return workers, rows
+
+    def pass_result(self, worker, rows):
+        worker.poll.return_value = ManagerView('browse', rows=rows, observed_at=self.w.utc_now())
+        self.w.process_pending()
+
+    def test_late_pass_reads_do_not_publish_or_replay_and_refresh_restores_exact_id(self):
+        workers, rows = self.connected_pass_fixture()
+        w = self.w
+        w._series_manager = self.forbidden('Series control')
+        self.assertTrue(w._current_data().loading)
+        self.click(306)  # A second refresh while the same read is active coalesces.
+        self.assertEqual(len(workers), 1)
+        workers[0].finished = False
+        self.click(230)
+        workers[0].close.assert_called_once()
+        workers[0].poll.return_value = ManagerView('browse', rows=(rows[0],))
+        self.click(231)
+        self.assertTrue(w._current_data().loading)
+        self.assertEqual(self.hits('row'), {})
+        self.assertEqual(len(workers), 1)
+        workers[0].finished = True
+        w.process_pending()
+        self.pass_result(workers[1], rows)
+        self.click(self.hits('row')[('test-advanced',)])
+        self.assertIsNone(command_label(w, 'dvr.manage'))
+        self.click(306)
+        self.pass_result(workers[2], tuple(reversed(rows)))
+        self.assertEqual((w._dvr.selected().key, w._dvr.position), ('test-advanced', 0))
+        self.click(306)
+        self.pass_result(workers[3], rows[:1])
+        self.assertEqual((w._dvr.selected().key, w._dvr.position), ('test-series', 0))
+        stale = w._chrome.capture(303)
+        self.click(230)
+        w._dispatcher.post(('chrome', stale))
+        w.process_pending()
+        w._series_manager.assert_not_called()
+        for worker in workers:
+            worker.submit.assert_called_once_with('browse')
+
+    def test_series_entry_routes_exact_selected_row_and_explicit_status_only(self):
+        workers, rows = self.connected_pass_fixture()
+        w = self.w
+        manager = Mock()
+        w._series_manager = Mock(return_value=manager)
+        self.pass_result(workers[0], rows)
+        self.click(CONTENT)
+        manager.request_dvr.assert_not_called()
+        self.click(303)
+        subject, current, finish = manager.request_dvr.call_args.args
+        self.assertIs(subject, rows[0])
+        self.assertTrue(current())
+        finish(ManagerView('rename', error='pending'))
+        w.process_pending()
+        self.assertIsNone(command_label(w, 'dvr.manage'))
+        self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('dvr_series_status'))
+        self.click(304)
+        subject, status_current, _ = manager.request_dvr.call_args.args
+        self.assertIsNone(subject)
+        self.assertTrue(status_current())
+        self.click(230)
+        self.assertFalse(current())
+        self.assertFalse(status_current())
+        self.assertIsNone(command_label(w, 'recording.status'))
+
+    def test_pass_read_states_never_offer_controls_from_unsupported_or_old_data(self):
+        workers, rows = self.connected_pass_fixture()
+        w = self.w
+        for index, (error, state) in enumerate((('network', DataState.OUTAGE), ('source', DataState.UNSUPPORTED),
+                                               ('schema', DataState.MALFORMED), (None, DataState.EMPTY))):
+            workers[index].poll.return_value = ManagerView('browse', error=error, observed_at=w.utc_now())
+            w.process_pending()
+            self.assertEqual(w._current_data().state, state)
+            self.assertFalse(self.hits('row'))
+            self.assertIsNone(w._chrome.capture(303))
+            self.click(306)
+            self.assertTrue(w._current_data().loading)
+        self.pass_result(workers[4], rows)
+        stamp = w._current_data().updated_at
+        self.assertIsNotNone(w._chrome.capture(303))
+        w.focus_writes.clear()
+        w.utc_now = lambda: stamp + 61
+        w.process_pending()
+        self.assertTrue(w._current_data().stale)
+        self.assertTrue(self.hits('row'))
+        self.assertIsNone(w._chrome.capture(303))
+        self.assertEqual(w.focus_writes, [])
 
 
 if __name__ == '__main__':

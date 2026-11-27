@@ -222,6 +222,7 @@ class ManagerView:
     matches: tuple[EpisodePreview, ...] = field(default=(), repr=False)
     observed_at: int = 0
     provenances: tuple[tuple[str, str], ...] = field(default=(), repr=False)
+    control_blocked: bool = False
 
     def __repr__(self):
         return 'ManagerView(operation=' + self.operation + ', private=True)'

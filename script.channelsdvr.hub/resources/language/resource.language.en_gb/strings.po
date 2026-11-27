@@ -2140,3 +2140,51 @@ msgstr ""
 msgctxt "#30949"
 msgid "More"
 msgstr ""
+
+msgctxt "#30960"
+msgid "Passes"
+msgstr ""
+
+msgctxt "#30961"
+msgid "Series actions"
+msgstr ""
+
+msgctxt "#30962"
+msgid "Check Series status"
+msgstr ""
+
+msgctxt "#30963"
+msgid "Paused: {paused} · Jobs reported: {jobs}"
+msgstr ""
+
+msgctxt "#30964"
+msgid "Saved-pass snapshot. Listing a pass does not grant control."
+msgstr ""
+
+msgctxt "#30965"
+msgid "Older pass snapshot. Refresh before requesting Series actions."
+msgstr ""
+
+msgctxt "#30966"
+msgid "No saved passes in the last successful read."
+msgstr ""
+
+msgctxt "#30967"
+msgid "Read-only rule"
+msgstr ""
+
+msgctxt "#30968"
+msgid "Series rule; management requires a fresh check."
+msgstr ""
+
+msgctxt "#30969"
+msgid "Series outcome unresolved. Check Series status before making another change. Do not retry."
+msgstr ""
+
+msgctxt "#30970"
+msgid "Series check complete. The result was verified."
+msgstr ""
+
+msgctxt "#30971"
+msgid "The pass changed since it was listed. Review the refreshed list before requesting actions again."
+msgstr ""

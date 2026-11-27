@@ -44,7 +44,7 @@ class ArtworkUI:
         if w.view == 'Search':
             event = w._selected_search_event()
             return event_key(event) if event is not None else None
-        if w.view in ('Recordings', 'DVR'):
+        if w.view == 'Recordings' or (w.view == 'DVR' and not w._dvr.passes):
             rows = w._rows()
             position = w.library.position if w.view == 'Recordings' else w.positions.get(w._position_key(), 0)
             row = rows[min(position, len(rows)-1)] if rows else None

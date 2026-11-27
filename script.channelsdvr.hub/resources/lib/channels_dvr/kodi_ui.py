@@ -5,6 +5,7 @@ The pool grows to the high-water visible cell count, never the guide horizon.
 """
 
 import os
+from collections.abc import Sequence
 from time import monotonic, perf_counter, time
 from typing import Protocol
 
@@ -12,6 +13,7 @@ import xbmc
 import xbmcgui
 
 from .browser import Row, scheduled_rows
+from .dvr_ui import DvrUI, PassRows
 from .event_details_ui import show_event_details
 from .guide import GuideController, Selection, time_label
 from .guide_runtime import GuideRuntime, display_repository
@@ -32,6 +34,7 @@ from .recording_ui import RecordingUI
 from .storage_ui import StorageUI
 from .search import ProgrammeSearchIndex, SearchPage, airing_key, normalize_query
 from .session import OfflineDataSession, Presentation
+from .series_manager_models import RuleRow
 from .ui_dispatch import UiDispatcher
 from .ui_text import capture, text
 from .ui_menu import CONNECTION, group_label, select
@@ -110,6 +113,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._recording_ui = RecordingUI(self)
         self._storage_ui = StorageUI(self)
         self._series_ui = None
+        self._dvr = DvrUI(self)
         self._guide_runtime = GuideRuntime(self)
         self._artwork_ui = ArtworkUI(self)
         self._playback_ui = PlaybackUI(self)
@@ -154,6 +158,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
                 self._chrome.click(value, xbmcgui)
         if not self._closed:
             changed = self._guide_runtime.poll()
+            changed = self._dvr.poll() or changed
             changed = self._artwork_ui.poll() or changed
             changed = self._dashboard_ui.poll() or changed
             if not self._closed and (changed or self._paint_pending):
@@ -182,6 +187,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
         cancel_large(self, "window closed")
         self._recording_ui.close()
         self._storage_ui.close()
+        self._dvr.refresh()
         if self._series_ui is not None:
             self._series_ui.close()
         self._guide_runtime.close()
@@ -193,7 +199,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
     def close(self):
         self.shutdown()
 
-    def _series_manager_request(self, gui):
+    def _series_manager(self, gui):
         from .series_manager_ui import SeriesManagerUI
         from .pass_ui import _programme_scope
         self._dispatcher.assert_owner()
@@ -206,7 +212,10 @@ class ChannelsWindow(xbmcgui.WindowXML):
                 source_scope=lambda: self._recording_ui.preview._control_context()[0],
                 strings=self.strings, default_no=gui.DLG_YESNO_NO_BTN,
                 presentation_scope=lambda: presentation_scope(self))
-        self._series_ui.request()
+        return self._series_ui
+
+    def _series_manager_request(self, gui):
+        self._series_manager(gui).request()
 
     def _series_selection(self):
         self._dispatcher.assert_owner()
@@ -391,6 +400,12 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self.search_selection = None
         self._clear_search_cache()
 
+    def _reset_dvr(self) -> None:
+        self.positions.pop('DVR', None)
+        self._dvr_selected = self._dvr_rows_key = None
+        self._dvr_rows = ()
+        self._dvr.reset()
+
     def _clear_search_cache(self) -> None:
         # Runtime holds immutable source/records on worker until commit. Normal
         # metadata refresh preserves query, airing bookmark and cursor.
@@ -460,11 +475,13 @@ class ChannelsWindow(xbmcgui.WindowXML):
               text: str, selected: bool, gap: bool = False) -> None:
         draw(self, index, x, y, width, height, text, selected, gap)
 
-    def _rows(self) -> tuple[Row, ...]:
+    def _rows(self) -> Sequence[Row]:
         if self.view in ('Dashboard', 'Guide'):
             return ()
         if self.view == 'Settings':
             return tuple(Row(code, self.t(label), '') for code, label in CONNECTION)
+        if self._dvr.passes:
+            return self._dvr.rows()
         if self._development_blocked is not None or (self._live_session is None and not self.demo_allowed()):
             return ()
         if self.view == "Search":
@@ -493,6 +510,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
         return self.view
 
     def _selected_position(self, rows):
+        if isinstance(rows, PassRows):
+            return self._dvr.position
         return self.library.position if self.view == 'Recordings' else min(
             self.positions.get(self._position_key(), 0), max(0, len(rows) - 1))
 
@@ -500,6 +519,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
         index = max(0, min(index, len(rows) - 1))
         if self.view == 'Recordings':
             self.library.move(index - self.library.position)
+        elif isinstance(rows, PassRows):
+            self._dvr.select(rows.items, index)
         else:
             self.positions[self._position_key()] = index
             if rows and self.view == 'Search':
@@ -514,6 +535,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
             return self.view == 'Guide' and self._guide_runtime.ready and self.guide.focus_cell(channel, event_id, start)
         if kind != 'row' or self.view not in ('Recordings', 'DVR', 'Search', 'Settings'):
             return False
+        if self._dvr.passes:
+            data = self._dvr.data()
+            return data.can_browse and self._dvr.hit(data.items, key[0])
         if self.view != 'Settings' and not self._current_data().can_browse:
             return False
         rows = self._rows()
@@ -523,9 +547,11 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._select_list(rows, matches[0])
         return True
 
-    def _current_data(self) -> Presentation[Event] | Presentation[Recording] | Presentation[Job]:
+    def _current_data(self) -> Presentation[Event] | Presentation[Recording] | Presentation[Job] | Presentation[RuleRow]:
         if self.view in ('Dashboard', 'Settings'):
             return Presentation((), DataState.EMPTY, False, False, None, None, '', '', False)
+        if self.view == 'DVR' and self._dvr.passes:
+            return self._dvr.data()
         if self._development_blocked is not None or (self._live_session is None and not self.demo_allowed()):
             return Presentation((), DataState.OUTAGE, False, False, None, None,
                                 self.t('not_connected'), self.t('connection_prompt'),
@@ -598,6 +624,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
             self._label(115, '')
             self._render_rows(self._rows())
             return
+        if self.view == 'DVR':
+            self._dvr.render(data)
+            return
         station_rows = (self._live_session is not None and self.view == "Guide" and self.guide.prepared_ready
                         and self._guide_runtime.ready and bool(self.guide.channels)
                         and data.updated_at is not None)
@@ -650,9 +679,6 @@ class ChannelsWindow(xbmcgui.WindowXML):
                 if self.library.truncated or self.library.coverage_limited:
                     status += self.t('results_limited')
                 self._label(113, status)
-            else:
-                self._label(112, self.t('demo_scheduled_readonly' if self.demo_allowed() else 'scheduled_readonly'))
-                self._label(113, self.t('details_rows_status', position=selected + 1 if rows else 0, count=len(rows)))
             return
         guide = self.guide
         cells = [cell for cell in guide.cells() if 0 <= cell.row < guide.rows]
@@ -707,6 +733,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
         if self.view == 'Settings':
             rows = self._rows()
             execute_command(self, xbmcgui, rows[self._selected_position(rows)].id)
+            return
+        if self._dvr.passes:
+            self._dvr.show(dialog_for(self, xbmcgui))
             return
         data = self._current_data()
         if (self._live_session is not None and self._development_blocked is None

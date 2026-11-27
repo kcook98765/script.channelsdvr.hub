@@ -1,9 +1,11 @@
 """Owner-only injected dialogs; frozen DTOs cross from the Series worker."""
 import json
 import hashlib
+from dataclasses import dataclass
+from collections.abc import Callable
 
 from .series_manager_worker import SeriesManagerWorker
-from .series_manager_models import ManagerView
+from .series_manager_models import ManagerView, RuleRow
 from .ui_menu import command
 from .ui_text import text
 from .series_manager_presentation import (rule_label, rule_details, episode_label, episode_details,
@@ -12,6 +14,13 @@ from .series_manager_presentation import (rule_label, rule_details, episode_labe
 ACTION_KEYS = {'create': 'series_create', 'adopt': 'series_adopt', 'rename': 'series_rename',
     'pause': 'series_pause', 'resume': 'series_resume', 'remove': 'series_remove',
     'refresh_consent': 'series_reconfirm'}
+
+
+@dataclass(frozen=True)
+class DvrReview:
+    row: RuleRow | None
+    current: Callable[[], bool]
+    finished: Callable[[ManagerView], None]
 
 
 class SeriesManagerUI:
@@ -33,6 +42,7 @@ class SeriesManagerUI:
         self._readers = {}
         self._presentation_scope = presentation_scope
         self._presentation = None
+        self._dvr: DvrReview | None = None
 
     def t(self, key, **values):
         return text(self.strings, key, **values)
@@ -43,6 +53,7 @@ class SeriesManagerUI:
             self.worker.close()
         self.worker, self._binding, self._event = None, None, None
         self._scope, self._pending = None, False
+        self._dvr = None
         self._readers.clear()
 
     def _valid(self, generation):
@@ -53,17 +64,20 @@ class SeriesManagerUI:
                 and (self._event is None or self._selection() == self._event))
 
     def _modal(self, generation, method, *args, **kwargs):
-        if not self._valid(generation):
+        if not self._review_current(generation):
             self.close()
             return None
         answer = getattr(self._dialog(), method)(*args, **kwargs)
-        if not self._valid(generation):
+        if not self._review_current(generation):
             self.close()
             return None
         return answer
 
+    def _review_current(self, generation):
+        return self._valid(generation) and (self._dvr is None or self._dvr.current())
+
     def _show(self, generation, body):
-        if not self._valid(generation):
+        if not self._review_current(generation):
             self.close()
             return False
         try:
@@ -75,10 +89,10 @@ class SeriesManagerUI:
                     self._readers.clear()
                 self._readers[digest] = (pages, 0)
             pages, page = self._readers[digest]
-            while self._valid(generation):
+            while self._review_current(generation):
                 heading = self.t('series_manager') + (f' {page+1}/{len(pages)}' if len(pages) > 1 else '')
                 shown = self._viewer(heading, pages[page]) is True
-                if not shown or not self._valid(generation):
+                if not shown or not self._review_current(generation):
                     self.close()
                     return False
                 if len(pages) == 1:
@@ -87,7 +101,7 @@ class SeriesManagerUI:
                 entries += ((('next', 'next_page'),) if page+1 < len(pages) else ())
                 entries += (('close', 'close'),)
                 action = command(entries, self._modal(generation, 'select', heading, [self.t(key) for _, key in entries], preselect=len(entries)-1))
-                if not self._valid(generation):
+                if not self._review_current(generation):
                     self.close()
                     return False
                 if action not in {'next', 'previous'}:
@@ -101,7 +115,7 @@ class SeriesManagerUI:
         return False
 
     def _queue(self, generation, operation, **values):
-        if not self._valid(generation):
+        if not self._review_current(generation):
             self.close()
             return False
         assert self.worker is not None
@@ -112,7 +126,7 @@ class SeriesManagerUI:
         self._presentation = self._presentation_scope()
         return True
 
-    def request(self):
+    def _begin(self):
         self._owner()
         if self._reviewing:
             return
@@ -123,7 +137,7 @@ class SeriesManagerUI:
         if self.worker is not None and (self._binding != config or self._scope != self._context()):
             self.close()
         if self.worker is not None and self._pending:
-            self._modal(self._generation, 'ok', self.t('series_manager'), self.t('pending_operation'))
+            self._dialog().ok(self.t('series_manager'), self.t('pending_operation'))
             return
         if self.worker is None:
             try:
@@ -135,7 +149,13 @@ class SeriesManagerUI:
                 self._dialog().ok(self.t('series_manager'), self.t('profile_blocked'))
                 return
         self._event = None
-        generation = self._generation
+        self._dvr = None
+        return self._generation
+
+    def request(self):
+        generation = self._begin()
+        if generation is None:
+            return
         entries = (('list', 'series_manager'), ('create', 'series_create'), ('status', 'status_read'))
         selected = command(entries, self._modal(generation, 'select', self.t('series_manager'),
                                                 [self.t(k) for _, k in entries]))
@@ -150,6 +170,19 @@ class SeriesManagerUI:
                 return
             self._event = event
             self._queue(generation, 'prepare', event=event)
+
+    def request_dvr(self, row, current, finished):
+        self._owner()
+        if not current() or (row is not None and not row.supported):
+            return
+        generation = self._begin()
+        if generation is None:
+            return
+        self._dvr = DvrReview(row, current, finished)
+        if row is None:
+            self._queue(generation, 'status')
+        else:
+            self._queue(generation, 'details', key=row.key)
 
     def _browse(self, generation, rows, provenances=()):
         # Typed key lookup against captured immutable rows, never parse display text.
@@ -228,6 +261,9 @@ class SeriesManagerUI:
         if type(result) is not ManagerView:
             return
         self._pending = False
+        if self._dvr is not None:
+            self._dvr_result(generation, result, self._dvr)
+            return
         if self._presentation is not self._presentation_scope():
             if result.operation == 'prepare':
                 self._queue(generation, 'abort')
@@ -255,36 +291,68 @@ class SeriesManagerUI:
                         **dict(token=result.token, confirmed=True) if answer is True else {})
             self._event = None
         elif result.operation == 'details':
-            if result.row is None:
-                self.close()
-                return
-            body = rule_details(result.row, result.provenance, result.actions, self.strings)
-            if result.row.supported:
-                body = self.t('series_scope', title='', details=body)
-            if not self._show(generation, body):
-                return
-            entries = tuple((action, ACTION_KEYS[action]) for action in result.actions) + (('raw', 'series_raw'),)
-            action = None
-            while self._valid(generation):
-                action = command(entries, self._modal(generation, 'select', self.t('series_manager'), [self.t(k) for _, k in entries]))
-                if action != 'raw':
-                    break
-                if not self._show(generation, result.row.raw):
-                    return
-            if action is None:
-                self._queue(generation, 'abort')
-                return
-            values = dict(token=result.token, confirmed=True)
-            if action == 'rename':
-                name = self._modal(generation, 'input', self.t('series_rename'),
-                                   defaultt=result.row.payload()['Name'])
-                if type(name) is not str or not name.strip():
-                    self._queue(generation, 'abort')
-                    return
-                values['name'] = name
-                if not self._show(generation, name):
-                    return
-            answer = self._modal(generation, 'yesno', self.t(ACTION_KEYS[action]), self.t('series_consent'), defaultbutton=self._default_no)
-            self._queue(generation, action if answer is True else 'abort', **values if answer is True else {})
+            self._details(generation, result)
         elif result.operation != 'abort':
             self._queue(generation, 'list')
+
+    def _dvr_result(self, generation, result, review):
+        if self._presentation is not self._presentation_scope() or not review.current():
+            self.close()  # Already-completed transport outcomes remain journaled.
+            return
+        if result.error is not None:
+            key = {'pending': 'dvr_series_pending', 'storage': 'profile_blocked', 'activity': 'series_activity',
+                   'capacity': 'series_capacity', 'expired': 'error_expired'}.get(result.error, 'series_stopped')
+            self._show(generation, self.t(key))
+        elif result.operation == 'details':
+            if review.row is None or result.row != review.row:
+                self._show(generation, self.t('dvr_pass_changed'))
+                if review.current():
+                    review.finished(ManagerView('details', error='stale'))
+                self.close()
+                return
+            if result.control_blocked:
+                self._show(generation, self.t('dvr_series_pending'))
+                result = ManagerView('details', error='pending')
+            else:
+                self._details(generation, result)
+                return
+        elif result.operation != 'abort':
+            self._show(generation, self.t('dvr_series_verified'))
+        if result.operation != 'abort' and review.current():
+            review.finished(result)
+        self._dvr = None
+
+    def _details(self, generation, result):
+        if result.row is None:
+            self.close()
+            return
+        body = rule_details(result.row, result.provenance, result.actions, self.strings)
+        if result.row.supported:
+            body = self.t('series_scope', title='', details=body)
+        if not self._show(generation, body):
+            return
+        entries = tuple((action, ACTION_KEYS[action]) for action in result.actions
+                        if action in ACTION_KEYS and action != 'create' and type(result.token) is str)
+        entries += (('raw', 'series_raw'),)
+        action = None
+        while self._review_current(generation):
+            action = command(entries, self._modal(generation, 'select', self.t('series_manager'), [self.t(k) for _, k in entries]))
+            if action != 'raw':
+                break
+            if not self._show(generation, result.row.raw):
+                return
+        if action is None:
+            self._queue(generation, 'abort')
+            return
+        values = dict(token=result.token, confirmed=True)
+        if action == 'rename':
+            name = self._modal(generation, 'input', self.t('series_rename'),
+                               defaultt=result.row.payload()['Name'])
+            if type(name) is not str or not name.strip():
+                self._queue(generation, 'abort')
+                return
+            values['name'] = name
+            if not self._show(generation, name):
+                return
+        answer = self._modal(generation, 'yesno', self.t(ACTION_KEYS[action]), self.t('series_consent'), defaultbutton=self._default_no)
+        self._queue(generation, action if answer is True else 'abort', **values if answer is True else {})
