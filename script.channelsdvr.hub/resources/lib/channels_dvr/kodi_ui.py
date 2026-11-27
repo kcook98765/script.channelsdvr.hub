@@ -664,9 +664,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
             self._label(112, self.t('connection'))
             session = self._live_session
             if isinstance(session, LiveDataSession) and self._development_blocked is None:
-                status = session.guide()
-                self._label(114, status.banner)
-                self._label(113, status.message)
+                connection_presentation = session.guide()
+                self._label(114, connection_presentation.banner)
+                self._label(113, connection_presentation.message)
             else:
                 self._label(114, self.t('not_connected'))
                 self._label(113, self.t('connection_prompt'))
