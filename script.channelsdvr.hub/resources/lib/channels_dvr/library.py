@@ -18,14 +18,26 @@ from .ui_text import FALLBACK, text
 
 _Context: TypeAlias = tuple[str, str, str]  # mode, origin, normalized Search query
 _Path: TypeAlias = tuple[str, ...]  # opaque folder Row IDs
-_Bookmark: TypeAlias = tuple[str | None, int]  # selected Row ID, fallback offset
+_Bookmark: TypeAlias = tuple[str | None, int, int]  # selected Row ID, fallback offset, viewport top
 _Entry: TypeAlias = tuple[Recording, str, Row]
 _ShowIdentity: TypeAlias = tuple[str, str, str, str, str]
 _Member: TypeAlias = tuple[Recording, Row]
 
+PAGE_ROWS = 6
+MODE_LABELS = {'Recent': 'recordings_recent', 'Shows': 'recordings_tv', 'Movies': 'movies',
+               'All': 'recordings_all', 'Search': 'search'}
+SORT_LABELS = {'title': 'recordings_title', 'newest': 'recordings_newest', 'oldest': 'recordings_oldest'}
+
 
 def _text(text: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", text).casefold().split())
+
+
+def _sort_key(order: str, title: str, created: int) -> tuple[bool, str | int]:
+    if order == 'title':
+        normalized = _text(title)
+        return not normalized, normalized  # A blank title sorts after known titles.
+    return False, -created if order == 'newest' else created
 
 
 def _valid(record: Recording) -> bool:
@@ -57,13 +69,14 @@ def _valid(record: Recording) -> bool:
 
 
 class LibraryBrowser:
-    """Shows/Recent/Movies/Search with independent origin and folder cursors.
+    """Category, provenance and folder bookmarks, including the visible page.
 
-    Shows sort by display title, origin and tagged show identity; seasons sort
-    numerically (including zero), unknown last; episodes sort numerically then
-    newest-first. Recent sorts newest-first with full identity tie breaks.
-    Movies sort by title. A changed normalized query starts at its first match;
-    equivalent query spellings preserve the cursor and the original query text.
+    Recent and Search default to newest first; other roots default to title.
+    Date sorts use accepted Added timestamps (a show's newest member at root).
+    Full identity breaks ties. Season and episode order is always canonical:
+    numeric (including zero), unknown last; equivalent episodes newest-first.
+    A changed normalized query starts at its first match; equivalent spellings
+    keep the cursor. Recent orders the available catalogue, not a guessed horizon.
     Only the current query's four origin contexts are retained, not query history.
     """
 
@@ -71,6 +84,7 @@ class LibraryBrowser:
         if type(max_records) is not int or not 1 <= max_records <= 100000:
             raise ValueError("max_records must be an integer from 1 to 100000")
         self._max_records: int = max_records
+        self._incarnation = object()
         self.strings = strings
         self._mode: str = "Shows"
         self._query: str = ""
@@ -82,8 +96,10 @@ class LibraryBrowser:
         self._views: dict[_Context, tuple[tuple[Row, ...], bool]] = {}
         self._paths: dict[_Context, _Path] = {}
         self._bookmarks: dict[tuple[_Context, _Path], _Bookmark] = {}
+        self._sorts: dict[str, str] = {}
         self._rows: tuple[Row, ...] = ()
         self._position: int = 0
+        self._top: int = 0
         self._search_parent: tuple[str, str] | None = None
         self._coverage_limited: bool = False
         self._truncated: bool = False
@@ -94,10 +110,13 @@ class LibraryBrowser:
         """Owner initialization only; normal components receive their snapshot at construction."""
         if self.strings is strings:
             return
+        source, limited = self._source, self._coverage_limited
         records = self._records or ()
         self.strings = strings
         self._source = self._records = None
         self.update(records)
+        self._source = source
+        self._coverage_limited |= limited
 
     @property
     def mode(self) -> str:
@@ -114,6 +133,17 @@ class LibraryBrowser:
     @property
     def position(self) -> int:
         return self._position
+
+    @property
+    def top(self) -> int:
+        return self._top
+
+    @property
+    def sort_order(self) -> str:
+        return self._order(self._mode)
+
+    def _order(self, mode: str) -> str:
+        return self._sorts.get(mode, 'newest' if mode in ('Recent', 'Search') else 'title')
 
     @property
     def selected(self) -> Row | None:
@@ -146,6 +176,12 @@ class LibraryBrowser:
     def rows(self) -> tuple[Row, ...]:
         return self._rows
 
+    @property
+    def navigation_scope(self) -> tuple[object, _Context, _Path, str]:
+        """Opaque owner intent scope; does not pin a catalogue or a Row."""
+        context = self._context()
+        return self._incarnation, context, self._paths.get(context, ()), self.sort_order
+
     def _context(self) -> _Context:
         return self._mode, self._filter, self._normalized if self._mode == "Search" else ""
 
@@ -153,7 +189,7 @@ class LibraryBrowser:
         context = self._context()
         path = self._paths.get(context, ())
         self._bookmarks[context, path] = (
-            self.selected.id if self.selected else None, self._position)
+            self.selected.id if self.selected else None, self._position, self._top)
 
     def update(self, records: Iterable[Recording]) -> None:
         if isinstance(records, tuple) and records is self._source:
@@ -221,15 +257,13 @@ class LibraryBrowser:
         mode, origin, query = context
         entries = tuple(entry for entry in self._index
                         if origin == "all" or entry[0].provenance == origin)
+        order = self._order(mode)
         more = False
         if mode == "Shows":
-            rows = self._shows(entries, self.strings)
-        elif mode == "Movies":
-            rows = tuple(entry[2] for entry in sorted(
-                (e for e in entries if e[0].is_movie),
-                key=lambda e: (_text(e[0].title), recording_key(e[0]))))
+            rows = self._shows(entries, order, self.strings)
         else:
-            ordered = sorted(entries, key=lambda e: (-e[0].created, recording_key(e[0])))
+            ordered = sorted((e for e in entries if mode != "Movies" or e[0].is_movie),
+                             key=lambda e: (*_sort_key(order, e[0].title, e[0].created), recording_key(e[0])))
             if mode == "Search":
                 matches: list[Row] = []
                 if query:
@@ -246,7 +280,7 @@ class LibraryBrowser:
         return rows, more
 
     @staticmethod
-    def _shows(entries: tuple[_Entry, ...], strings=FALLBACK) -> tuple[Row, ...]:
+    def _shows(entries: tuple[_Entry, ...], order: str, strings=FALLBACK) -> tuple[Row, ...]:
         shows: dict[_ShowIdentity, list[_Member]] = {}
         for record, _, row in entries:
             if record.is_movie:
@@ -256,17 +290,16 @@ class LibraryBrowser:
                         record.show_id if record.show_id is not None else
                         record.show or record.title)
             shows.setdefault(identity, []).append((record, row))
-        result: list[tuple[str, Row]] = []
+        result: list[tuple[tuple[bool, str | int], tuple[str, str], Row]] = []
         for identity, members in shows.items():
             # Pick display metadata deterministically even if input order changes.
             representative = min(members, key=lambda e: (-e[0].created, recording_key(e[0])))[0]
-            label = text(strings, 'lib_group', title=representative.show or representative.title,
+            title = representative.show if representative.show and representative.show.strip() else representative.title
+            label = text(strings, 'lib_group', title=title if title.strip() else text(strings, 'recordings_untitled'),
                          origin=origin_label(representative.namespace, representative.provenance, strings))
-            # Locale is presentation only; preserve the canonical title/origin order.
-            # This legacy English key is internal sort identity, never displayed.
-            sort_label = (f'{representative.show or representative.title} | '
-                f'{provenance_label(representative.provenance)} | Namespace: '
-                f"{representative.namespace or '(unspecified)'}")
+            # Locale is presentation only. Title ties use source codes, not
+            # translated labels; date ties go directly to the full folder ID.
+            origin = (representative.provenance, _text(representative.namespace)) if order == 'title' else ('', '')
             seasons: dict[int | None, list[_Member]] = {}
             for record, row in members:
                 seasons.setdefault(record.season, []).append((record, row))
@@ -279,8 +312,9 @@ class LibraryBrowser:
                                      text(strings, 'lib_season', season=season if season is not None else '?'),
                                      text(strings, 'lib_browse_episodes', title=label),
                                     tuple(e[1] for e in episodes)))
-            result.append((sort_label, Row(repr(identity), label, text(strings, 'lib_browse_seasons'), tuple(children))))
-        return tuple(row for _, row in sorted(result, key=lambda item: (_text(item[0]), item[1].id)))
+            result.append((_sort_key(order, title, representative.created), origin,
+                           Row(repr(identity), label, text(strings, 'lib_browse_seasons'), tuple(children))))
+        return tuple(row for _, _, row in sorted(result, key=lambda item: (*item[0], item[1], item[2].id)))
 
     def _resolve(self, context: _Context) -> tuple[tuple[Row, ...], bool, list[str]]:
         rows, more = self._root(context)
@@ -300,12 +334,17 @@ class LibraryBrowser:
         context = self._context()
         self._rows, self._truncated, labels = self._resolve(context)
         path = self._paths[context]
-        identity, offset = self._bookmarks.get((context, path), (None, 0))
+        identity, offset, top = self._bookmarks.get((context, path), (None, 0, 0))
         self._position = next((i for i, row in enumerate(self._rows) if row.id == identity),
-                              min(offset, max(0, len(self._rows) - 1)))
+                               min(offset, max(0, len(self._rows) - 1)))
+        # Keep the selected identity at the same screen row when the ordering
+        # changes, rather than binding Back/refresh to an old provider offset.
+        self._top = max(0, self._position - (offset - top))
         origin = text(self.strings, 'all_sources') if self._filter == 'all' else provenance_label(self._filter, self.strings)
-        mode_key = {'Shows': 'shows', 'Recent': 'recent', 'Movies': 'movies', 'Search': 'search'}[self._mode]
-        root = text(self.strings, 'lib_breadcrumb', mode=text(self.strings, mode_key), origin=origin)
+        root = text(self.strings, 'lib_breadcrumb', mode=text(self.strings, MODE_LABELS[self._mode]), origin=origin)
+        if not path:
+            root = text(self.strings, 'recordings_sorted', breadcrumb=root,
+                        sort=text(self.strings, SORT_LABELS[self.sort_order]))
         if self._mode == "Search":
             root = text(self.strings, 'lib_search_breadcrumb', breadcrumb=root,
                         query=self._query if self._normalized else text(self.strings, 'search_query_prompt'))
@@ -314,6 +353,8 @@ class LibraryBrowser:
 
     def move(self, direction: int) -> None:
         self._position = max(0, min(self._position + direction, max(0, len(self._rows) - 1)))
+        pages = (self._position - self._top) // PAGE_ROWS
+        self._top = max(0, self._top + pages * PAGE_ROWS)
         self._remember()
 
     def open_selected(self) -> bool:
@@ -337,8 +378,10 @@ class LibraryBrowser:
         return True
 
     def set_mode(self, mode: str) -> None:
-        if mode not in ("Shows", "Recent", "Movies", "Search"):
+        if mode not in MODE_LABELS:
             raise ValueError("Unknown library mode")
+        if mode == self._mode:
+            return
         self._remember()
         if mode == 'Search' and self._mode != 'Search':
             self._search_parent = (self._mode, self._filter)
@@ -380,4 +423,14 @@ class LibraryBrowser:
             raise ValueError("Unknown provenance filter")
         self._remember()
         self._filter = provenance
+        self._load()
+
+    def set_sort(self, order: str) -> None:
+        if order not in SORT_LABELS:
+            raise ValueError("Unknown library sort")
+        if order == self.sort_order:
+            return
+        self._remember()
+        self._sorts[self._mode] = order
+        self._views = {context: view for context, view in self._views.items() if context[0] != self._mode}
         self._load()
