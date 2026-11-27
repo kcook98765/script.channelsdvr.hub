@@ -274,10 +274,11 @@ class PlaybackUI:
                 self.state = 'expired'
                 return
             if selection.kind == 'live':
+                key = selection.identity
                 label, provider = descriptor.resolved_label, descriptor.live_scope
-                if (type(label) is not str or not label.strip()
+                if (type(key) is not ChannelKey or type(label) is not str or not label.strip()
                         or type(provider) is not LiveProviderScope
-                        or not provider.matches(selection.identity, descriptor.source_pinned)):
+                        or not provider.matches(key, descriptor.source_pinned)):
                     self.cancel()
                     self.state = 'metadata_rejected'
                     return
