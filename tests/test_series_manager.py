@@ -389,6 +389,57 @@ class ManagerTests(unittest.TestCase):
                 self.assertEqual(outcome, 'clear')
                 self.assertIsNone(decode(raw)['pending'])
 
+    def test_incomplete_wire_only_checkpoint_checks_id_against_exact_readback(self):
+        self.adopt()
+        before = self.backend.rows[0]
+        after = dict(before, Paused=True, UpdatedAt=2)
+        status = dict(version=self.backend.actual)
+        self.store.intent('pause', 'a'*64, RuleSnapshot.parse(before), None, self.backend.actual)
+        response = Response(dict(sparse(after), ID='rule-B'))
+        read = response.read1
+
+        def interrupted(amount):
+            if not response.raw:
+                raise OSError('interrupted fake stream')
+            return read(amount)
+
+        def raw_checkpoint_only(wire, returned_id=None):
+            if returned_id is not None:
+                self.assertEqual(returned_id, 'rule-B')
+                raise ManagerError('storage')  # Stop between raw and decoded-ID checkpoints.
+            self.store.capture(wire)
+
+        response.read1 = interrupted
+        client = SeriesHTTP(CONFIG, opener=Opener([Response(status), response]))
+        client.verify_status()
+        with self.assertRaises(ManagerError) as stopped:
+            client.mutate(self.store.dispatch(), capture=raw_checkpoint_only)
+        self.assertEqual(stopped.exception.code, 'storage')
+        payload = OperationStore.inspect(self.temp.name, Scope.SERIES).payload
+        burned = decode(payload)
+        index = burned['pending']
+        entry = burned['history'][index]
+        self.assertIsNone(entry['returned_id'])
+        self.assertFalse(entry['wire']['complete'])
+        self.assertEqual(json.loads(base64.b64decode(entry['wire']['raw_base64']))['ID'], 'rule-B')
+
+        reads = dict(rules=[after], jobs=[], public=[], details={'rule-A': after})
+        raw, outcome = successor(payload, BINDING, self.backend.actual, reads)
+        blocked = decode(raw)
+        self.assertEqual(outcome, 'blocked')
+        self.assertEqual((blocked['pending'], blocked['history']), (index, burned['history']))
+        self.assertEqual(blocked['records'][0]['last'], before)
+
+        # Same interruption, same intended reply ID, and the same qualified readback.
+        entry['wire']['raw_base64'] = base64.b64encode(json.dumps(sparse(after)).encode()).decode()
+        raw, outcome = successor(encode(burned), BINDING, self.backend.actual, reads)
+        cleared = decode(raw)
+        self.assertEqual(outcome, 'clear')
+        self.assertIsNone(cleared['pending'])
+        self.assertEqual(cleared['records'][0]['last'], after)
+        self.assertIsNone(cleared['history'][index]['returned_id'])
+        self.assertFalse(cleared['history'][index]['wire']['complete'])
+
     def test_status_distinguishes_cleared_unsent_intent_from_verified_write(self):
         self.adopt()
         before = self.backend.rows[0]
