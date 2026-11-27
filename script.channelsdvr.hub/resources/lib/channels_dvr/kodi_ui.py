@@ -455,7 +455,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
     def _texture(self, name: str) -> str:
         return os.path.join(self.path, "resources", "skins", "Default", "media", name)
 
-    def _ensure_guide_line(self) -> xbmcgui.ControlImage:
+    def _ensure_guide_line(self) -> "xbmcgui.ControlImage":
         if self._guide_line is None:
             line = xbmcgui.ControlImage(0, 0, 1, 1, self._texture("selected.png"))
             self.addControls([line])
