@@ -89,6 +89,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._dvr_rows: tuple[Row, ...] = ()
         self._hit_plan: list[Hit] = []
         self.pool: list[tuple[xbmcgui.ControlImage, xbmcgui.ControlLabel]] = []
+        self._guide_line: xbmcgui.ControlImage | None = None
         self.initialized = False
         self.path = ""
         self.metrics = GuiMetrics()
@@ -438,6 +439,10 @@ class ChannelsWindow(xbmcgui.WindowXML):
             if not self._guide_runtime.reenter(anchor):
                 self._request_live(anchor)
         else:
+            if self._live_session is not None and not self._guide_runtime.ready:
+                # Metadata already names this horizon, but adoption still owns
+                # the final cursor. Replace the previous request's anchor.
+                self._intended_anchor = anchor
             self.guide.jump(anchor)
 
     def _source_label(self, key: ChannelKey) -> str:
@@ -450,15 +455,27 @@ class ChannelsWindow(xbmcgui.WindowXML):
     def _texture(self, name: str) -> str:
         return os.path.join(self.path, "resources", "skins", "Default", "media", name)
 
+    def _ensure_guide_line(self) -> xbmcgui.ControlImage:
+        if self._guide_line is None:
+            line = xbmcgui.ControlImage(0, 0, 1, 1, self._texture("selected.png"))
+            self.addControls([line])
+            self._guide_line = line
+        return self._guide_line
+
     def _ensure_pool(self, count: int) -> None:
         self._visible_count = count
         added: list[xbmcgui.Control] = []
         while len(self.pool) < count:
-            image = xbmcgui.ControlImage(0, 0, 1, 1, self._texture("cell.png"))
+            # Reuse the old top image as a cell on growth. The next line is
+            # appended after the new cells, with only one extra image total.
+            image, self._guide_line = self._guide_line, None
+            if image is None:
+                image = xbmcgui.ControlImage(0, 0, 1, 1, self._texture("cell.png"))
+                added.append(image)
             label = xbmcgui.ControlLabel(0, 0, 1, 1, "", font="font13",
                                         textColor="FFFFFFFF")
             self.pool.append((image, label))
-            added.extend((image, label))
+            added.append(label)
         if added:
             self.addControls(added)
         for image, label in self.pool[count:]:

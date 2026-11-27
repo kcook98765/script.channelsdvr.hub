@@ -191,10 +191,19 @@ class ArtworkUI:
                 return
         if self._preview is not None:
             x, y, width, height = rect
-            if (ref and not all((self._try_apply(self._preview, 'setPosition', x, y),
-                                 self._try_apply(self._preview, 'setWidth', width),
-                                 self._try_apply(self._preview, 'setHeight', height)))
-                    or not self._assign(self._preview, self._selected, ref)):
+            placed = not ref or all((self._try_apply(self._preview, 'setPosition', x, y),
+                                     self._try_apply(self._preview, 'setWidth', width),
+                                     self._try_apply(self._preview, 'setHeight', height)))
+            if not placed:
+                # Hide only the misplaced preview. The next draw retries the
+                # uncommitted setter; admitted references and logos survive.
+                hidden = self._try_apply(self._preview, 'setVisible', False)
+                cleared = self._try_apply(self._preview, 'setImage', '')
+                self._assigned.pop(self._preview, None)
+                if not hidden or not cleared:
+                    self._disable()  # Unable to prove revocation, not just a layout failure.
+                ref = None
+            elif not self._assign(self._preview, self._selected, ref):
                 self._disable()
                 return
         self._try_apply(self._control(113), 'setWidth', 1500 if ref and not guide else 1760)

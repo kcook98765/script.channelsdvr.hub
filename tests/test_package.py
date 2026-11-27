@@ -90,6 +90,8 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(controls[152].get('type'), 'textbox')
         self.assertEqual(controls[154].get('type'), 'image')
         self.assertEqual(controls[155].get('type'), 'image')
+        # Static cap ends exactly where the foreground owner-drawn line begins.
+        self.assertEqual(int(controls[154].findtext('top')) + int(controls[154].findtext('height')), ROW_TOP)
         for tick in range(4):
             self.assertEqual(int(controls[140 + tick].findtext('left')), GRID_LEFT + tick * GRID_WIDTH // 4)
         for row in range(6):

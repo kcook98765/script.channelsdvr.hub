@@ -66,6 +66,8 @@ def command_label(w, code):
         return label if view in ('Dashboard', 'Guide', 'Settings') and w.developer_enabled() else None
     if code == 'connection.menu' and view != 'Settings':
         return None
+    if code == 'series.manager':
+        return label if w._recording_ui._current_config() is not None else None
     if code in ('recording.status', 'programme.tools'):
         session = w._live_session
         if (view != 'Guide' or session is None or w._recording_ui._current_config() is None):
@@ -91,9 +93,12 @@ def command_label(w, code):
             return None
         if code in ('guide.time', 'guide.collection', 'guide.controls') and not w._guide_runtime.ready:
             return None
-        if code == 'guide.now' and w._route.parent == 'Search' and w._live_session is not None:
+        if code == 'guide.now' and w._route.parent == 'Search':
+            if not w._guide_runtime.ready:
+                return None
             start, end = w.guide.repository.horizon
-            if not start <= w.utc_now() < end:
+            now = w.utc_now() if w._live_session is not None else w.repository.now
+            if not start <= now < end:
                 return None
     if code in ('selection.page-up', 'selection.page-down'):
         return label if view != 'Dashboard' else None

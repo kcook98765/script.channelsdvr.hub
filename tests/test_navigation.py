@@ -10,8 +10,12 @@ from unittest.mock import Mock, patch
 
 from channels_dvr.guide import GuideController
 from channels_dvr.guide_fixtures import stress_repository
-from channels_dvr.guide_screen import DESCRIPTION, NOW, TITLE, day_choices, paint_clock, timeline_x
+from channels_dvr.guide_index import IndexInput, build_index
+from channels_dvr.guide_render import GRID_LEFT, ROW_TOP
+from channels_dvr.guide_screen import DESCRIPTION, METADATA, NOW, TITLE, day_choices, paint_clock, timeline_x
 from channels_dvr.library import LibraryBrowser
+from channels_dvr.live_loader import IndexResult
+from channels_dvr.models import Event
 from channels_dvr.normalization import DataState
 from channels_dvr.repository import MockRepository
 from channels_dvr.search import airing_key
@@ -260,6 +264,60 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(w.guide.selection.anchor, repo.horizon[1] - 1)
         self.assertEqual(w.getFocusId(), 307)
 
+    def test_date_shortcuts_jump_to_exact_retained_endpoints_without_loading(self):
+        repo = self.seed()
+        self.enter('Guide')
+        w = self.w
+        for key, instant in (('latest', repo.horizon[1] - 1), ('earliest', repo.horizon[0])):
+            with self.subTest(key=key):
+                self.dialog.select.reset_mock()
+                self.dialog.select.side_effect = lambda _, labels, **kw: labels.index(w.t(key))
+                self.click(307)
+                self.dialog.select.assert_called_once()
+                self.assertEqual(w.guide.selection.anchor, instant)
+                self.assertEqual(w.getFocusId(), 307)
+        w._metadata_loader.request.assert_not_called()
+
+    def test_now_survives_index_adoption_after_live_metadata_has_settled(self):
+        ready = type(self.w._guide_runtime).ready
+        old = self.seed()
+        self.enter('Guide')
+        w = self.w
+        runtime = w._guide_runtime
+        repo = MockRepository()
+        start = old.horizon[1]
+        repo.horizon, repo.now = (start, start + 7200), start
+        now = start + 1200
+        event = Event('new', repo.channels[0].key, now, now + 900, 'New horizon')
+        repo.events = (event,)
+        owner = object()
+        source = IndexInput(repo.events, repo.channels, 'synthetic', 'fixture', repo.horizon,
+                            start, 1, object(), owner)
+        product = build_index(source)
+        w.repository = repo
+        w._live_session = SimpleNamespace(loading=False, incarnation=owner, _generation=1, _catalog_epoch=1,
+            channel_projection=None, guide=w.data_session.guide, accepts_index_origin=lambda p: p is product,
+            cached_event_refs=lambda: (), cached_resource_refs=lambda: ())
+        w.transient_demo_mode = False
+        w._intended_anchor = start
+        runtime.result = IndexResult(1, source, source, product)
+        runtime.context = runtime._context(source)
+        runtime.context.applied = True  # Metadata advanced while the old controller is still installed.
+        with (patch.object(type(runtime), 'ready', ready), patch.object(w, 'utc_now', return_value=now),
+              patch.object(w._metadata_loader, 'owns_result', return_value=True),
+              patch.object(w._metadata_loader, 'replace_display', return_value=object()),
+              patch.object(w._metadata_loader, 'commit_retirement')):
+            self.assertFalse(runtime.ready)
+            w.render()
+            self.click(308)
+            self.assertEqual(w._intended_anchor, now)
+            self.assertTrue(runtime._consume())
+            self.assertTrue(runtime.ready)
+            self.assertEqual(w.guide.selection.anchor, now)
+            self.assertIs(w.guide.selected_event(), event)
+            self.assertIsNone(w._intended_anchor)
+        w._metadata_loader.request.assert_not_called()
+
     def test_retained_guide_drops_hits_and_current_details_without_moving_focus(self):
         self.seed()
         self.enter('Guide')
@@ -291,8 +349,52 @@ class NavigationTests(unittest.TestCase):
             now.return_value = w.guide.viewport + w.guide.span
             paint_clock(w)
             self.assertEqual(w.controls[NOW].properties['setVisible'], (False,))
+            self.assertEqual(w._guide_line.properties['setVisible'], (False,))
         self.assertIs(w._chrome.presented, active)
         self.assertFalse(w.focus_writes)
+
+    def test_now_line_is_foreground_and_axis_and_line_stop_at_short_horizon(self):
+        repo = self.seed()
+        w = self.w
+        start = repo.horizon[0]
+        end = start + 1800
+        repo.horizon, repo.now = (start, end), end - 1
+        key = repo.channels[0].key
+        repo.events = (Event('long', key, start, end, 'Occupied row'),)
+        w.data_session = OfflineDataSession(repo, strings=w.strings)
+        w.guide = GuideController(repo, strings=w.strings)
+        self.enter('Guide')
+        right = timeline_x(end, start, w.guide.span)
+        first_line = w._guide_line
+        hit = self.hits('cell')[(key, 'long', start)]
+        self.assertEqual(first_line.properties['setPosition'], (right - 1, ROW_TOP))
+        self.assertEqual(first_line.properties['setWidth'], (1,))
+        self.assertEqual(first_line.properties['setVisible'], (True,))
+        self.assertEqual(w.controls[NOW].properties['setWidth'], (1,))
+        self.assertTrue(w.controls[140].properties['setLabel'][0])
+        self.assertTrue(all(w.controls[i].properties['setLabel'] == ('',) for i in range(141, 144)))
+        self.assertIsNone(w._chrome.capture(first_line.ident))
+        self.assertIsNotNone(w._chrome.capture(hit))
+        with patch.object(w, '_live_session', object()), patch.object(w, 'utc_now', return_value=start + 300):
+            paint_clock(w)
+        x = first_line.properties['setPosition'][0]
+        hit_x, hit_y, hit_width, _ = w.controls[hit].args[:4]
+        self.assertTrue(hit_x < x < hit_x + hit_width)
+        self.assertEqual(hit_y, ROW_TOP)
+        self.assertEqual(first_line.properties['setWidth'], (4,))
+        self.assertGreater(first_line.ident, max(control.ident for pair in w.pool for control in pair))
+
+        repo.events = (Event('first', key, start, start + 900, 'First'),
+                       Event('second', key, start + 900, end, 'Second'))
+        w.data_session = OfflineDataSession(repo, strings=w.strings)
+        w.guide.refresh()
+        w.render()
+        line = w._guide_line
+        self.assertIn(first_line, [image for image, _ in w.pool])
+        self.assertGreater(line.ident, max(control.ident for pair in w.pool for control in pair))
+        self.assertEqual(line.properties['setHeight'], (477,))
+        self.action(NAV_BACK)
+        self.assertEqual(line.properties['setVisible'], (False,))
 
     def test_stress_guide_keeps_mouse_and_draw_budgets_and_skips_overflow_targets(self):
         self.seed()
@@ -627,6 +729,12 @@ class NavigationTests(unittest.TestCase):
         self.click(302)  # Show in Guide
         self.assertEqual(w._route, Route('Guide', 'Search'))
         self.assertEqual(airing_key(w.guide.selected_event()), airing_key(result))
+        with patch.object(type(w._guide_runtime), 'ready', False):
+            bookmark = w.guide.bookmark()
+            w.render()
+            self.assertIsNone(w._chrome.capture(308))
+            self.assertFalse(execute_command(w, self.gui, 'guide.now'))
+            self.assertEqual(w.guide.bookmark(), bookmark)
         # Successful publication can replace the controller even without a
         # source switch. The bookmark must not depend on keeping it alive.
         w.guide = GuideController(repo, strings=w.strings)
@@ -712,6 +820,49 @@ class NavigationTests(unittest.TestCase):
         self.click(ident)
         self.assertEqual(airing_key(w.guide.selected_event()), (key[0], key[1], key[2]))
         w._show_event_details.assert_called_once_with(w.guide.selected_event())
+
+    def test_single_second_selection_never_paints_over_adjacent_pointer_hit(self):
+        repo = self.seed()
+        w = self.w
+        start = repo.horizon[0]
+        repo.now = start + 900  # Keep the unrelated Now marker out of the shared x.
+        key = repo.channels[0].key
+        short = Event('short', key, start, start + 1, 'One second')
+        next_event = Event('next', key, start + 1, start + 61, 'Next')
+        repo.events = (short, next_event)
+        w.data_session = OfflineDataSession(repo, strings=w.strings)
+        w.guide = GuideController(repo, strings=w.strings)
+        w.guide.jump(next_event.start)
+        self.enter('Guide')
+        self.action(LEFT)
+        self.assertIs(w.guide.selected_event(), short)
+        self.assertEqual(w.controls[TITLE].properties['setLabel'], (short.title,))
+        self.assertTrue(w.controls[120].properties['setLabel'][0].startswith('› '))
+        self.assertNotIn(airing_key(short), self.hits('cell'))
+        hit = self.hits('cell')[airing_key(next_event)]
+        self.assertEqual(w.controls[hit].args[:2], (GRID_LEFT, ROW_TOP))
+        images = [image for image, _ in w.pool[:w._visible_count]
+                  if image.properties['setPosition'] == (GRID_LEFT, ROW_TOP)]
+        self.assertEqual(len(images), 1)
+        self.assertTrue(images[0].properties['setImage'][0].endswith('cell.png'))
+        w._show_event_details = Mock()
+        self.click(hit)
+        w._show_event_details.assert_called_once_with(next_event)
+
+    def test_overlarge_accepted_end_renders_localized_unavailable_and_owner_survives(self):
+        repo = self.seed()
+        w = self.w
+        event = Event('overlarge', repo.channels[0].key, repo.now, 253402300800, 'Still selectable')
+        repo.events = (event,)
+        w.data_session = OfflineDataSession(repo, strings=w.strings)
+        w.guide = GuideController(repo, strings=w.strings)
+        self.enter('Guide')
+        self.assertEqual(w.controls[TITLE].properties['setLabel'], (event.title,))
+        self.assertIn(w.t('time_unavailable'), w.controls[METADATA].properties['setLabel'][0])
+        self.assertIn(airing_key(event), self.hits('cell'))
+        self.action(NAV_BACK)
+        self.assertEqual(w.view, 'Dashboard')
+        self.assertFalse(w._closed)
 
     def test_guide_hit_matches_painted_clip_and_cannot_survive_an_unpainted_jump(self):
         self.seed()
@@ -873,6 +1024,7 @@ class NavigationTests(unittest.TestCase):
     def test_dvr_and_settings_reuse_explicit_pass_and_connection_workflows(self):
         w = self.w
         w._series_manager_request = Mock()
+        w._recording_ui._current_config = Mock(return_value=object())
         self.enter('DVR')
         w._series_manager_request.assert_not_called()
         self.click(303)
@@ -882,6 +1034,22 @@ class NavigationTests(unittest.TestCase):
         self.click(self.hits('row')[('connection.settings',)])
         w._addon.openSettings.assert_called_once()
         w._addon.setSettingBool.assert_not_called()
+
+    def test_guide_more_never_offers_series_when_disconnected_or_in_demo(self):
+        w = self.w
+        w._series_manager_request = Mock()
+        for demo in (False, True):
+            with self.subTest(demo=demo):
+                self.enter('Dashboard')
+                if demo:
+                    self.seed()
+                self.enter('Guide')
+                self.dialog.select.reset_mock()
+                self.click(304)
+                self.dialog.select.assert_called_once()
+                self.assertNotIn(w.t('series_manager'), self.dialog.select.call_args.args[1])
+                self.assertFalse(execute_command(w, self.gui, 'series.manager'))
+        w._series_manager_request.assert_not_called()
 
 
 if __name__ == '__main__':
