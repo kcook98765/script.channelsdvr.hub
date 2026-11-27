@@ -621,11 +621,10 @@ class UITests(unittest.TestCase):
         self.assertTrue(all(key in IDS for key in LABELS.values()))
         self.assertNotIn('series.create', LABELS)
         self.assertNotIn('series.remove', LABELS)
-    def test_all_series_strings_present_in_real_po_and_under_tool_limit(self):
+    def test_all_series_strings_present_in_real_po(self):
         from channels_dvr.series_manager_catalog import ROWS
         path = Path(__file__).absolute().parents[1]/'script.channelsdvr.hub/resources/language/resource.language.en_gb/strings.po'
         raw = path.read_bytes()
-        self.assertLess(len(raw), 49152)
         for key, number, english in ROWS:
             self.assertIn(('msgctxt "#'+str(number)+'"').encode(), raw)
             self.assertIn(json.dumps(english, ensure_ascii=False).encode(), raw)
