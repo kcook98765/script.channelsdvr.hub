@@ -1131,10 +1131,12 @@ class WorkerTests(unittest.TestCase):
                     self.assertIsNotNone(result)
                     if final_build == '2026.10.24.0621':
                         self.assertEqual(result.rows, rule_rows([full()]))
+                        self.assertEqual(result.browse_version, final_build)
                         self.assertIsNone(result.token)
                         self.assertIsNone(result.error)
                     else:
                         self.assertEqual((result.rows, result.error), ((), 'source'))
+                        self.assertIsNone(result.browse_version)
                 finally:
                     worker.close()
                     if worker._thread is not None:

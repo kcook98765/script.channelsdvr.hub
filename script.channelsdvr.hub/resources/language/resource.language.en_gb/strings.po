@@ -283,20 +283,16 @@ msgctxt "#30165"
 msgid "Enter search text…"
 msgstr ""
 
-msgctxt "#30166"
-msgid "Previous results"
-msgstr ""
-
 msgctxt "#30167"
 msgid "Clear search"
 msgstr ""
 
 msgctxt "#30168"
-msgid "Search programmes (up to 128 characters)"
+msgid "Search (up to 128 characters)"
 msgstr ""
 
 msgctxt "#30169"
-msgid "Use up to 128 characters for your search."
+msgid "Use up to 128 characters."
 msgstr ""
 
 msgctxt "#30170"
@@ -1346,15 +1342,11 @@ msgid "Enter search text"
 msgstr ""
 
 msgctxt "#30460"
-msgid "No matching programmes"
-msgstr ""
-
-msgctxt "#30461"
-msgid "Choose Search programmes from the menu"
+msgid "No matches"
 msgstr ""
 
 msgctxt "#30462"
-msgid "{position}/{count} | OK: details / show in guide | Info: details"
+msgid "{position}/{count} | Info: details"
 msgstr ""
 
 msgctxt "#30463"
@@ -1374,11 +1366,11 @@ msgid "Choose Search recordings to enter text"
 msgstr ""
 
 msgctxt "#30467"
-msgid "Scheduled recordings (read only); unconfirmed listing matches remain unconfirmed"
+msgid "Read only; scheduled matches are unverified."
 msgstr ""
 
 msgctxt "#30468"
-msgid "Demo scheduled recordings (read only); possible matches may be ambiguous"
+msgid "Demo schedules (read only); matches may be ambiguous."
 msgstr ""
 
 msgctxt "#30469"
@@ -1386,19 +1378,15 @@ msgid "{position}/{count} | Details only"
 msgstr ""
 
 msgctxt "#30470"
-msgid "Select a search result to view programme details. Playback is unavailable."
+msgid "Result is not current."
 msgstr ""
 
 msgctxt "#30471"
-msgid "Programme search result"
+msgid "Search result"
 msgstr ""
 
 msgctxt "#30472"
 msgid "Show in guide"
-msgstr ""
-
-msgctxt "#30473"
-msgid "This airing is no longer in the current guide collection."
 msgstr ""
 
 msgctxt "#30474"
@@ -1607,10 +1595,6 @@ msgstr ""
 
 msgctxt "#30526"
 msgid "{status}. {message}"
-msgstr ""
-
-msgctxt "#30527"
-msgid "{title} | {number} {source} | {time}"
 msgstr ""
 
 msgctxt "#30528"
@@ -2255,4 +2239,36 @@ msgstr ""
 
 msgctxt "#30987"
 msgid "Intent cleared; not sent."
+msgstr ""
+
+msgctxt "#30988"
+msgid "Scheduled recordings"
+msgstr ""
+
+msgctxt "#30989"
+msgid "Coverage"
+msgstr ""
+
+msgctxt "#30990"
+msgid "Local listings only"
+msgstr ""
+
+msgctxt "#30991"
+msgid "Partial"
+msgstr ""
+
+msgctxt "#30992"
+msgid "Input capped"
+msgstr ""
+
+msgctxt "#30993"
+msgid "Show in DVR"
+msgstr ""
+
+msgctxt "#30994"
+msgid "Open recording"
+msgstr ""
+
+msgctxt "#30995"
+msgid "Guide programmes"
 msgstr ""

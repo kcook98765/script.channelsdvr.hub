@@ -67,6 +67,8 @@ class DvrUI:
         self.tab = 'dvr.scheduled'
         self._frame = None
         self._result: ManagerView | None = None
+        self._observed: ManagerView | None = None  # admitted browse result, never a control result
+        self._observed_source: tuple | None = None
         self._publication = object()
         self._stale = False
         self._selected: str | None = None
@@ -78,10 +80,14 @@ class DvrUI:
     def passes(self):
         return self.w.view == 'DVR' and self.tab == 'dvr.passes'
 
+    @property
+    def child(self):
+        return self.w.view == 'DVR' and self.w._route.parent == 'Search'
+
     def switch(self, tab, origin):
         w = self.w
         w._dispatcher.assert_owner()
-        if w.view != 'DVR' or tab not in ('dvr.scheduled', 'dvr.passes') or tab == self.tab:
+        if w.view != 'DVR' or self.child or tab not in ('dvr.scheduled', 'dvr.passes') or tab == self.tab:
             return
         with w._dispatcher.modal_input():
             self.tab = tab
@@ -91,15 +97,22 @@ class DvrUI:
             w._chrome.initialize_focus(origin)
 
     def config(self):
+        return self._read_config() if self.passes and not self.child else None
+
+    def _read_config(self):
         w = self.w
-        return w._recording_ui._current_config() if self.passes and w._guide_runtime._mode is None else None
+        return w._recording_ui._current_config() if w._guide_runtime._mode is None else None
+
+    def _source(self, config):
+        session = self.w._live_session
+        if config is not None and session is not None and not getattr(session, '_version_blocked', False):
+            return session.incarnation, config, session._generation, getattr(session, 'actual_version', None)
+        return None
 
     def _scope(self):
         config = self.config()
-        if config is not None:
-            session = self.w._live_session
-            return presentation_scope(self.w), session.incarnation, config, session._generation
-        return None
+        source = self._source(config)
+        return (presentation_scope(self.w), *source) if source is not None else None
 
     def _stop(self):
         if self.worker is not None:
@@ -115,9 +128,11 @@ class DvrUI:
 
     def request_refresh(self):
         if self.worker is None:
+            self._observed = self._observed_source = None
             self.refresh()
 
     def reset(self):
+        self._observed = self._observed_source = None
         self.refresh()
         self._selected, self.position, self.notice = None, 0, None
         self._selection_epoch += 1
@@ -151,6 +166,7 @@ class DvrUI:
             except Exception:
                 self._stop()
                 self._result = ManagerView('browse', error='network')
+                self._observed, self._observed_source = self._result, scope[1:]
             return True
         result = self.worker.poll()
         if result is None:
@@ -162,6 +178,7 @@ class DvrUI:
         self._result = (result if type(result) is ManagerView and result.operation == 'browse'
                         else ManagerView('browse', error='schema'))
         self._publication = object()
+        self._observed, self._observed_source = self._result, scope[1:]
         if self._result.error is None:
             self._restore(self._result.rows)
         return True
@@ -170,21 +187,41 @@ class DvrUI:
         return not 0 <= self.w.utc_now() - result.observed_at <= TTL
 
     def data(self) -> Presentation[RuleRow]:
+        if self.child:
+            return self.search_data()
+        return self._present(self._scope(), local=False)
+
+    def search_data(self) -> Presentation[RuleRow]:
+        """Observe only a previously admitted DVR browse, never start one."""
+        scope = self._source(self._read_config())
+        return self._present(scope, local=True)
+
+    @staticmethod
+    def _browse_matches(result: ManagerView, source: tuple) -> bool:
+        # Source is (incarnation, config, metadata generation, actual build).
+        # Status bookends prove the worker's build, not the caller's cached build.
+        return (source[2] is not None and type(source[3]) is str
+                and type(result.browse_version) is str and result.browse_version == source[3])
+
+    def _present(self, scope, *, local) -> Presentation[RuleRow]:
         w = self.w
         if w.demo_allowed() and w._guide_runtime._mode is None:
             demo = w.data_session.jobs()
             items = _DEMO_RULES if demo.can_browse else ()
             return Presentation(items, demo.state, demo.loading, demo.stale, demo.updated_at,
                                 demo.age_seconds, demo.banner, demo.message, bool(items))
-        scope = self._scope()
         if scope is None:
             return Presentation((), DataState.OUTAGE, False, False, None, None,
                                 w.t('not_connected'), w.t('connection_prompt'), False)
-        result = self._result if self._frame == scope else None
-        loading = result is None
+        result = (self._observed if self._observed_source == scope else None) if local else (
+            self._result if self._frame == scope else None)
+        if local and result is not None and result.error is None and not self._browse_matches(result, scope):
+            return Presentation((), DataState.UNSUPPORTED, False, False, None, None,
+                                w.t('live_unsupported'), w.t('no_listings'), False)
+        loading = result is None and (not local or self.passes and not self.child)
         stamp, age, stale, items = None, None, False, ()
         if result is None:
-            state, message = None, 'live_loading'
+            state, message = None, 'live_loading' if loading else 'no_listings'
         elif result.error is not None:
             state = (DataState.UNSUPPORTED if result.error in ('source', 'unsupported') else
                      DataState.MALFORMED if result.error == 'schema' else DataState.OUTAGE)
@@ -228,6 +265,23 @@ class DvrUI:
     def selection_identity(self, data):
         row = self.selected(data)
         return row.key if row is not None else None, self._selection_epoch
+
+    def bookmark(self):
+        return self.tab, self._selected, self.position, self.w._dvr_selected, self.w.positions.get('DVR', 0)
+
+    def resume_search_origin(self):
+        """Rebind an admitted listing to the restored primary frame, without I/O."""
+        scope = self._scope()
+        if (scope is not None and scope[1:] == self._observed_source and self.worker is None
+                and self._observed is not None and (self._observed.error is not None
+                    or self._browse_matches(self._observed, scope[1:]))):
+            self._frame, self._result = scope, self._observed
+            self._publication = object()
+
+    def restore_bookmark(self, bookmark):
+        self.tab, self._selected, self.position, self.w._dvr_selected, index = bookmark
+        self.w.positions['DVR'] = index
+        self._selection_epoch += 1
 
     def hit(self, items, key):
         for index, item in enumerate(items):
@@ -296,6 +350,7 @@ class DvrUI:
             elif self.notice in STATUS_MESSAGES.values():
                 self.notice = None
             if result.error is None or result.error == 'stale':
+                self._observed = self._observed_source = None
                 self.refresh()
             self.w._paint_pending = True
 
@@ -335,6 +390,8 @@ class DvrUI:
 
     def render(self, data):
         w = self.w
+        if self.child:
+            w._label(112, w.t('dvr_passes' if self.passes else 'search_category_scheduled'))
         rows = w._rows() if data.can_browse else ()
         position = w._render_rows(rows)
         message = w.t('details_rows_status', position=position + 1, count=len(rows)) if rows else data.message

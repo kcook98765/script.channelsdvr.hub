@@ -131,4 +131,4 @@ class SeriesManagerWorker:
         with self._condition:
             need(not self._closed, 'closed')
         need(client.verify_status() == actual, 'source')
-        return ManagerView('browse', rows=rows, observed_at=int(time.time()))
+        return ManagerView('browse', rows=rows, observed_at=int(time.time()), browse_version=actual)
