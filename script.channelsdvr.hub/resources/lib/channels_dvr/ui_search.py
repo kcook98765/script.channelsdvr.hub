@@ -13,9 +13,10 @@ from .search import MAX_SEARCH_CHANNELS, ProgrammeSearchIndex, airing_key, norma
 from .search_projection import (MAX_LISTING_RECORDS, GuideScope, GuideSnapshot, Listing,
                                 ListingCoverage, PassEntry, PassId, ProgrammeId, RecordingId,
                                 ScheduledId, SearchCategory, SearchHit, project_search)
+from .session import Presentation
 from .ui_menu import command, group_label, select
 from .ui_modal import dialog_for, modal_input
-from .ui_routes import SearchReturn, enter, route_fence
+from .ui_routes import ScheduledReveal, SearchReturn, enter, route_fence
 
 
 CATEGORIES = dict(zip(SearchCategory, ('recordings_all', 'search_category_guide', 'recordings',
@@ -23,6 +24,7 @@ CATEGORIES = dict(zip(SearchCategory, ('recordings_all', 'search_category_guide'
 TAB_COMMANDS = {'search.tab.' + category.value: category for category in CATEGORIES}
 TABS = dict(zip(range(220, 225), TAB_COMMANDS))
 LABELS = {code: CATEGORIES[category] for code, category in TAB_COMMANDS.items()} | {
+    'search.tab.scheduled': 'scheduled',  # Full category name remains in heading and Coverage.
     'search.programmes': 'search_programmes', 'search.context': 'search', 'search.query': 'search',
     'search.clear': 'search_clear', 'search.reveal': 'show_in_guide', 'search.coverage': 'search_coverage',
 }
@@ -48,6 +50,9 @@ class SearchUI:
         self.category = SearchCategory.ALL
         self._source = None
         self._serial = 0
+        self._scheduled_current: bool | None = None
+        self._selection_scope: tuple | None = None
+        self._guide_anchor: ProgrammeId | None = None
         self.invalidate()
 
     def invalidate(self):
@@ -61,11 +66,13 @@ class SearchUI:
     def reset(self):
         self.category = SearchCategory.ALL
         self._source = None
+        self._guide_anchor = self._selection_scope = None
         self.invalidate()
 
     def set_category(self, category):
         if self.category is not category:
             self.category = category
+            self._guide_anchor = None
             self.w.search_selection = None
             self.w.positions['Search'] = 0
             self.invalidate()
@@ -94,6 +101,7 @@ class SearchUI:
             self._serial += 1
             w.search_selection = None
             w.positions['Search'] = 0
+            self._guide_anchor = None
             self.invalidate()
         if admitted is None:
             return admitted, (None,) * 4
@@ -177,8 +185,9 @@ class SearchUI:
         rows, hits = [], []
         for group in page.groups:
             snapshot = snapshots[group.category]
-            empty[group.category] = (snapshot == () or
-                (isinstance(snapshot, GuideSnapshot) and (not snapshot.scope.channels or not w._search_snapshot)))
+            empty[group.category] = (snapshot == () or (isinstance(snapshot, GuideSnapshot)
+                and not group.hits and not group.coverage.capped and not snapshot.index.coverage_partial
+                and not snapshot.index.has_programmes(snapshot.scope.channels, snapshot.scope.horizon)))
             for hit in group.hits:
                 hits.append(hit)
                 title = display_text(hit.title, 100, w.strings) or w.t('unknown')
@@ -192,13 +201,29 @@ class SearchUI:
                     except (ValueError, OverflowError, OSError):
                         pass
                 rows.append(Row(repr(hit.id), f"{w.t(CATEGORIES[group.category])}: {title}", ''))
+        selection_scope = self._serial, page.query, self.category, w.repository.horizon, w.guide.group
+        match = w.search_selection
+        if admitted is None or selection_scope != self._selection_scope:
+            self._guide_anchor = None
+        elif listing_guide.snapshot is None and listing_guide.coverage.loading:
+            # Keep only an ID through the metadata/index publication gap. The
+            # painted fallback remains operable and explicit movement wins.
+            if isinstance(match, ProgrammeId):
+                self._guide_anchor = match
+        else:
+            if self._guide_anchor is not None and page.find(self._guide_anchor) is not None:
+                match = self._guide_anchor
+            self._guide_anchor = None
+        self._selection_scope = selection_scope
         pos = min(w.positions.get('Search', 0), max(0, len(hits)-1))
-        pos = next((i for i, hit in enumerate(hits) if hit.id == w.search_selection), pos)
+        pos = next((i for i, hit in enumerate(hits) if hit.id == match), pos)
         w.positions['Search'] = pos
         w.search_selection = hits[pos].id if hits else None
         self._page, self._key, self._rows, self._hits = page, key, tuple(rows), tuple(hits)
         self._empty = empty
         self.publication = object()
+        if w.view == 'Search':
+            w._paint_pending = True  # Revalidation may discover change before the idle status tick.
         return page
 
     def rows(self):
@@ -210,9 +235,38 @@ class SearchUI:
             return data.items
         return self.w.library.search_records_for(data.items)
 
+    def _scheduled_observation(self, admitted, data):
+        w, live = self.w, self.w._live_session
+        if live is not None and live._generation is None:
+            return None
+        health = _health(data)
+        if not data.can_browse or data.updated_at is None or health.stale or health.loading or health.unavailable:
+            return None
+        source = ((live.incarnation, w._development_config, live._generation, live.actual_version)
+                  if live is not None else (id(admitted), w._guide_runtime.synthetic_owner))
+        return source, _signature(data)
+
+    def scheduled_child_data(self) -> Presentation[Job]:
+        """Revalidate the exact reveal receipt before painting or opening any row."""
+        w = self.w
+        link = w._search_return.scheduled if w._search_return is not None else None
+        admitted = self._admission() if link is not None else None
+        data = admitted.jobs() if admitted is not None else None
+        current = (link is not None and data is not None
+                   and self._scheduled_observation(admitted, data) == link.observation
+                   and any(job is link.job for job in islice(data.items, MAX_LISTING_RECORDS)))
+        if current != self._scheduled_current:
+            self._scheduled_current = current
+            w._paint_pending = True
+        if current and data is not None:
+            return data
+        return Presentation((), DataState.OUTAGE, False, False, None, None,
+                            w.t('unavailable'), w.t('search_select_result'), False)
+
     def select(self, position):
         self.page()
         if self._hits:
+            self._guide_anchor = None
             self.w.search_selection = self._hits[position].id
 
     def hit_key(self, position):
@@ -222,8 +276,10 @@ class SearchUI:
         self.page()
         for index, hit in enumerate(self._hits):
             if hit.id == identity:
+                self._guide_anchor = None
                 self.w.positions['Search'] = index
                 self.w.search_selection = hit.id
+                self.w._paint_pending = True
                 return True
         return False
 
@@ -274,11 +330,12 @@ class SearchUI:
         w._label(115, w.t('search_local') + (' | ' + w.t('demo_footer') if w.demo_allowed() else ''))
         self.paint_status()
 
-    def _target(self):
+    def _target(self, *, complete=False):
         w, page = self.w, self.page()
         for group in page.groups:
             health = group.coverage
-            if not group.has_snapshot or health.loading or health.stale or health.unavailable:
+            if (not group.has_snapshot or health.loading or health.stale or health.unavailable
+                    or (complete and not group.coverage_complete)):
                 continue
             for hit in group.hits:
                 if hit.id == w.search_selection:
@@ -313,7 +370,9 @@ class SearchUI:
         return next((r for r in islice(w._dvr.search_data().items, MAX_LISTING_RECORDS) if r.key == identity.pass_id), None)
 
     def event(self):
-        identity = self._target()
+        # Playback (also after the consent modal) needs complete local input;
+        # the typed detail/reveal path independently permits disclosed partial data.
+        identity = self._target(complete=True)
         return self._entity(identity) if isinstance(identity, ProgrammeId) else None
 
     def actionable(self):
@@ -338,7 +397,8 @@ class SearchUI:
         if entity is None:
             dialog_for(w, gui).ok(w.t('search_result'), w.t('search_select_result'))
             return
-        bookmark = SearchReturn(identity, self.category, w.search_query, w.positions.get('Search', 0), origin)
+        position = w.positions.get('Search', 0)
+        bookmark = SearchReturn(identity, self.category, w.search_query, position, origin)
         with modal_input(w):
             if isinstance(identity, ProgrammeId):
                 guide = w.guide.bookmark()
@@ -355,10 +415,16 @@ class SearchUI:
                     admitted = self._admission()
                     if admitted is None:
                         return
-                    items = admitted.jobs().items
+                    data = admitted.jobs()
+                    observation = self._scheduled_observation(admitted, data)
+                    if observation is None:
+                        return
+                    items = data.items
                     index = next((i for i, job in enumerate(items) if job is entity), None)
                     if index is None:
                         return
+                    bookmark = SearchReturn(identity, self.category, w.search_query, position, origin,
+                                            ScheduledReveal(items[index], observation))
                     w._dvr.tab = 'dvr.scheduled'
                     w._dvr_selected, w.positions['DVR'] = identity.job_id, index
                 enter(w, 'DVR', dvr_return=dvr, search_return=bookmark)

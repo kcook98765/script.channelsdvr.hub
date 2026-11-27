@@ -191,6 +191,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._dispatcher.assert_owner()
         if self._closed:
             return
+        if self._series_ui is not None:
+            self._series_ui.close()  # Revoke Series admission before other teardown.
         self._closed = True
         self._dashboard_ui.close()
         self._playback_ui.close()
@@ -199,8 +201,6 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._recording_ui.close()
         self._storage_ui.close()
         self._dvr.refresh()
-        if self._series_ui is not None:
-            self._series_ui.close()
         self._guide_runtime.close()
         self._dispatcher.close()
         self._chrome.reset()
@@ -217,12 +217,12 @@ class ChannelsWindow(xbmcgui.WindowXML):
         if self._series_ui is None:
             self._series_ui = SeriesManagerUI(assert_owner=self._dispatcher.assert_owner,
                 dialog=ModalGui(self, gui).Dialog, profile=self._recording_ui._programme_profile,
-                config=self._recording_ui._current_config,
+                config=lambda: None if self._guide_runtime._mode is not None else self._recording_ui._current_config(),
                 selection=self._series_selection,
                 viewer=lambda heading, body: _programme_scope(self.path, heading, body, self.strings, modal_owner=self),
                 source_scope=lambda: self._recording_ui.preview._control_context()[0],
                 strings=self.strings, default_no=gui.DLG_YESNO_NO_BTN,
-                presentation_scope=lambda: presentation_scope(self))
+                presentation_scope=lambda: presentation_scope(self), status_finished=self._dvr.status_finished)
         return self._series_ui
 
     def _series_manager_request(self, gui):
@@ -366,6 +366,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
 
     def _save_development(self, config: DevelopmentConfig | None = None,
                           enabled: bool | None = None) -> bool:
+        series = getattr(self, '_series_ui', None)
+        if series is not None and (enabled is False or (config is not None and config != self._development_config)):
+            series.close()  # Revoke before changing the saved source/opt-in.
         try:
             if self._addon is None:
                 raise ValueError
@@ -517,16 +520,22 @@ class ChannelsWindow(xbmcgui.WindowXML):
             return self._search_ui.rows()
         if self._dvr.passes:
             return self._dvr.rows()
+        if self.view in ('Recordings', 'DVR') and self._guide_runtime._mode is not None:
+            return ()  # Retained for worker handoff, not for the active presentation.
         if self._development_blocked is not None or (self._live_session is None and not self.demo_allowed()):
             return ()
         if self.view == 'DVR':
             demo = self.demo_allowed()
             r = self.repository
             session = self._live_session
-            key = (id(r.jobs), id(r.events), id(r.channels), self._guide_runtime.revision,
+            child_data = self._search_ui.scheduled_child_data() if self._dvr.child else None
+            if child_data is not None and not child_data.can_browse:
+                return ()
+            jobs = child_data.items if child_data is not None else r.jobs
+            key = (id(jobs), id(r.events), id(r.channels), self._guide_runtime.revision,
                    session._catalog_epoch if session is not None else None, demo, id(self.strings))
             if key != self._dvr_rows_key:
-                self._dvr_rows = scheduled_rows(r, self.strings, demo=demo)
+                self._dvr_rows = scheduled_rows(r, self.strings, demo=demo, jobs=jobs)
                 self._dvr_rows_key = key
                 if self._dvr_rows:
                     self._select_list(self._dvr_rows, next((i for i, row in enumerate(self._dvr_rows)
@@ -586,10 +595,15 @@ class ChannelsWindow(xbmcgui.WindowXML):
             return Presentation((), DataState.EMPTY, False, False, None, None, '', '', False)
         if self.view == 'DVR' and self._dvr.passes:
             return self._dvr.data()
+        if self._dvr.child:
+            return self._search_ui.scheduled_child_data()
         if self._development_blocked is not None or (self._live_session is None and not self.demo_allowed()):
             return Presentation((), DataState.OUTAGE, False, False, None, None,
                                 self.t('not_connected'), self.t('connection_prompt'),
                                 False)
+        if self.view in ('Recordings', 'DVR') and self._guide_runtime._mode is not None:
+            loading = self.t('live_loading')
+            return Presentation((), None, True, False, None, None, loading, loading, False)
         if self._live_session is not None:
             if self.view in ("Guide", "Search"):
                 return self._guide_runtime.presentation(self._live_session.guide())

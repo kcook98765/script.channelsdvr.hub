@@ -63,6 +63,12 @@ def _valid_key(key: ChannelKey) -> bool:
     )
 
 
+def _overlaps(event: Event, horizon: tuple[int, int]) -> bool:
+    left, right = horizon
+    return (left <= event.start < right if event.end is None
+            else event.start < right and event.end > left)
+
+
 @dataclass(frozen=True, init=False)
 class ProgrammeSearchIndex:
     _records: tuple[tuple[Event, str], ...]
@@ -151,19 +157,20 @@ class ProgrammeSearchIndex:
             scanned += 1
             if allowed is not None and event.channel not in allowed:
                 continue
-            if horizon is not None:
-                left, right = horizon
-                if event.end is None:
-                    if not left <= event.start < right:
-                        continue
-                elif not (event.start < right and event.end > left):
-                    continue
+            if horizon is not None and not _overlaps(event, horizon):
+                continue
             if matches_tokens(searchable, tokens):
                 if len(matches) == limit:
                     more = True
                     break
                 matches.append(event)
         return SearchPage(query, tuple(matches), scanned, more, limited)
+
+    def has_programmes(self, channels: tuple[ChannelKey, ...], horizon: tuple[int, int]) -> bool:
+        """Does an already validated scope contain any retained airing, regardless of query?"""
+        allowed = frozenset(channels)
+        return bool(allowed) and any(event.channel in allowed and _overlaps(event, horizon)
+                                     for event, _ in self._records)
 
 
 @dataclass(frozen=True, eq=False)

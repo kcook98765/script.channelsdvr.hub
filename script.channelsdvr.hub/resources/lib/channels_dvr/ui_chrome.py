@@ -200,7 +200,7 @@ class WindowChrome:
             'Guide': (306, 307, 308, 300, 304, 305),
             'Recordings': RECORDINGS_ACTIONS,
             'DVR': (300, 303, 306, 304, 305),
-            'Search': (306, 307, 300, 302, 304, 305),
+            'Search': (306, 307, 300, 302, 301, 304, 305),
             'Settings': (300, 304, 305),
         }[w.view]
         for ident in slots:
@@ -252,6 +252,10 @@ class WindowChrome:
         state = {ident: self._activation(ident, *entry) for ident, entry in available.items()}
         if (label := command_label(w, 'selection.activate')) is not None:
             state[CONTENT] = self._activation(CONTENT, 'selection.activate', label)
+        elif w.view == 'Search' and w._rows():
+            # Stale rows remain focusable and pageable. This command is not
+            # registered for dispatch, even if the row later becomes current.
+            state[CONTENT] = self._activation(CONTENT, 'selection.focus', '')
         anchor = self._activation(0, 'selection.anchor', '')
         # Withdraw before SDK removals; do not let an old ID resolve to a new row.
         self.presented = MappingProxyType(dict(state))

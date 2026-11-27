@@ -83,7 +83,7 @@ def command_label(w, code):
     if code == 'connection.menu' and view != 'Settings':
         return None
     if code == 'series.manager':
-        return label if w._recording_ui._current_config() is not None else None
+        return label if w._guide_runtime._mode is None and w._recording_ui._current_config() is not None else None
     if code in ('recording.status', 'programme.tools'):
         session = w._live_session
         if (view != 'Guide' or session is None or w._recording_ui._current_config() is None):
@@ -126,14 +126,14 @@ def command_label(w, code):
             return None
         if view == 'Settings':
             return 'open' if code == 'selection.open' else None
-        if view == 'Search':
+        if view == 'Search' and code != 'playback.play':
             if code not in ('selection.open', 'selection.info') or not w._search_ui.actionable():
                 return None
             return w._search_ui.open_label() if code == 'selection.open' else label
         if code == 'playback.play':
-            if view not in ('Guide', 'Recordings') or w._playback_ui.selection(rebind=False) is None:
+            if view not in ('Guide', 'Search', 'Recordings') or w._playback_ui.selection(rebind=False) is None:
                 return None
-            return 'watch_short' if view == 'Guide' else label
+            return 'watch_short' if view in ('Guide', 'Search') else label
         if code == 'recording.schedule':
             if view != 'Guide' or w._live_session is None or w.demo_allowed():
                 return None
@@ -145,7 +145,8 @@ def command_label(w, code):
             return 'open' if code == 'selection.open' and w.library.selected.children else label
         if view == 'Guide' and (data.can_browse or w._guide_runtime.ready) and w.guide.channel(w.guide.selection.channel):
             return label
-        if view == 'DVR' and data.can_browse and w._rows():
+        if (view == 'DVR' and data.can_browse and (not w._dvr.child or not (data.stale or data.loading))
+                and w._rows()):
             return label
         return None
     return label
@@ -264,6 +265,9 @@ def _execute_workflow(w, gui, selected, origin):
 def settings(w):
     if w._addon is None:
         return
+    series = getattr(w, '_series_ui', None)
+    if series is not None:
+        series.close()  # Native Settings can revoke the source before it returns.
     w._guide_runtime.latest_status = None
     modal_call(w, w._addon.openSettings)
     w._revoke_demo()

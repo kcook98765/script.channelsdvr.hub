@@ -292,7 +292,7 @@ msgid "Search (up to 128 characters)"
 msgstr ""
 
 msgctxt "#30169"
-msgid "Use up to 128 characters for your search."
+msgid "Use up to 128 characters."
 msgstr ""
 
 msgctxt "#30170"
@@ -1366,11 +1366,11 @@ msgid "Choose Search recordings to enter text"
 msgstr ""
 
 msgctxt "#30467"
-msgid "Scheduled recordings (read only); unconfirmed listing matches remain unconfirmed"
+msgid "Read only; scheduled matches are unverified."
 msgstr ""
 
 msgctxt "#30468"
-msgid "Demo scheduled recordings (read only); possible matches may be ambiguous"
+msgid "Demo schedules (read only); matches may be ambiguous."
 msgstr ""
 
 msgctxt "#30469"
@@ -1378,7 +1378,7 @@ msgid "{position}/{count} | Details only"
 msgstr ""
 
 msgctxt "#30470"
-msgid "Result no longer current."
+msgid "Result is not current."
 msgstr ""
 
 msgctxt "#30471"
@@ -1838,11 +1838,11 @@ msgid "Read only: unsupported rule, pending operation, or management consent req
 msgstr ""
 
 msgctxt "#30651"
-msgid "Series operation stopped. Refresh details and reconfirm external changes. Unknown outcomes stay read only. Storage or history capacity failures require review; history is never evicted."
+msgid "Series stopped. Refresh details and reconfirm external changes. Unknown outcomes stay read only. Review storage/capacity failures; history is never evicted."
 msgstr ""
 
 msgctxt "#30652"
-msgid "Linked job activity is active or unknown. No change was sent. Fresh inactivity is only a current observation, not a guarantee against future jobs."
+msgid "Linked jobs active or unknown. No change sent. Current inactivity does not rule out future jobs."
 msgstr ""
 
 msgctxt "#30653"
@@ -2238,7 +2238,7 @@ msgid "Pass changed. Review refreshed list first."
 msgstr ""
 
 msgctxt "#30987"
-msgid "Guide programmes"
+msgid "Intent cleared; not sent."
 msgstr ""
 
 msgctxt "#30988"
@@ -2267,4 +2267,8 @@ msgstr ""
 
 msgctxt "#30994"
 msgid "Open recording"
+msgstr ""
+
+msgctxt "#30995"
+msgid "Guide programmes"
 msgstr ""

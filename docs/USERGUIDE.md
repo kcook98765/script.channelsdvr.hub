@@ -117,6 +117,8 @@ Use **Info** for details, **Open recording** for recording details, or **Show
 in Guide / DVR** to reveal the selected listing. Back from a reveal returns to
 the Search result if it is still present. These actions do not start playback
 or schedule, cancel or change anything on the DVR.
+When an eligible programme result offers **Watch**, it is a separate live
+channel action, not playback of the selected airing. Confirmation defaults to No.
 
 ## Scheduling and passes
 

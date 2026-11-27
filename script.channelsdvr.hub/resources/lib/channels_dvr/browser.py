@@ -75,9 +75,11 @@ def library_rows(repository: MockRepository, mode: str, strings=FALLBACK) -> tup
                  for group in recording_groups(repository.recordings))
 
 
-def scheduled_rows(repository: MockRepository, strings=FALLBACK, *, demo=False) -> tuple[Row, ...]:
+def scheduled_rows(repository: MockRepository, strings=FALLBACK, *, demo=False,
+                   jobs: tuple[Job, ...] | None = None) -> tuple[Row, ...]:
     projection = ChannelProjection(strings).update(repository.channels)
-    return tuple(scheduled_row(job, repository.events, projection, strings, demo=demo) for job in repository.jobs)
+    return tuple(scheduled_row(job, repository.events, projection, strings, demo=demo)
+                 for job in (repository.jobs if jobs is None else jobs))
 
 
 def scheduled_row(job: Job, events: tuple[Event, ...], projection: ChannelProjection,

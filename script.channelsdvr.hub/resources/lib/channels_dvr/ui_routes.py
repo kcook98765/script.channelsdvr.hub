@@ -1,5 +1,6 @@
 """Closed Hub routes and owner-only transitions; never a transport or settings API."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from .models import Job
 from .search_projection import SearchCategory, SearchId
 
 PRIMARY = ('Dashboard', 'Guide', 'Recordings', 'DVR', 'Search', 'Settings')
@@ -29,12 +30,19 @@ class Route:
 
 
 @dataclass(frozen=True)
+class ScheduledReveal:
+    job: Job
+    observation: tuple = field(repr=False)
+
+
+@dataclass(frozen=True)
 class SearchReturn:
     identity: SearchId
     category: SearchCategory
     query: str
     position: int  # Also determines the page when the result order is unchanged.
     focus: int
+    scheduled: ScheduledReveal | None = None
 
 
 def route_fence(w, *, guide=True):

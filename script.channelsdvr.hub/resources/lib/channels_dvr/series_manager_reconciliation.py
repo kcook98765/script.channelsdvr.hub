@@ -56,6 +56,9 @@ def successor(raw, binding, actual, reads):
             if pending is not None:
                 entry = root['history'][pending]
                 need(actual == entry['actual'], 'source')
+                # Positive readback of the intended rule cannot explain a receipt
+                # naming another rule, including an otherwise unqualified prefix.
+                need(entry['id'] is None or entry['returned_id'] in (None, entry['id']), 'stale')
                 key = candidate_key(entry)
                 if entry['operation'] == 'create' and entry['dispatched'] and key is None:
                     # Honest unknown, no proof of failure or permission to create again.
