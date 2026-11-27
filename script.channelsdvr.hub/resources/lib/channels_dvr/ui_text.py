@@ -118,6 +118,11 @@ _ROWS = (
     ('state_removed', 30192, 'Removal saved'),
     ('yes', 30193, 'Yes'),
     ('no', 30194, 'No'),
+    ('guide_day', 30980, 'Choose a day in the listings'),
+    ('guide_no_channels', 30981, 'No channels in this collection'),
+    ('guide_controls', 30982, 'Go to Guide controls'),
+    ('guide_keys', 30983, 'OK / Info: details • Page Up / Down: channels • Blue line: Now | {footer}'),
+    ('guide_dense_notice', 30984, 'Some listings are hidden in this view. Use the arrow keys or change the time.'),
 ) + OPERATION_ROWS + FINAL_ROWS + BUILD_ROWS + ARTWORK_ROWS + STORAGE_ROWS + SERIES_ROWS + PLAYBACK_ROWS + DASHBOARD_ROWS + RECORDINGS_ROWS
 IDS = MappingProxyType({key: number for key, number, _ in _ROWS})
 FALLBACK = MappingProxyType({key: value for key, _, value in _ROWS})

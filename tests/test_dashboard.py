@@ -1313,6 +1313,7 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         w.t = lambda key, **values: text(w.strings, key, **values)
         w._render_memo = RenderMemo()
         w.pool = [(Control(), Control())]  # previously displayed listing row
+        w._guide_line = None
         w.path = ''
         w.guide = SimpleNamespace(prepared_ready=False, selection=object(), group='All')
         w.repository = SimpleNamespace(channels=())

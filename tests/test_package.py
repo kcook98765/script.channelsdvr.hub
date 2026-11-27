@@ -77,11 +77,26 @@ class PackageTests(unittest.TestCase):
         controls = root.findall(".//control[@id]")
         ids = [int(n.get("id")) for n in controls]
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(set(ids), {100, 110, 112, 113, 114, 115, 116, 117, *range(120, 126), *range(140, 144),
-                                   *range(200, 206), *range(220, 225), *range(300, 311),
-                                   320, 321, 322, *range(400, 406)})
+        self.assertEqual(set(ids), {100, 110, 112, 113, 114, 115, 116, 117, *range(120, 132), *range(140, 144),
+                                    *range(150, 156), *range(200, 206), *range(220, 225), *range(300, 311),
+                                    *range(320, 323), *range(400, 406)})
         self.assertTrue(all(n.get('type') == 'button' for n in controls if 200 <= int(n.get('id')) < 400))
         self.assertTrue(all(n.get('type') == 'textbox' for n in controls if int(n.get('id')) >= 400))
+
+    def test_guide_skin_positions_share_the_presenter_coordinates(self):
+        from channels_dvr.guide_render import GRID_LEFT, GRID_WIDTH, ROW_PITCH, ROW_TOP
+        root = ET.parse(SKIN / '1080i/ChannelsDvr.xml').getroot()
+        controls = {int(n.get('id')): n for n in root.findall('.//control[@id]')}
+        self.assertEqual(controls[152].get('type'), 'textbox')
+        self.assertEqual(controls[154].get('type'), 'image')
+        self.assertEqual(controls[155].get('type'), 'image')
+        # Static cap ends exactly where the foreground owner-drawn line begins.
+        self.assertEqual(int(controls[154].findtext('top')) + int(controls[154].findtext('height')), ROW_TOP)
+        for tick in range(4):
+            self.assertEqual(int(controls[140 + tick].findtext('left')), GRID_LEFT + tick * GRID_WIDTH // 4)
+        for row in range(6):
+            self.assertEqual(int(controls[120 + row].findtext('top')), ROW_TOP + row * ROW_PITCH + 9)
+            self.assertEqual(int(controls[126 + row].findtext('top')), ROW_TOP + row * ROW_PITCH + 43)
 
     def test_server_setting_defaults_blank(self):
         root = ET.parse(ADDON / "resources/settings.xml").getroot()

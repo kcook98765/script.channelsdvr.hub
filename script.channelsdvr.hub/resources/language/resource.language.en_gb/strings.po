@@ -2180,3 +2180,23 @@ msgstr ""
 msgctxt "#30979"
 msgid "> {tab}"
 msgstr ""
+
+msgctxt "#30980"
+msgid "Choose a day in the listings"
+msgstr ""
+
+msgctxt "#30981"
+msgid "No channels in this collection"
+msgstr ""
+
+msgctxt "#30982"
+msgid "Go to Guide controls"
+msgstr ""
+
+msgctxt "#30983"
+msgid "OK / Info: details • Page Up / Down: channels • Blue line: Now | {footer}"
+msgstr ""
+
+msgctxt "#30984"
+msgid "Some listings are hidden in this view. Use the arrow keys or change the time."
+msgstr ""
