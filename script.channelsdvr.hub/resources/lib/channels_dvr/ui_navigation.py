@@ -3,7 +3,6 @@ from types import MappingProxyType
 
 from .dvr_ui import DVR_LABELS, DVR_MORE
 from .guide_screen import choose_group, choose_time
-from .hub_session_ui import preference
 from .ui_menu import CONNECTION, DEVELOPER, SETTINGS, command, select
 from .ui_modal import ModalGui, dialog_for, modal_call
 from . import ui_recordings
@@ -173,6 +172,9 @@ def execute_command(w, gui, selected, *, origin=100):
         enter(w, DESTINATIONS[selected])
         return True
     if selected in ('dvr.scheduled', 'dvr.passes'):
+        hub = getattr(w, '_hub_session', None)
+        if hub is not None:
+            hub.keep_tab('DVR')
         w._dvr.switch(selected, origin)
         return True
     if selected == 'window.back':
@@ -182,6 +184,9 @@ def execute_command(w, gui, selected, *, origin=100):
         w.close()
         return True
     if selected in ui_recordings.LABELS:
+        hub = getattr(w, '_hub_session', None)
+        if hub is not None and selected in ui_recordings.TAB_MODES:
+            hub.keep_tab('Recordings')
         ui_recordings.execute(w, gui, selected, origin)
         return True
     if (w.view == 'Recordings' and selected in ('selection.open', 'selection.activate')
@@ -220,8 +225,6 @@ def execute_command(w, gui, selected, *, origin=100):
 
 def _execute_workflow(w, gui, selected, origin):
     if selected in ('selection.activate', 'selection.open', 'selection.info'):
-        if selected == 'selection.activate' and w.view == 'Guide' and guide_live_ok(w, gui):
-            return
         w._details(allow_search_action=selected != 'selection.info', origin=origin)
     elif selected == 'connection.diagnostics':
         from .build_status_ui import status_text
@@ -271,29 +274,6 @@ def _execute_workflow(w, gui, selected, origin):
         w._recording_ui.request(schedule=True)
 
 
-def guide_live_ok(w, gui):
-    """Content OK only. Exact airing + preference must survive both live gates."""
-    if (w._route.parent is not None or w._live_session is None or w.transient_demo_mode
-            or preference(w, 'hub_guide_ok') != 'live'):
-        return False
-    event = w.selected_indexed_event()
-    if event is None or event.end is None:
-        return False
-
-    def eligible():
-        try:
-            return (not w._closed and w.view == 'Guide' and w._route.parent is None
-                    and preference(w, 'hub_guide_ok') == 'live'
-                    and event.start <= w.utc_now() < event.end and w.selected_indexed_event() is event)
-        except (AttributeError, RuntimeError, TypeError, ValueError):
-            return False
-
-    if not eligible() or w._playback_ui.selection(rebind=False) is None:
-        return False
-    w._playback_ui.request(ModalGui(w, gui), eligible=eligible)
-    return True
-
-
 def settings(w):
     if w._addon is None:
         return
@@ -337,13 +317,12 @@ def execute_connection(w, gui, selected):
                 or w._development_blocked is not None):
             dialog_for(w, gui).ok(w.t('connection'), w.t('connect_first'))
             return
-        anchor = w._intended_anchor if w._intended_anchor is not None else w.guide.selection.anchor
         same_scope = config == w._development_config
         w._activate(config)
         if same_scope:
             w._refresh_live()
         else:
-            w._request_live(anchor)
+            w._request_live(w.utc_now())
     elif selected == 'connection.status':
         session = w._live_session
         body = w.t('not_connected')

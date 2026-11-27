@@ -3,7 +3,7 @@ from dataclasses import replace
 from threading import Condition, Thread
 from typing import Any
 
-from .bookmark_storage import BookmarkStore
+from .bookmark_storage import BookmarkReadState, BookmarkStore
 from .browser import recording_key
 from .guide import Selection
 from .hub_bookmarks import BookmarkScope, HubBookmarks, StartupAdmission, startup_destination
@@ -34,7 +34,7 @@ class BookmarkWorker:
         self._thread: Thread | None = None
         self._store: BookmarkStore | None = None
         self._pending: tuple[BookmarkStore, HubBookmarks | None] | None = None
-        self._loaded: tuple[BookmarkStore, HubBookmarks | None] | None = None
+        self._loaded: tuple[BookmarkStore, HubBookmarks | BookmarkReadState] | None = None
 
     def bind(self, store: BookmarkStore | None) -> bool:
         with self._condition:
@@ -58,7 +58,7 @@ class BookmarkWorker:
                 self._pending = store, snapshot
                 self._condition.notify_all()
 
-    def take(self) -> tuple[BookmarkStore, HubBookmarks | None] | None:
+    def take(self) -> tuple[BookmarkStore, HubBookmarks | BookmarkReadState] | None:
         with self._condition:
             loaded, self._loaded = self._loaded, None
             return loaded
@@ -82,7 +82,7 @@ class BookmarkWorker:
             if snapshot is not None:
                 store.save(snapshot)
                 continue
-            loaded = store.load()
+            loaded = store.read()
             with self._condition:
                 if not self._closed and store is self._store:
                     self._loaded = store, loaded
@@ -98,9 +98,11 @@ class HubSessionUI:
         self._store: BookmarkStore | None = None
         self._model: HubBookmarks | None = None
         self._loaded = False
+        self._writes_allowed = False
         self._overlay: dict[str, Any] = {}
         self._unrestored: set[str] = set()
         self._touched: set[str] = set()
+        self._touch_binding: tuple | None = None
 
     def arm_startup(self, config) -> None:
         self._startup = config
@@ -112,15 +114,30 @@ class HubSessionUI:
         self.cancel_startup()
         self.startup_failed = False
         self._forget_source()
+        self._sync_touches(None)
 
     def _forget_source(self) -> None:
         if self._store is not None:
             self._worker.bind(None)
         self._binding = self._store = self._model = None
         self._loaded = False
+        self._writes_allowed = False
         self._overlay.clear()
         self._unrestored.clear()
-        self._touched.clear()
+
+    def _sync_touches(self, binding: tuple | None) -> None:
+        if binding != self._touch_binding:
+            self._touch_binding = binding
+            self._touched.clear()
+
+    def keep_tab(self, view: str) -> None:
+        """An accepted explicit tab choice wins even before its bookmark read."""
+        binding, _ = self._source()
+        self._sync_touches(binding)
+        if binding is not None:
+            self._touched.add(view)
+            if binding == self._binding:
+                self._unrestored.discard(view)
 
     def close(self) -> None:
         # Retain the last already authorized save only if the source is still current.
@@ -151,6 +168,7 @@ class HubSessionUI:
     def poll(self) -> bool:
         w = self.w
         binding, admission = self._source()
+        self._sync_touches(binding)
         if self._binding is not None and binding != self._binding:
             self._forget_source()
         if admission is StartupAdmission.PENDING:
@@ -176,9 +194,13 @@ class HubSessionUI:
         completed = self._worker.take() if not self._loaded else None
         if completed is not None and completed[0] is self._store:
             assert self._model is not None
-            base = completed[1] or HubBookmarks(self._model.source)
-            if base.source != self._model.source:
+            saved = completed[1]
+            if isinstance(saved, HubBookmarks) and saved.source == self._model.source:
+                base = saved
+                self._writes_allowed = True
+            else:
                 base = HubBookmarks(self._model.source)
+                self._writes_allowed = saved is BookmarkReadState.MISSING
             self._model = replace(base, **self._overlay)
             self._loaded = True
             self._restore_pending()
@@ -218,6 +240,10 @@ class HubSessionUI:
                 group = model.guide_group if model.guide_group in guide.repository.groups else 'All'
                 guide.set_group(group)
                 channel = guide.channel(model.guide_channel) if model.guide_channel is not None else None
+                if group != 'All' and (not guide.channels or (model.guide_channel is not None and channel is None)):
+                    group = 'All'
+                    guide.set_group(group)
+                    channel = guide.channel(model.guide_channel) if model.guide_channel is not None else None
                 now = w.utc_now()
                 start, end = guide.repository.horizon
                 anchor = min(max(now, start), end - 1)
@@ -299,5 +325,5 @@ class HubSessionUI:
                 self._save()
 
     def _save(self) -> None:
-        if self._store is not None and self._model is not None:
+        if self._writes_allowed and self._store is not None and self._model is not None:
             self._worker.submit(self._store, self._model)

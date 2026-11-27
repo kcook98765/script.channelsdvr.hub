@@ -6,10 +6,12 @@ import json
 from pathlib import Path
 import runpy
 import sys
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+from channels_dvr.bookmark_storage import BookmarkReadState
 from channels_dvr.dvr_ui import TABS as DVR_TABS
 from channels_dvr.guide import GuideController
 from channels_dvr.guide_fixtures import stress_repository
@@ -25,7 +27,7 @@ from channels_dvr.live_loader import DevelopmentConfig, IndexResult, LoadResult
 from channels_dvr.live_session import LiveDataSession
 from channels_dvr.metadata_models import MetadataBatch
 from channels_dvr.metadata_repository import DevelopmentSnapshot
-from channels_dvr.models import ChannelKey, Event, Recording
+from channels_dvr.models import Channel, ChannelKey, Event, Recording
 from channels_dvr.normalization import DataState
 from channels_dvr.repository import MockRepository
 from channels_dvr.search import airing_key
@@ -33,7 +35,7 @@ from channels_dvr.series_manager_models import GeneralSeriesPlan, ManagerView, r
 from channels_dvr.session import OfflineDataSession
 from channels_dvr.ui_chrome import (ACTIONS, CONTENT, CONTEXT, DOWN, INFO, LEFT, NAV, NAV_BACK,
                                    PAGE_DOWN, RIGHT, UP, WHEEL_DOWN, WHEEL_UP)
-from channels_dvr.ui_navigation import command_label, execute_command
+from channels_dvr.ui_navigation import command_label, execute_command, execute_connection
 from channels_dvr.ui_recordings import QUERY, SORT, SOURCE, TABS as RECORDINGS_TABS
 from channels_dvr.ui_routes import PRIMARY, Route, launch_view
 
@@ -207,11 +209,11 @@ class NavigationTests(unittest.TestCase):
                     runpy.run_path(str(ADDON / 'default.py'), run_name='__main__')
                 launch.assert_called_with(str(ADDON), addon, start_view=view)
 
-    def pending_hub_startup(self, preference, *, explicit=None, saved=None, enabled=True):
+    def pending_hub_startup(self, preference, *, explicit=None, saved=None, enabled=True, profile=None):
         config = DevelopmentConfig.from_address('192.0.2.10')
         now = 3600
         key = ChannelKey(config.namespace, 'device', '1')
-        record = Recording('record', 'Episode', 'Show', 1, 1, False, 1000, 1800,
+        record = Recording('record', 'Episode', 'Show', 2, 1, False, 1000, 1800,
                            namespace=config.namespace, provenance='dvr', show_id='show')
         prefs = {'server_origin': config.origin, 'hub_startup_view': preference}
         worker = Mock()
@@ -220,7 +222,7 @@ class NavigationTests(unittest.TestCase):
             w._addon.getSettingString = lambda name: prefs.get(name, '')
             w._addon.getSettingBool = lambda name: name == 'development_metadata_enabled' and enabled
             w._hub_session._worker = worker
-            w._recording_ui._programme_profile = lambda: str(ADDON)
+            w._recording_ui._programme_profile = lambda: str(ADDON if profile is None else profile)
             w.utc_now = lambda: now + 60
             w._dvr.poll = Mock(return_value=False)
             w._dashboard_ui.poll = Mock(return_value=False)
@@ -233,21 +235,24 @@ class NavigationTests(unittest.TestCase):
                 w._live_session = LiveDataSession(value.namespace, value.expected_version, clock=lambda: now + 60)
                 w.repository = w._live_session.repository
                 w._live_session.begin(1, now, guide_windows=1)
+                w.library = LibraryBrowser((), strings=w.strings)
+                w._reset_dvr()
 
             w._activate = activate
             w._request_live = Mock()  # the accepted result below replaces transport
 
         w = self.window(start=explicit, configure=configure)
-        worker.take.side_effect = lambda: (w._hub_session._store, saved)
+        worker.take.side_effect = lambda: (w._hub_session._store,
+                                           BookmarkReadState.MISSING if saved is None else saved)
         patch_ready = patch.object(type(w._guide_runtime), 'ready', property(lambda runtime: runtime.window is w))
         patch_ready.start()
         self.addCleanup(patch_ready.stop)
 
-        def publish(*, failure=False, prime_library=True, additional_recordings=()):
-            from channels_dvr.models import Channel
+        def publish(*, failure=False, prime_library=True, additional_recordings=(), channels=None):
             session = w._live_session
+            stations = channels if channels is not None else (Channel(key, '1', 'Station', ('Favorites',)),)
             snapshot = None if failure else DevelopmentSnapshot(config.namespace, config.expected_version, now,
-                (now, now + 1800), MetadataBatch((Channel(key, '1', 'Station', ('Favorites',)),), DataState.READY),
+                (now, now + 1800), MetadataBatch(stations, DataState.READY),
                 MetadataBatch((Event('event', key, now, now + 600, 'Programme'),), DataState.READY),
                 MetadataBatch((*additional_recordings, record), DataState.READY), MetadataBatch((), DataState.EMPTY))
             self.assertTrue(session.apply(LoadResult(session._generation, now, 1, snapshot, None)))
@@ -300,6 +305,118 @@ class NavigationTests(unittest.TestCase):
         w._request_live.assert_not_called()
         worker.bind.assert_not_called()
 
+    def test_accepted_dashboard_arrow_travel_cancels_delayed_redirect(self):
+        w, worker, _, _, publish = self.pending_hub_startup('Guide')
+        self.assertEqual((w.view, w.getFocusId()), ('Dashboard', 200))
+        w.onAction(SimpleNamespace(getId=lambda: RIGHT))
+        w.process_pending()
+        self.assertEqual((w.view, w.getFocusId()), ('Dashboard', 201))
+        publish()
+        w.process_pending()
+        self.assertEqual((w.view, w.getFocusId()), ('Dashboard', 201))
+        worker.submit.assert_not_called()
+
+    def test_early_explicit_tabs_survive_the_read_only_for_their_incarnation(self):
+        scope = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
+        saved = HubBookmarks(scope, dvr_tab='scheduled', recordings_category='Recent')
+        w, worker, _, config, publish = self.pending_hub_startup('Dashboard', saved=saved)
+        for code in ('view.dvr', 'dvr.passes', 'view.recordings', 'recording.tab.movies'):
+            self.assertTrue(execute_command(w, self.gui, code))
+        worker.bind.assert_not_called()
+        read_result = worker.take.side_effect
+        worker.take.side_effect = lambda: None
+        publish()
+        w.process_pending()
+        self.assertEqual((w._dvr.tab, w.library.mode), ('dvr.passes', 'Movies'))
+        worker.take.side_effect = read_result
+        w.process_pending()
+        self.assertEqual((w._dvr.tab, w.library.mode), ('dvr.passes', 'Movies'))
+        worker.submit.assert_not_called()
+        old = w._live_session.incarnation
+        w._activate(config)
+        self.assertIsNot(w._live_session.incarnation, old)
+        publish()
+        w.process_pending()
+        self.assertEqual((w._dvr.tab, w.library.mode), ('dvr.scheduled', 'Recent'))
+
+    def test_guide_time_does_not_cross_a_deferred_source_switch_or_reconnect(self):
+        w = self.w
+        a = DevelopmentConfig.from_address('192.0.2.10')
+        b = DevelopmentConfig.from_address('192.0.2.11')
+        prefs = {'server_origin': a.origin}
+        w._addon.getSettingString = lambda name: prefs.get(name, '')
+        w._addon.getSettingBool = lambda name: name == 'development_metadata_enabled'
+        w.utc_now = lambda: 3660
+        w._dashboard_ui.poll = Mock(return_value=False)
+        loader = w._metadata_loader = Mock()
+        loader.offer_retirement.return_value = object()
+        loader.request.side_effect = range(1, 10)
+        loader.submitted.return_value = None
+        runtime = w._guide_runtime
+
+        w._activate(a)
+        w._request_live(w.utc_now())
+        future = 3600 + 2 * 86400
+        w._request_live(future)
+        self.assertEqual(w._intended_anchor, future)
+        self.assertEqual(loader.request.call_args.args, (a, future))
+        loader.offer_retirement.return_value = None
+        w._request_live(future + 3600)
+        abandoned = runtime._request
+        self.assertIsNotNone(abandoned)
+
+        prefs['server_origin'] = b.origin
+        execute_connection(w, self.gui, 'connection.refresh')
+        self.assertIsNone(w._intended_anchor)
+        self.assertEqual(loader.request.call_count, 2)
+        self.assertIsNot(runtime._request, abandoned)
+        self.assertEqual(runtime._request[1:], (b, w.utc_now()))
+        loader.offer_retirement.return_value = object()
+        self.assertTrue(runtime._change_mode())
+        runtime._start_request()
+        self.assertEqual(loader.request.call_args.args, (b, 3600))
+        self.assertEqual(w._intended_anchor, w.utc_now())
+
+        prefs['server_origin'] = a.origin
+        w._activate(a)
+        # Even a first request carrying an obsolete cursor must start the new
+        # incarnation at Now, including after A had a different prior horizon.
+        w._request_live(future)
+        self.assertEqual(loader.request.call_args.args, (a, 3600))
+        self.assertEqual(w._intended_anchor, w.utc_now())
+
+    def test_manual_navigation_keeps_unreadable_or_unsupported_bookmark_bytes(self):
+        scope = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
+        other = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.11'))
+        good = encode_bookmarks(HubBookmarks(scope, last_view='Guide'))
+        future = json.dumps(dict(json.loads(good), version=99)).encode()
+        for label, raw in (('unreadable', good), ('future', future), ('corrupt', b'{'),
+                           ('wrong source', encode_bookmarks(HubBookmarks(other))), ('missing', None)):
+            with self.subTest(slot=label), TemporaryDirectory() as profile:
+                path = Path(profile) / 'hub-bookmarks' / (scope.server_key + '.json')
+                if raw is not None:
+                    path.parent.mkdir()
+                    path.write_bytes(raw)
+                w, worker, _, _, publish = self.pending_hub_startup('Dashboard', profile=profile)
+                worker.take.side_effect = lambda: (w._hub_session._store, w._hub_session._store.read())
+                worker.submit.side_effect = lambda store, snapshot: store.save(snapshot)
+                publish()
+                if label == 'unreadable':
+                    with patch('channels_dvr.bookmark_storage.open', create=True, side_effect=PermissionError):
+                        w.process_pending()
+                else:
+                    w.process_pending()
+                worker.submit.assert_not_called()
+                w.onClick(202)
+                w.process_pending()
+                self.assertEqual(w.view, 'Recordings')
+                if raw is None:
+                    worker.submit.assert_called_once()
+                    self.assertEqual(decode_bookmarks(scope, path.read_bytes()).last_view, 'Recordings')
+                else:
+                    worker.submit.assert_not_called()
+                    self.assertEqual(path.read_bytes(), raw)
+
     def test_last_startup_restores_only_current_source_and_safe_navigation_state(self):
         scope = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
         other = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.11'))
@@ -334,11 +451,14 @@ class NavigationTests(unittest.TestCase):
         bookmark = HubBookmarks(scope, recording_selection=identity)
         decoy = Recording('record', 'Decoy', 'A decoy show', 1, 1, False, 999, 1800,
                           namespace=scope.namespace, provenance='import', show_id='decoy')
+        season_one = Recording('early', 'Earlier episode', 'Show', 1, 1, False, 995, 1800,
+                               namespace=scope.namespace, provenance='dvr', show_id='show')
+        show_key = ('show', scope.namespace, 'dvr', 'id', 'show')
         for explicit, view in ((None, 'Dashboard'), ('Guide', 'Guide')):
             with self.subTest(initial_view=view):
                 w, worker, _, _, publish = self.pending_hub_startup('Dashboard', explicit=explicit, saved=bookmark)
                 self.assertEqual(w.view, view)
-                publish(prime_library=False, additional_recordings=(decoy,))
+                publish(prime_library=False, additional_recordings=(decoy, season_one))
                 self.assertEqual(w._live_session.recordings().state, DataState.READY)
                 self.assertEqual(w.library.rows(), ())
                 w.process_pending()
@@ -348,8 +468,33 @@ class NavigationTests(unittest.TestCase):
                 self.assertIsNotNone(selected)
                 self.assertEqual((selected.namespace, selected.provenance, selected.id), identity)
                 worker.submit.assert_not_called()
+                self.assertTrue(execute_command(w, self.gui, 'view.recordings'))
+                w.onAction(SimpleNamespace(getId=lambda: NAV_BACK))
+                w.process_pending()
+                self.assertEqual((w.view, w.library.depth, w.library.selected.id),
+                                 ('Recordings', 1, repr(('season', show_key, 2))))
+                w.onAction(SimpleNamespace(getId=lambda: NAV_BACK))
+                w.process_pending()
+                self.assertEqual((w.view, w.library.depth, w.library.selected.id),
+                                 ('Recordings', 0, repr(show_key)))
 
-    def test_guide_ok_defaults_to_details_and_opt_in_rechecks_exact_on_now_airing(self):
+    def test_guide_restore_uses_full_channel_key_in_all_when_favorite_is_lost(self):
+        scope = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
+        target = ChannelKey(scope.namespace, 'device', '1')
+        other = ChannelKey(scope.namespace, 'another-device', '1')
+        retired = ChannelKey(scope.namespace, 'retired-device', '1')
+        stations = (Channel(other, '1', 'Decoy'), Channel(target, '1', 'Original'))
+        for saved_key, expected in ((target, target), (retired, other)):
+            with self.subTest(saved_key=saved_key):
+                saved = HubBookmarks(scope, guide_group='Favorites', guide_channel=saved_key)
+                w, worker, _, _, publish = self.pending_hub_startup('Guide', saved=saved)
+                publish(channels=stations)
+                w.process_pending()
+                self.assertEqual((w.view, w.guide.group, w.guide.selection.channel, w.guide.selection.anchor),
+                                 ('Guide', 'All', expected, w.utc_now()))
+                worker.submit.assert_not_called()
+
+    def test_guide_ok_is_details_even_with_a_legacy_live_value_and_expired_listings(self):
         w, _, prefs, _, publish = self.pending_hub_startup('Guide')
         publish()
         w.process_pending()
@@ -369,16 +514,16 @@ class NavigationTests(unittest.TestCase):
         w._playback_ui.request.assert_not_called()
         self.assertTrue(execute_command(w, self.gui, 'selection.info'))
         self.assertEqual(w._show_event_details.call_count, 2)
-        w._playback_ui.request.assert_not_called()
         self.assertTrue(execute_command(w, self.gui, 'selection.activate'))
-        eligible = w._playback_ui.request.call_args.kwargs['eligible']
-        self.assertTrue(eligible())
-        w.utc_now = lambda: event.end
-        self.assertFalse(eligible())
-        w._playback_ui.request.reset_mock()
-        self.assertTrue(execute_command(w, self.gui, 'selection.activate'))
-        w._playback_ui.request.assert_not_called()
         self.assertEqual(w._show_event_details.call_count, 3)
+        w._playback_ui.request.assert_not_called()
+        w.utc_now = w._live_session._clock = lambda: event.start + 301
+        self.assertLess(w.utc_now(), event.end)
+        self.assertTrue(w._live_session.guide().stale)
+        self.assertTrue(execute_command(w, self.gui, 'selection.activate'))
+        w._show_event_details.assert_called_with(event)
+        self.assertEqual(w._show_event_details.call_count, 4)
+        w._playback_ui.request.assert_not_called()
 
     def test_guide_hides_bar_and_back_is_not_a_focus_hop(self):
         self.seed()

@@ -45,13 +45,13 @@
           </constraints>
           <control type="spinner" format="string"/>
         </setting>
+        <!-- Details only until the separate Phase 7 live-OK gate is accepted. -->
         <setting id="hub_guide_ok" type="string" label="30989">
           <level>0</level>
           <default>details</default>
           <constraints>
             <options>
               <option label="30911">details</option>
-              <option label="30913">live</option>
             </options>
           </constraints>
           <control type="spinner" format="string"/>

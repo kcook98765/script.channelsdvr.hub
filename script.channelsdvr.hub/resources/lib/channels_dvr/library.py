@@ -406,21 +406,24 @@ class LibraryBrowser:
         candidate = repr(identity)
         context = self._context()
 
-        def matches(rows: tuple[Row, ...], path: _Path) -> Iterable[tuple[_Path, int]]:
+        def matches(rows: tuple[Row, ...], trail: tuple[tuple[str, int], ...]
+                    ) -> Iterable[tuple[tuple[str, int], ...]]:
             for index, row in enumerate(rows):
                 if row.children:
-                    yield from matches(row.children, path + (row.id,))
+                    yield from matches(row.children, trail + ((row.id, index),))
                 elif row.id == candidate:
-                    yield path, index
+                    yield trail + ((row.id, index),)
 
         found = iter(matches(self._root(context)[0], ()))
         first = next(found, None)
         if first is None or next(found, None) is not None:
             return False
-        path, index = first
-        self._paths[context] = path
+        path: _Path = ()
+        for row_id, index in first:
+            self._bookmarks[context, path] = (row_id, index, index - index % PAGE_ROWS)
+            path += (row_id,)
+        self._paths[context] = path[:-1]
         self._load()
-        self.move(index - self._position)
         return True
 
     def set_query(self, query: str) -> None:

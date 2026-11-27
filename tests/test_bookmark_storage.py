@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from channels_dvr import bookmark_storage
-from channels_dvr.bookmark_storage import BookmarkStore
+from channels_dvr.bookmark_storage import BookmarkReadState, BookmarkStore
 from channels_dvr.hub_bookmarks import MAX_BOOKMARK_BYTES, BookmarkScope, HubBookmarks, encode_bookmarks
 from channels_dvr.live_loader import DevelopmentConfig
 from channels_dvr.operation_storage import StorageError
@@ -108,6 +108,18 @@ class BookmarkStorageTests(unittest.TestCase):
         self.assertEqual(self.store.load(), self.saved)
         self.assertTrue(self.store.save(next_state))
         self.assertEqual(self.store.load(), next_state)
+
+    def test_save_rechecks_existing_bytes_even_after_a_writable_read(self):
+        self.assertIs(self.store.read(), BookmarkReadState.MISSING)
+        self.assertTrue(self.store.save(self.saved))
+        self.assertEqual(self.store.read(), self.saved)
+        future = json.dumps(dict(json.loads(self.payload), version=99)).encode()
+        self.path.write_bytes(future)
+        self.assertIs(self.store.read(), BookmarkReadState.BLOCKED)
+        with patch.object(bookmark_storage.os, 'replace') as publish:
+            self.assertFalse(self.store.save(replace(self.saved, last_view='DVR')))
+            publish.assert_not_called()
+        self.assertEqual(self.path.read_bytes(), future)
 
     def test_failed_sync_never_attempts_replacement(self):
         self.assertTrue(self.store.save(self.saved))

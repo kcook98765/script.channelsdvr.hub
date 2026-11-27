@@ -5,6 +5,7 @@ admitted source. It serializes saves and fences stale session intents before
 dispatch. No worker is started here and Kodi callbacks must not call this API.
 """
 
+from enum import Enum
 import os
 import stat
 import tempfile
@@ -16,6 +17,11 @@ from .operation_storage import normalize_profile
 
 
 BOOKMARK_DIRECTORY = 'hub-bookmarks'
+
+
+class BookmarkReadState(Enum):
+    MISSING = 'missing'
+    BLOCKED = 'blocked'
 
 
 def _reparse(info: os.stat_result) -> bool:
@@ -33,7 +39,7 @@ def _require_directory(path: str) -> None:
 
 
 class BookmarkStore:
-    """One canonical server slot. Construction is lexical; only load/save do I/O.
+    """One canonical server slot. Construction is lexical; reads and saves do I/O.
 
     As with legacy profile reads, portable entry checks assume a private profile
     and trusted ancestors; they are not a descriptor-relative no-follow sandbox.
@@ -57,18 +63,37 @@ class BookmarkStore:
         _require_directory(self._directory)
 
     def load(self) -> HubBookmarks | None:
-        """Read at most limit + 1 bytes; missing/invalid data is never repaired here."""
+        """Read-only convenience for consumers that do not need write admission."""
+        result = self.read()
+        return result if isinstance(result, HubBookmarks) else None
+
+    def read(self) -> HubBookmarks | BookmarkReadState:
+        """Only a confirmed absent slot or a usable snapshot permits a later save."""
         try:
-            self._check_directory(create=False)
-            if not _regular(os.lstat(self._path)):
-                return None
+            _require_directory(self._profile)
+            try:
+                _require_directory(self._directory)
+            except FileNotFoundError:
+                return BookmarkReadState.MISSING
+        except (OSError, ValueError):
+            return BookmarkReadState.BLOCKED
+        return self._read_slot()
+
+    def _read_slot(self) -> HubBookmarks | BookmarkReadState:
+        try:
+            try:
+                info = os.lstat(self._path)
+            except FileNotFoundError:
+                return BookmarkReadState.MISSING
+            if not _regular(info):
+                return BookmarkReadState.BLOCKED
             with open(self._path, 'rb') as stream:
                 if not _regular(os.fstat(stream.fileno())):
-                    return None
+                    return BookmarkReadState.BLOCKED
                 raw = stream.read(MAX_BOOKMARK_BYTES + 1)
         except (OSError, ValueError):
-            return None
-        return decode_bookmarks(self._source, raw)
+            return BookmarkReadState.BLOCKED
+        return decode_bookmarks(self._source, raw) or BookmarkReadState.BLOCKED
 
     def save(self, bookmarks: HubBookmarks) -> bool:
         """Publish a same-source model atomically, or leave the previous file intact."""
@@ -78,11 +103,8 @@ class BookmarkStore:
         try:
             payload = encode_bookmarks(bookmarks)
             self._check_directory(create=True)
-            try:
-                if not _regular(os.lstat(self._path)):
-                    return False
-            except FileNotFoundError:
-                pass
+            if self._read_slot() is BookmarkReadState.BLOCKED:
+                return False
             # Exclusive private staging; close before replace for Windows. A
             # process interruption can leave staging bytes, but readers ignore them.
             with tempfile.NamedTemporaryFile(mode='wb', dir=self._directory, prefix='.bookmark-',

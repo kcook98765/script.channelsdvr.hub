@@ -391,8 +391,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
     def _activate(self, config: DevelopmentConfig) -> None:
         self._dispatcher.assert_owner()
         self.transient_demo_mode = False
-        if (self._live_session is not None and config == self._development_config
-                and self._development_blocked is None):
+        pending = self._guide_runtime._mode
+        if self._development_blocked is None and (pending == ('live', config) or (
+                pending is None and self._live_session is not None and config == self._development_config)):
             return
         self._replace_live(config)
         self._development_blocked = None
@@ -446,13 +447,17 @@ class ChannelsWindow(xbmcgui.WindowXML):
     def _refresh_live(self) -> None:
         if self._development_blocked is not None:
             return
+        if self._guide_runtime._mode is not None or (
+                self._live_session is not None and self._live_session._generation is None):
+            self._request_live(self.utc_now())
+            return
         anchor = self._intended_anchor if self._intended_anchor is not None else self.guide.selection.anchor
         start = self.repository.horizon[0]
         self._request_live(start)
         self._intended_anchor = anchor
 
     def _jump_time(self, anchor: int) -> None:
-        if self._development_blocked is not None:
+        if self._development_blocked is not None or self._guide_runtime._mode is not None:
             return
         if self._route.parent == 'Search':
             # A drill-in browses the shared accepted horizon without replacing

@@ -146,7 +146,7 @@ class PackageTests(unittest.TestCase):
         for key, default, values in (
             ('hub_startup_view', 'Dashboard', (('dashboard', 'Dashboard'), ('guide', 'Guide'),
                 ('recordings', 'Recordings'), ('dvr_view', 'DVR'), ('startup_last', 'Last'))),
-            ('hub_guide_ok', 'details', (('details', 'details'), ('watch_short', 'live'))),
+            ('hub_guide_ok', 'details', (('details', 'details'),)),
         ):
             with self.subTest(setting=key):
                 node = root.find(f".//category[@id='hub']//setting[@id='{key}']")
@@ -403,7 +403,7 @@ class PackageTests(unittest.TestCase):
             *BOOKMARK_WRITES.values(),
             "os.path.join(self._profile, BOOKMARK_DIRECTORY)",
             "os.path.join(self._directory, source.server_key + '.json')",
-            "os.lstat(path)", "os.lstat(self._path)", "os.lstat(self._path)",
+            "os.lstat(path)", "os.lstat(self._path)",
             "open(self._path, 'rb')", "os.fstat(stream.fileno())",
             "stream.read(MAX_BOOKMARK_BYTES + 1)", "stream.fileno()", "stream.fileno()",
         ])
