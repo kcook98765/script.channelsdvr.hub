@@ -15,6 +15,8 @@ The Search input chooser offers recent terms only for the currently admitted sou
 
 The Settings preferences row still uses the stock Kodi add-on settings dialog. The fake regression checks dispatch, input fencing and parent focus on return. Native Omega dialog visibility and focus remain a separate checkpoint.
 
+A failed bookmark save makes that source binding read-only, including any save already queued behind the failure. Profile recovery or a passive reread does not retry those changes. A fresh source binding must complete its own valid read before it can save again.
+
 ## Independent gates
 
 From the worktree root, the focused offline cohort is:

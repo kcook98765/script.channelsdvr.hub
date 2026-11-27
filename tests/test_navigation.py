@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from channels_dvr.bookmark_storage import BookmarkReadState
+from channels_dvr.bookmark_storage import BookmarkReadState, BookmarkStore
 from channels_dvr.dvr_ui import TABS as DVR_TABS
 from channels_dvr.guide import GuideController
 from channels_dvr.guide_fixtures import stress_repository
@@ -22,6 +22,7 @@ from channels_dvr.hub_bookmarks import (
     BookmarkScope, HubBookmarks, MAX_BOOKMARK_BYTES, MAX_RECENT_TERMS,
     StartupAdmission, decode_bookmarks, encode_bookmarks, startup_destination,
 )
+from channels_dvr.hub_session_ui import BookmarkWorker
 from channels_dvr.library import LibraryBrowser
 from channels_dvr.live_loader import DevelopmentConfig, IndexResult, LoadResult
 from channels_dvr.live_session import LiveDataSession
@@ -385,6 +386,85 @@ class NavigationTests(unittest.TestCase):
         worker.submit.assert_called_once_with(w._hub_session._store,
             replace(saved, recent_terms=('New term', 'Older phrase', 'Another phrase')))
         self.assertEqual((w.view, w.search_query), ('Search', 'New term'))
+
+    def test_failed_search_save_cannot_replay_on_navigation_after_profile_recovery(self):
+        scope = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
+        initial = HubBookmarks(scope, recent_terms=('Initial history',))
+        recovered = HubBookmarks(scope, recent_terms=('Recovered history',), last_view='DVR')
+        with TemporaryDirectory() as root:
+            profile = Path(root) / 'profile'
+            path = profile / 'hub-bookmarks' / (scope.server_key + '.json')
+            path.parent.mkdir(parents=True)
+            path.write_bytes(encode_bookmarks(initial))
+            w, _, prefs, config, publish = self.pending_hub_startup('Dashboard', explicit='Search', profile=profile)
+            w._hub_session._worker = worker = BookmarkWorker()
+            w._set_search_query = partial(self.adapter.ChannelsWindow._set_search_query, w)
+
+            def finish_read():
+                w.process_pending()
+                with worker._condition:
+                    self.assertTrue(worker._condition.wait_for(
+                        lambda: worker._loaded is not None or w._hub_session._loaded, timeout=2))
+                w.process_pending()
+
+            try:
+                publish()
+                finish_read()
+                self.assertEqual(w._hub_session.recent_search()[1], initial.recent_terms)
+                with patch.object(BookmarkStore, 'save', autospec=True, side_effect=BookmarkStore.save) as save:
+                    unavailable = profile.rename(Path(root) / 'unavailable')
+                    self.dialog.select.return_value = 0
+                    self.dialog.input.return_value = 'Unsaved term'
+                    execute_command(w, self.gui, 'search.query')
+                    self.assertEqual(w.search_query, 'Unsaved term')
+                    with worker._condition:
+                        self.assertTrue(worker._condition.wait_for(
+                            lambda: worker._fence is not None and worker._fence.failed, timeout=2))
+                    self.assertEqual(save.call_count, 1)
+
+                    unavailable.rename(profile)
+                    recovered_bytes = encode_bookmarks(recovered)
+                    path.write_bytes(recovered_bytes)
+                    w.onClick(201)
+                    w.process_pending()
+                    self.assertEqual(w.view, 'Guide')
+                    self.assertEqual(path.read_bytes(), recovered_bytes)
+                    self.assertEqual(save.call_count, 1)
+
+                    # A passive drop and readmission of the same incarnation
+                    # may reread the recovered history, but must not enable saves.
+                    incarnation = w._live_session.incarnation
+                    prefs['server_origin'] = ''
+                    w.process_pending()
+                    prefs['server_origin'] = config.origin
+                    finish_read()
+                    self.assertIs(w._live_session.incarnation, incarnation)
+                    self.assertEqual(w._hub_session.recent_search()[1], recovered.recent_terms)
+                    w.onAction(SimpleNamespace(getId=lambda: NAV_BACK))
+                    w.process_pending()
+                    self.assertEqual(w.view, 'Dashboard')
+                    self.assertEqual(path.read_bytes(), recovered_bytes)
+                    self.assertEqual(save.call_count, 1)
+
+                    # A deliberate source replacement gets a new lease and a
+                    # fresh read, not the failed term from the old snapshot.
+                    w._activate(config)
+                    self.assertIsNot(w._live_session.incarnation, incarnation)
+                    publish()
+                    finish_read()
+                    self.assertEqual(w._hub_session.recent_search()[1], recovered.recent_terms)
+                    w.onClick(202)
+                    w.process_pending()
+                    w.shutdown()
+                    worker._thread.join(2)
+                    self.assertFalse(worker._thread.is_alive())
+                    self.assertEqual(save.call_count, 2)
+                    self.assertEqual(decode_bookmarks(scope, path.read_bytes()),
+                                     replace(recovered, last_view='Recordings'))
+            finally:
+                worker.close()
+                if worker._thread is not None:
+                    worker._thread.join(2)
 
     def test_no_recent_search_writes_for_disconnected_or_demo_input(self):
         w = self.w

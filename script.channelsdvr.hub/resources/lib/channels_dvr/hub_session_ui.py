@@ -1,5 +1,5 @@
 """Owner-side startup and bookmark coordination; only the mailbox worker does I/O."""
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from threading import Condition, Thread
 from typing import Any
 
@@ -25,6 +25,13 @@ def preference(w, key: str) -> str:
         return ''
 
 
+@dataclass(eq=False, slots=True)
+class _WriteFence:
+    """One source incarnation's failure latch, accessed under the worker lock."""
+
+    failed: bool = False
+
+
 class BookmarkWorker:
     """One serial worker, one latest pending operation, no GUI or DVR access."""
 
@@ -33,30 +40,40 @@ class BookmarkWorker:
         self._closed = False
         self._thread: Thread | None = None
         self._store: BookmarkStore | None = None
-        self._pending: tuple[BookmarkStore, HubBookmarks | None] | None = None
+        self._fence: _WriteFence | None = None
+        self._save_ready = False
+        self._pending: tuple[BookmarkStore, _WriteFence, HubBookmarks | None] | None = None
         self._loaded: tuple[BookmarkStore, HubBookmarks | BookmarkReadState] | None = None
 
-    def bind(self, store: BookmarkStore | None) -> bool:
+    def bind(self, store: BookmarkStore | None, fence: _WriteFence | None = None) -> bool:
         with self._condition:
             if self._closed:
                 return False
+            if store is self._store:
+                return True
             self._store, self._loaded = store, None
-            self._pending = (store, None) if store is not None else None
+            self._save_ready = False
+            self._fence = (fence or _WriteFence()) if store is not None else None
+            self._pending = (store, self._fence, None) if store is not None and self._fence is not None else None
             if store is not None and self._thread is None:
                 self._thread = Thread(target=self._loop, name='hub-bookmarks', daemon=True)
                 try:
                     self._thread.start()
                 except RuntimeError:
-                    self._thread = self._store = self._pending = None
+                    self._thread = self._store = self._pending = self._fence = None
                     return False
             self._condition.notify_all()
             return True
 
-    def submit(self, store: BookmarkStore, snapshot: HubBookmarks) -> None:
+    def submit(self, store: BookmarkStore, snapshot: HubBookmarks) -> bool:
         with self._condition:
-            if not self._closed and store is self._store:
-                self._pending = store, snapshot
-                self._condition.notify_all()
+            fence = self._fence
+            if (self._closed or store is not self._store or not self._save_ready
+                    or fence is None or fence.failed):
+                return False
+            self._pending = store, fence, snapshot
+            self._condition.notify_all()
+            return True
 
     def take(self) -> tuple[BookmarkStore, HubBookmarks | BookmarkReadState] | None:
         with self._condition:
@@ -67,7 +84,7 @@ class BookmarkWorker:
         with self._condition:
             self._closed = True
             self._loaded = None
-            if self._pending is not None and self._pending[1] is None:
+            if self._pending is not None and self._pending[2] is None:
                 self._pending = None
             self._condition.notify_all()  # no join or filesystem I/O on the owner
 
@@ -78,14 +95,27 @@ class BookmarkWorker:
                 pending, self._pending = self._pending, None
                 if pending is None:
                     return
-            store, snapshot = pending  # lease taken before any later binding change
+            store, fence, snapshot = pending  # taken before any later binding change
             if snapshot is not None:
-                store.save(snapshot)
+                if not store.save(snapshot):
+                    with self._condition:
+                        fence.failed = True
+                        if self._fence is fence:
+                            self._save_ready = False
+                        # A save offered during the failed I/O (including one
+                        # retained for shutdown) may not drain after recovery.
+                        queued = self._pending
+                        if queued is not None and queued[1] is fence and queued[2] is not None:
+                            self._pending = None
+                        self._condition.notify_all()
                 continue
             loaded = store.read()
             with self._condition:
-                if not self._closed and store is self._store:
+                if not self._closed and store is self._store and fence is self._fence:
+                    self._save_ready = not fence.failed and (
+                        isinstance(loaded, HubBookmarks) or loaded is BookmarkReadState.MISSING)
                     self._loaded = store, loaded
+                    self._condition.notify_all()
 
 
 class HubSessionUI:
@@ -95,10 +125,11 @@ class HubSessionUI:
         self._startup = None
         self.startup_failed = False
         self._binding: tuple | None = None
+        self._write_lease: tuple[tuple, _WriteFence] | None = None
         self._store: BookmarkStore | None = None
         self._model: HubBookmarks | None = None
         self._loaded = False
-        self._writes_allowed = False
+        self._writes_allowed = False  # Read-side hint; the worker owns final save admission.
         self._overlay: dict[str, Any] = {}
         self._unrestored: set[str] = set()
         self._touched: set[str] = set()
@@ -114,6 +145,7 @@ class HubSessionUI:
         self.cancel_startup()
         self.startup_failed = False
         self._forget_source()
+        self._write_lease = None
         self._sync_touches(None)
 
     def _forget_source(self) -> None:
@@ -208,11 +240,16 @@ class HubSessionUI:
         if self._binding is None:
             scope = BookmarkScope.from_config(binding[0])
             self._binding, self._model = binding, HubBookmarks(scope)
+            # Passive loss of admission can reopen the same slot, but cannot
+            # clear a failed save for the same source incarnation.
+            lease = self._write_lease
+            if lease is None or lease[0] != binding:
+                lease = self._write_lease = binding, _WriteFence()
             try:
                 self._store = BookmarkStore(w._recording_ui._programme_profile(), scope)
             except (RuntimeError, AttributeError, TypeError, ValueError, StorageError):
                 self._store = None
-            if self._store is not None and not self._worker.bind(self._store):
+            if self._store is not None and not self._worker.bind(self._store, lease[1]):
                 self._store = None
             self._loaded = self._store is None
         completed = self._worker.take() if not self._loaded else None
@@ -353,4 +390,5 @@ class HubSessionUI:
 
     def _save(self) -> None:
         if self._writes_allowed and self._store is not None and self._model is not None:
-            self._worker.submit(self._store, self._model)
+            if not self._worker.submit(self._store, self._model):
+                self._writes_allowed = False

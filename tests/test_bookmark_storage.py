@@ -4,12 +4,14 @@ from dataclasses import replace
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Event
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from channels_dvr import bookmark_storage
 from channels_dvr.bookmark_storage import BookmarkReadState, BookmarkStore
 from channels_dvr.hub_bookmarks import MAX_BOOKMARK_BYTES, BookmarkScope, HubBookmarks, encode_bookmarks
+from channels_dvr.hub_session_ui import BookmarkWorker
 from channels_dvr.live_loader import DevelopmentConfig
 from channels_dvr.operation_storage import StorageError
 
@@ -120,6 +122,66 @@ class BookmarkStorageTests(unittest.TestCase):
             self.assertFalse(self.store.save(replace(self.saved, last_view='DVR')))
             publish.assert_not_called()
         self.assertEqual(self.path.read_bytes(), future)
+
+    def test_failed_inflight_save_revokes_queued_snapshot_even_during_close(self):
+        worker, started, release = BookmarkWorker(), Event(), Event()
+        self.addCleanup(worker.close)
+        self.addCleanup(release.set)
+
+        def fail(_):
+            started.set()
+            release.wait()
+            return False
+
+        store = Mock()
+        store.read.return_value = self.saved
+        store.save.side_effect = fail
+        self.assertTrue(worker.bind(store))
+        with worker._condition:
+            self.assertTrue(worker._condition.wait_for(lambda: worker._save_ready, timeout=2))
+        self.assertTrue(worker.submit(store, self.saved))
+        self.assertTrue(started.wait(2))
+        self.assertTrue(worker.submit(store, replace(self.saved, last_view='DVR')))
+        worker.close()
+        self.assertFalse(worker.submit(store, self.saved))
+        release.set()
+        worker._thread.join(2)
+        self.assertFalse(worker._thread.is_alive())
+        store.save.assert_called_once_with(self.saved)
+
+    def test_late_failure_from_old_store_cannot_clear_a_fresh_binding_read(self):
+        worker, started, release = BookmarkWorker(), Event(), Event()
+        self.addCleanup(worker.close)
+        self.addCleanup(release.set)
+
+        def fail(_):
+            started.set()
+            release.wait()
+            return False
+
+        old, fresh = Mock(), Mock()
+        recovered = replace(self.saved, recent_terms=('Recovered from disk',))
+        old.read.return_value, fresh.read.return_value = self.saved, recovered
+        old.save.side_effect = fail
+        fresh.save.return_value = True
+        self.assertTrue(worker.bind(old))
+        with worker._condition:
+            self.assertTrue(worker._condition.wait_for(lambda: worker._save_ready, timeout=2))
+        self.assertTrue(worker.submit(old, self.saved))
+        self.assertTrue(started.wait(2))
+        self.assertTrue(worker.bind(fresh))
+        self.assertFalse(worker.submit(old, self.saved))
+        self.assertFalse(worker.submit(fresh, recovered))  # No fresh read yet.
+        release.set()
+        with worker._condition:
+            self.assertTrue(worker._condition.wait_for(lambda: worker._save_ready, timeout=2))
+        self.assertEqual(worker.take(), (fresh, recovered))
+        self.assertTrue(worker.submit(fresh, recovered))
+        worker.close()
+        worker._thread.join(2)
+        self.assertFalse(worker._thread.is_alive())
+        old.save.assert_called_once_with(self.saved)
+        fresh.save.assert_called_once_with(recovered)
 
     def test_failed_sync_never_attempts_replacement(self):
         self.assertTrue(self.store.save(self.saved))
