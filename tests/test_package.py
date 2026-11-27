@@ -316,23 +316,22 @@ class PackageTests(unittest.TestCase):
         for method in window.body:
             if isinstance(method, ast.FunctionDef) and method.name in ("onInit", "onAction", "onClick"):
                 if method.name == 'onAction':
-                    read_id, mouse, live_guide_select, enqueue = method.body
+                    read_id, raw_activation, enqueue = method.body
                     self.assertEqual(ast.unparse(read_id), 'ident = action.getId()')
-                    self.assertEqual(ast.unparse(mouse.test), 'ident == xbmcgui.ACTION_MOUSE_LEFT_CLICK')
-                    self.assertEqual(ast.unparse(live_guide_select.test),
-                                     "ident == xbmcgui.ACTION_SELECT_ITEM and self.view == 'Guide' "
-                                     "and (self._live_session is not None) and (not self.transient_demo_mode) "
-                                     "and (self._large_exercise is None)")
-                    for guard in (mouse, live_guide_select):
-                        self.assertEqual([ast.unparse(node) for node in guard.body], ['return'])
-                        self.assertEqual(guard.orelse, [])
+                    self.assertEqual(ast.unparse(raw_activation.test),
+                                     'ident in (xbmcgui.ACTION_MOUSE_LEFT_CLICK, xbmcgui.ACTION_SELECT_ITEM) '
+                                     'and self._large_exercise is None')
+                    self.assertEqual([ast.unparse(node) for node in raw_activation.body],
+                                     ['self._dispatcher.note_raw_activation()', 'return'])
+                    self.assertEqual(raw_activation.orelse, [])
                     self.assertEqual(ast.unparse(enqueue),
                                      "self._dispatcher.post(('action', self._chrome.capture_action(ident)))")
                 else:
                     self.assertEqual(len(method.body), 1)
                 calls = {dotted(node.func) for node in ast.walk(method) if isinstance(node, ast.Call)}
                 self.assertLessEqual(calls, {"self._dispatcher.post", "action.getId", "self._chrome.capture",
-                                             "self._chrome.capture_action"})
+                                             "self._chrome.capture_action",
+                                             "self._dispatcher.note_raw_activation"})
                 self.assertIn("self._dispatcher.post", calls)
         self.assertLess((LIB / "kodi_ui.py").stat().st_size, 48 * 1024)
         for file in ADDON.rglob('*'):

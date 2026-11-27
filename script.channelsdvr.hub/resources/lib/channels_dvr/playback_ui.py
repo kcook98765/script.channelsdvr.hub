@@ -264,6 +264,10 @@ class PlaybackUI:
                 self.cancel()
                 self.state = 'expired'
                 return
+            if not w._dispatcher.arm_live_review(pending[2][2]):
+                self.cancel()
+                self.state = 'selection_changed'
+                return
             confirmed = dialog.yesno(heading, body, defaultbutton=default_no)
         except Exception:
             if self._pending is pending:

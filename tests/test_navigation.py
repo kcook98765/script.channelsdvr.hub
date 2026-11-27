@@ -1488,18 +1488,19 @@ class NavigationTests(unittest.TestCase):
                                  self.gui.DLG_YESNO_NO_BTN)
                 player.handoff.assert_not_called()
 
-    def test_raw_select_cancels_synthetic_traversal_without_onclick(self):
-        self.seed()
-        self.enter('Guide')
-        w = self.w
-        w.focus_id = CONTENT
-        w._large_exercise = SimpleNamespace(completed=3)
-        # Isolate the input cancellation from any independent tick/fixture checks.
-        with patch.object(self.adapter, 'tick_large'):
-            self.action(self.gui.ACTION_SELECT_ITEM)
-        self.assertIsNone(w._large_exercise)
-        self.assertEqual(w.exercise_summary, w.t('traversal_stopped', completed=3, reason='input'))
-        w._playback_ui.request.assert_not_called()
+    def test_raw_activation_cancels_synthetic_traversal_without_onclick(self):
+        for raw in (self.gui.ACTION_SELECT_ITEM, self.gui.ACTION_MOUSE_LEFT_CLICK):
+            with self.subTest(raw=raw):
+                self.w = w = self.window()
+                self.seed()
+                self.enter('Guide')
+                w.focus_id = CONTENT
+                w._large_exercise = SimpleNamespace(completed=3)
+                with patch.object(self.adapter, 'tick_large'):
+                    self.action(raw)
+                self.assertIsNone(w._large_exercise)
+                self.assertEqual(w.exercise_summary, w.t('traversal_stopped', completed=3, reason='input'))
+                w._playback_ui.request.assert_not_called()
 
     def test_guide_ok_raw_select_cannot_replace_missing_or_stale_onclick(self):
         for captured in (False, True):
@@ -1582,6 +1583,24 @@ class NavigationTests(unittest.TestCase):
         worker.submit.assert_called_once()
         player.handoff.assert_not_called()
 
+    def test_live_review_recheck_revokes_on_raw_activation_without_onclick(self):
+        for raw in (self.gui.ACTION_SELECT_ITEM, self.gui.ACTION_MOUSE_LEFT_CLICK):
+            with self.subTest(raw=raw):
+                self.w = w = self.window()
+                worker, player, _ = self.guide_ok_fixture(enabled=False)
+                self.dialog.yesno.reset_mock()
+                self.dialog.yesno.return_value = True
+                w._playback_ui.request(self.gui)  # explicit Watch Live with Guide OK disabled
+                self.prepare_playback_result(worker)
+                w.process_pending()
+                self.dialog.yesno.assert_called_once()
+                self.assertEqual(worker.submit.call_count, 2)
+                self.post_action(raw)
+                self.prepare_playback_result(worker)
+                w.process_pending()
+                self.assertEqual(w._playback_ui.state, 'selection_changed')
+                player.handoff.assert_not_called()
+
     def test_guide_ok_rechecks_on_now_at_final_admission(self):
         worker, player, start = self.guide_ok_fixture()
         w = self.w
@@ -1620,15 +1639,14 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(w._playback_ui.state, 'selection_changed')
         player.handoff.assert_not_called()
 
-    def test_playback_mouse_action_before_or_after_click_keeps_one_exact_handoff(self):
-        for raw_first in (True, False):
-            with self.subTest(raw_first=raw_first):
-                if not raw_first:
-                    self.w = self.window()
+    def test_playback_raw_action_before_or_after_click_keeps_one_exact_handoff(self):
+        raw_buttons = (self.gui.ACTION_MOUSE_LEFT_CLICK, self.gui.ACTION_SELECT_ITEM)
+        for raw, raw_first in ((button, first) for button in raw_buttons for first in (True, False)):
+            with self.subTest(raw=raw, raw_first=raw_first):
+                self.w = self.window()
                 worker, player, start = self.playback_fixture()
                 w = self.w
                 w.focus_id = 301
-                raw = self.gui.ACTION_MOUSE_LEFT_CLICK
                 self.action(raw)  # raw action alone is never a Play command
                 worker.submit.assert_not_called()
                 if raw_first:
@@ -1830,7 +1848,8 @@ class NavigationTests(unittest.TestCase):
 
     def test_watch_live_defaults_to_no_and_only_current_yes_gets_fresh_descriptor(self):
         for confirm, mapped_during_modal, replaced in (
-                (False, False, False), (True, True, False), (True, False, False), (True, False, True)):
+                (False, None, False), (True, self.gui.ACTION_STOP, False),
+                (True, self.gui.ACTION_MOUSE_LEFT_CLICK, False), (True, None, False), (True, None, True)):
             with self.subTest(confirm=confirm, mapped_during_modal=mapped_during_modal, replaced=replaced):
                 self.w = w = self.window()
                 worker, player, start = self.playback_fixture('Guide')
@@ -1841,9 +1860,8 @@ class NavigationTests(unittest.TestCase):
                     self.assertTrue(w._dispatcher.modal_active)
                     self.native_dialog = 10100  # Hub's own blocking Yes/No is active.
                     try:
-                        self.post_action(self.gui.ACTION_MOUSE_LEFT_CLICK)
-                        if mapped_during_modal:
-                            self.post_action(self.gui.ACTION_STOP)
+                        if mapped_during_modal is not None:
+                            self.post_action(mapped_during_modal)
                         return confirm
                     finally:
                         self.native_dialog = 12001 if replaced else 9999

@@ -135,16 +135,11 @@ class ChannelsWindow(xbmcgui.WindowXML):
 
     def onAction(self, action):
         ident = action.getId()
-        if ident == xbmcgui.ACTION_MOUSE_LEFT_CLICK:
-            # Hub mouse activation comes through onClick, including stale or
-            # unrecognized targets. The raw action carries no Hub command and
-            # must not enter the input lease stream in either callback order.
-            return
-        if (ident == xbmcgui.ACTION_SELECT_ITEM and self.view == 'Guide'
-                and self._live_session is not None and not self.transient_demo_mode
+        if (ident in (xbmcgui.ACTION_MOUSE_LEFT_CLICK, xbmcgui.ACTION_SELECT_ITEM)
                 and self._large_exercise is None):
-            # WindowXML can deliver Select after the focused control's onClick.
-            # That activation owns the Guide command and its input revision.
+            # onClick owns activation. Raw companions can still revoke live
+            # review authority, which begins after the activation is dispatched.
+            self._dispatcher.note_raw_activation()
             return
         self._dispatcher.post(("action", self._chrome.capture_action(ident)))
 
