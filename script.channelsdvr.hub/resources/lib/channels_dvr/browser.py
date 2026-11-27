@@ -18,6 +18,7 @@ class Row:
 
 
 def recording_row(record: Recording, strings=FALLBACK) -> Row:
+    title = record.title if record.title.strip() else text(strings, 'recordings_untitled')
     state = text(strings, 'lib_watched' if record.watched else 'lib_unwatched')
     if not record.watched_known:
         state = text(strings, 'lib_watch_unknown')
@@ -36,8 +37,8 @@ def recording_row(record: Recording, strings=FALLBACK) -> Row:
                 if not record.is_movie else text(strings, 'lib_movie'))
     origin = origin_label(record.namespace, record.provenance, strings)
     return Row(repr(recording_key(record)),
-               text(strings, 'lib_row', title=record.title, episode=episode, state=state, origin=origin),
-               text(strings, 'recording_details', title=record.show or record.title, episode=episode,
+               text(strings, 'lib_row', title=title, episode=episode, state=state, origin=origin),
+               text(strings, 'recording_details', title=record.show if (record.show or '').strip() else title, episode=episode,
                     state=state, origin=origin, duration=duration, time=time_label(record.created)))
 
 

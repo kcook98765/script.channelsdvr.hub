@@ -17,6 +17,12 @@
     <control type="button" id="203"><left>968</left><top>110</top><width>280</width><height>56</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>203</onleft><onright>203</onright><onup>203</onup><ondown>203</ondown></control>
     <control type="button" id="204"><left>1264</left><top>110</top><width>280</width><height>56</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>204</onleft><onright>204</onright><onup>204</onup><ondown>204</ondown></control>
     <control type="button" id="205"><left>1560</left><top>110</top><width>280</width><height>56</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>205</onleft><onright>205</onright><onup>205</onup><ondown>205</ondown></control>
+    <!-- Recordings-only category rail; IDs stay bound to one category. -->
+    <control type="button" id="220"><left>80</left><top>242</top><width>336</width><height>56</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>220</onleft><onright>220</onright><onup>220</onup><ondown>220</ondown></control>
+    <control type="button" id="221"><left>436</left><top>242</top><width>336</width><height>56</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>221</onleft><onright>221</onright><onup>221</onup><ondown>221</ondown></control>
+    <control type="button" id="222"><left>792</left><top>242</top><width>336</width><height>56</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>222</onleft><onright>222</onright><onup>222</onup><ondown>222</ondown></control>
+    <control type="button" id="223"><left>1148</left><top>242</top><width>336</width><height>56</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>223</onleft><onright>223</onright><onup>223</onup><ondown>223</ondown></control>
+    <control type="button" id="224"><left>1504</left><top>242</top><width>336</width><height>56</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>224</onleft><onright>224</onright><onup>224</onup><ondown>224</ondown></control>
     <control type="button" id="300"><left>80</left><top>1000</top><width>280</width><height>50</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>300</onleft><onright>300</onright><onup>300</onup><ondown>300</ondown></control>
     <control type="button" id="301"><left>370</left><top>1000</top><width>280</width><height>50</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>301</onleft><onright>301</onright><onup>301</onup><ondown>301</ondown></control>
     <control type="button" id="302"><left>660</left><top>1000</top><width>280</width><height>50</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>302</onleft><onright>302</onright><onup>302</onup><ondown>302</ondown></control>
@@ -28,6 +34,9 @@
     <control type="button" id="308"><left>80</left><top>1000</top><width>280</width><height>50</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>308</onleft><onright>308</onright><onup>308</onup><ondown>308</ondown></control>
     <control type="button" id="309"><left>80</left><top>1000</top><width>280</width><height>50</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>309</onleft><onright>309</onright><onup>309</onup><ondown>309</ondown></control>
     <control type="button" id="310"><left>80</left><top>1000</top><width>280</width><height>50</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>310</onleft><onright>310</onright><onup>310</onup><ondown>310</ondown></control>
+    <control type="button" id="320"><left>80</left><top>1000</top><width>280</width><height>50</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>320</onleft><onright>320</onright><onup>320</onup><ondown>320</ondown></control>
+    <control type="button" id="321"><left>80</left><top>1000</top><width>280</width><height>50</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>321</onleft><onright>321</onright><onup>321</onup><ondown>321</ondown></control>
+    <control type="button" id="322"><left>80</left><top>1000</top><width>280</width><height>50</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>322</onleft><onright>322</onright><onup>322</onup><ondown>322</ondown></control>
     <control type="textbox" id="400"><left>80</left><top>235</top><width>850</width><height>230</height><font>font13</font><textcolor>FFFFFFFF</textcolor></control>
     <control type="textbox" id="401"><left>990</left><top>235</top><width>850</width><height>230</height><font>font13</font><textcolor>FFFFFFFF</textcolor></control>
     <control type="textbox" id="402"><left>80</left><top>470</top><width>850</width><height>230</height><font>font13</font><textcolor>FFFFFFFF</textcolor></control>
@@ -41,16 +50,31 @@
     <!-- Dashboard-only absolute last success and separate consolidated warning. -->
     <control type="label" id="116"><left>80</left><top>215</top><width>1760</width><height>20</height><font>font10</font><textcolor>FFB6C8DB</textcolor><label></label></control>
     <control type="label" id="117"><left>80</left><top>195</top><width>1760</width><height>20</height><font>font10</font><textcolor>FFDEB560</textcolor><label></label></control>
-    <control type="label" id="140"><left>390</left><top>215</top><width>355</width><height>32</height><font>font13</font><textcolor>FFB6C8DB</textcolor><label></label></control>
-    <control type="label" id="141"><left>752</left><top>215</top><width>355</width><height>32</height><font>font13</font><textcolor>FFB6C8DB</textcolor><label></label></control>
-    <control type="label" id="142"><left>1115</left><top>215</top><width>355</width><height>32</height><font>font13</font><textcolor>FFB6C8DB</textcolor><label></label></control>
-    <control type="label" id="143"><left>1477</left><top>215</top><width>355</width><height>32</height><font>font13</font><textcolor>FFB6C8DB</textcolor><label></label></control>
-    <control type="label" id="120"><left>80</left><top>250</top><width>300</width><height>90</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
-    <control type="label" id="121"><left>80</left><top>345</top><width>300</width><height>90</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
-    <control type="label" id="122"><left>80</left><top>440</top><width>300</width><height>90</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
-    <control type="label" id="123"><left>80</left><top>535</top><width>300</width><height>90</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
-    <control type="label" id="124"><left>80</left><top>630</top><width>300</width><height>90</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
-    <control type="label" id="125"><left>80</left><top>725</top><width>300</width><height>90</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
+    <!-- Guide surface: grid, axis and artwork all use the same 1080i space. -->
+    <control type="image" id="155"><left>80</left><top>121</top><width>1760</width><height>144</height><texture>gap.png</texture></control>
+    <control type="label" id="150"><left>100</left><top>130</top><width>1380</width><height>35</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
+    <control type="label" id="151"><left>100</left><top>171</top><width>1380</width><height>28</height><font>font10</font><textcolor>FFB6C8DB</textcolor><label></label></control>
+    <control type="textbox" id="152"><left>100</left><top>205</top><width>1380</width><height>55</height><font>font10</font><textcolor>FFFFFFFF</textcolor></control>
+    <control type="label" id="153"><left>80</left><top>271</top><width>1760</width><height>32</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
+    <!-- Now is behind the pool: it never obscures cell titles or intercepts hits. -->
+    <!-- Axis cap only; the owner draws the non-focusable line above the dynamic cells. -->
+    <control type="image" id="154"><left>400</left><top>332</top><width>4</width><height>6</height><texture>selected.png</texture></control>
+    <control type="label" id="140"><left>400</left><top>307</top><width>355</width><height>24</height><font>font10</font><textcolor>FFB6C8DB</textcolor><label></label></control>
+    <control type="label" id="141"><left>760</left><top>307</top><width>355</width><height>24</height><font>font10</font><textcolor>FFB6C8DB</textcolor><label></label></control>
+    <control type="label" id="142"><left>1120</left><top>307</top><width>355</width><height>24</height><font>font10</font><textcolor>FFB6C8DB</textcolor><label></label></control>
+    <control type="label" id="143"><left>1480</left><top>307</top><width>355</width><height>24</height><font>font10</font><textcolor>FFB6C8DB</textcolor><label></label></control>
+    <control type="label" id="120"><left>88</left><top>347</top><width>296</width><height>34</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
+    <control type="label" id="121"><left>88</left><top>427</top><width>296</width><height>34</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
+    <control type="label" id="122"><left>88</left><top>507</top><width>296</width><height>34</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
+    <control type="label" id="123"><left>88</left><top>587</top><width>296</width><height>34</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
+    <control type="label" id="124"><left>88</left><top>667</top><width>296</width><height>34</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
+    <control type="label" id="125"><left>88</left><top>747</top><width>296</width><height>34</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
+    <control type="label" id="126"><left>88</left><top>381</top><width>296</width><height>26</height><font>font10</font><textcolor>FFB6C8DB</textcolor><label></label></control>
+    <control type="label" id="127"><left>88</left><top>461</top><width>296</width><height>26</height><font>font10</font><textcolor>FFB6C8DB</textcolor><label></label></control>
+    <control type="label" id="128"><left>88</left><top>541</top><width>296</width><height>26</height><font>font10</font><textcolor>FFB6C8DB</textcolor><label></label></control>
+    <control type="label" id="129"><left>88</left><top>621</top><width>296</width><height>26</height><font>font10</font><textcolor>FFB6C8DB</textcolor><label></label></control>
+    <control type="label" id="130"><left>88</left><top>701</top><width>296</width><height>26</height><font>font10</font><textcolor>FFB6C8DB</textcolor><label></label></control>
+    <control type="label" id="131"><left>88</left><top>781</top><width>296</width><height>26</height><font>font10</font><textcolor>FFB6C8DB</textcolor><label></label></control>
     <control type="label" id="114"><left>80</left><top>825</top><width>1760</width><height>40</height><font>font13</font><textcolor>FFDEB560</textcolor><label></label></control>
     <control type="label" id="113"><left>80</left><top>870</top><width>1760</width><height>80</height><font>font13</font><textcolor>FFB6C8DB</textcolor><label></label></control>
     <control type="label" id="115"><left>80</left><top>960</top><width>1760</width><height>36</height><font>font10</font><textcolor>FFB6C8DB</textcolor><label></label></control>

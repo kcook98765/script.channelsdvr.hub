@@ -1362,15 +1362,15 @@ msgid " | Some results are not shown"
 msgstr ""
 
 msgctxt "#30464"
-msgid "{position}/{count} | OK: browse / details | Menu: Recording tools"
+msgid "{position}/{count} | OK: browse / details | Info: details"
 msgstr ""
 
 msgctxt "#30465"
-msgid "No matching recordings | Menu: Recording tools"
+msgid "No matching recordings"
 msgstr ""
 
 msgctxt "#30466"
-msgid "Recording tools → Search recordings to enter text"
+msgid "Choose Search recordings to enter text"
 msgstr ""
 
 msgctxt "#30467"
@@ -1406,7 +1406,7 @@ msgid "No listing is available at this time. This does not mean the DVR returned
 msgstr ""
 
 msgctxt "#30475"
-msgid "No matching item in this view. Use Recording tools to search or change the recording source filter."
+msgid "No matching item in this view. Try another tab or recording source."
 msgstr ""
 
 msgctxt "#30476"
@@ -2154,23 +2154,23 @@ msgid "Series actions"
 msgstr ""
 
 msgctxt "#30962"
-msgid "Check Series status"
+msgid "Series status"
 msgstr ""
 
 msgctxt "#30963"
-msgid "Paused: {paused} · Jobs reported: {jobs}"
+msgid "Paused: {paused}; jobs reported: {jobs}"
 msgstr ""
 
 msgctxt "#30964"
-msgid "Saved-pass snapshot. Listing a pass does not grant control."
+msgid "Snapshot grants no control."
 msgstr ""
 
 msgctxt "#30965"
-msgid "Older pass snapshot. Refresh before requesting Series actions."
+msgid "Stale: refresh before Series actions."
 msgstr ""
 
 msgctxt "#30966"
-msgid "No saved passes in the last successful read."
+msgid "Last good read: no saved passes."
 msgstr ""
 
 msgctxt "#30967"
@@ -2178,17 +2178,77 @@ msgid "Read-only rule"
 msgstr ""
 
 msgctxt "#30968"
-msgid "Series rule; management requires a fresh check."
+msgid "Series rule: recheck to manage."
 msgstr ""
 
 msgctxt "#30969"
-msgid "Series outcome unknown. Check Series status. Do not retry."
+msgid "Outcome unknown. Check Series status; do not retry."
 msgstr ""
 
 msgctxt "#30970"
-msgid "Series result verified."
+msgid "Recent"
 msgstr ""
 
 msgctxt "#30971"
-msgid "The pass changed since it was listed. Review the refreshed list before requesting actions again."
+msgid "TV Shows"
+msgstr ""
+
+msgctxt "#30972"
+msgid "All"
+msgstr ""
+
+msgctxt "#30973"
+msgid "Sort"
+msgstr ""
+
+msgctxt "#30974"
+msgid "Title (A–Z)"
+msgstr ""
+
+msgctxt "#30975"
+msgid "Newest added"
+msgstr ""
+
+msgctxt "#30976"
+msgid "Oldest added"
+msgstr ""
+
+msgctxt "#30977"
+msgid "{breadcrumb} | Sort: {sort}"
+msgstr ""
+
+msgctxt "#30978"
+msgid "Untitled recording"
+msgstr ""
+
+msgctxt "#30979"
+msgid "> {tab}"
+msgstr ""
+
+msgctxt "#30980"
+msgid "Listing day"
+msgstr ""
+
+msgctxt "#30981"
+msgid "No channels here"
+msgstr ""
+
+msgctxt "#30982"
+msgid "Guide controls"
+msgstr ""
+
+msgctxt "#30983"
+msgid "OK/Info: details | PgUp/PgDn: channels | Blue line: Now | {footer}"
+msgstr ""
+
+msgctxt "#30984"
+msgid "Some listings hidden. Use arrows or change time."
+msgstr ""
+
+msgctxt "#30985"
+msgid "Series result verified."
+msgstr ""
+
+msgctxt "#30986"
+msgid "Pass changed. Review refreshed list first."
 msgstr ""

@@ -5,7 +5,7 @@ cannot reliably trigger candidate fallback or text reflow through this SDK API.
 """
 from .artwork import ArtKey, channel_key, event_key
 from .artwork_refs import first_reference
-from .guide_render import RenderMemo
+from .guide_render import ROW_PITCH, ROW_TOP, RenderMemo
 from .ui_text import text
 
 
@@ -31,7 +31,8 @@ class ArtworkUI:
         w = self.window
         session, config = w._live_session, w._development_config
         if (self._disabled or w._closed or session is None or config is None or session.loading
-                or w._development_blocked or w._guide_runtime._mode is not None):
+                or w._development_blocked or w._guide_runtime._mode is not None
+                or (w.view == 'Guide' and not w._guide_runtime.ready)):
             return None
         # Command/ownership generation is deliberately NOT an artwork revision.
         return session, session.artwork, config, w.view
@@ -82,8 +83,11 @@ class ArtworkUI:
             return None
 
     def _station_geometry(self, index, fitted):
-        self._try_apply(self._control(120 + index), 'setPosition', 155 if fitted else 80, 250 + index*95)
-        self._try_apply(self._control(120 + index), 'setWidth', 225 if fitted else 300)
+        for first, offset in ((120, 9), (126, 43)):
+            control = self._control(first + index)
+            if control is not None:
+                self._try_apply(control, 'setPosition', 155 if fitted else 88, ROW_TOP + index*ROW_PITCH + offset)
+                self._try_apply(control, 'setWidth', 232 if fitted else 296)
 
     def _restore_geometry(self):
         for index in range(6):
@@ -165,7 +169,7 @@ class ArtworkUI:
             if ref and not self._images:
                 try:
                     for n in range(6):
-                        image = sdk.ControlImage(80, 255 + n*95, 70, 80, '', aspectRatio=2)
+                        image = sdk.ControlImage(80, ROW_TOP + 7 + n*ROW_PITCH, 64, 64, '', aspectRatio=2)
                         self.window.addControls([image])
                         self._images.append(image)
                 except Exception:
@@ -176,17 +180,33 @@ class ArtworkUI:
                 self._disable()
                 return
         ref = self.ready()
+        guide = self.window.view == 'Guide'
+        rect = (1520, 125, 300, 132) if guide else (1600, 870, 240, 80)
         if ref and self._preview is None:
             try:
-                self._preview = sdk.ControlImage(1600, 870, 240, 80, '', aspectRatio=2)
+                self._preview = sdk.ControlImage(*rect, '', aspectRatio=2)
                 self.window.addControls([self._preview])
             except Exception:
                 self._disable()
                 return
-        if self._preview is not None and not self._assign(self._preview, self._selected, ref):
-            self._disable()
-            return
-        self._try_apply(self._control(113), 'setWidth', 1500 if ref else 1760)
+        if self._preview is not None:
+            x, y, width, height = rect
+            placed = not ref or all((self._try_apply(self._preview, 'setPosition', x, y),
+                                     self._try_apply(self._preview, 'setWidth', width),
+                                     self._try_apply(self._preview, 'setHeight', height)))
+            if not placed:
+                # Hide only the misplaced preview. The next draw retries the
+                # uncommitted setter; admitted references and logos survive.
+                hidden = self._try_apply(self._preview, 'setVisible', False)
+                cleared = self._try_apply(self._preview, 'setImage', '')
+                self._assigned.pop(self._preview, None)
+                if not hidden or not cleared:
+                    self._disable()  # Unable to prove revocation, not just a layout failure.
+                ref = None
+            elif not self._assign(self._preview, self._selected, ref):
+                self._disable()
+                return
+        self._try_apply(self._control(113), 'setWidth', 1500 if ref and not guide else 1760)
 
     def close(self):
         self._hide()
