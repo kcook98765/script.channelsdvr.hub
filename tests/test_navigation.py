@@ -502,6 +502,10 @@ class NavigationTests(unittest.TestCase):
         w = self.w
         w._series_manager = self.forbidden('Series control')
         self.enter('DVR')
+        for ident, key in ((230, 'scheduled'), (231, 'dvr_passes')):
+            self.assertEqual(w.controls[ident].properties['setVisible'], (True,))
+            self.assertEqual(w.controls[ident].properties['setEnabled'], (True,))
+            self.assertEqual(w.controls[ident].properties['setLabel'], (w.t(key),))
         self.assertEqual(w._dvr.tab, 'dvr.scheduled')
         self.action(RIGHT)
         self.assertEqual((w.getFocusId(), w._dvr.tab), (231, 'dvr.scheduled'))
@@ -511,6 +515,9 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(w._dvr.tab, 'dvr.passes')
         self.assertFalse(w._current_data().can_browse)
         self.enter('Settings')
+        for ident in TABS:
+            self.assertEqual(w.controls[ident].properties['setVisible'], (False,))
+            self.assertEqual(w.controls[ident].properties['setEnabled'], (False,))
         w._addon.openSettings.assert_not_called()
         self.click(self.hits('row')[('connection.settings',)])
         w._addon.openSettings.assert_called_once()
@@ -629,12 +636,31 @@ class NavigationTests(unittest.TestCase):
         self.pass_result(workers[0], rows)
         self.click(CONTENT)
         manager.request_dvr.assert_not_called()
+        self.assertEqual(w.controls[303].properties['setLabel'], (w.t('dvr_manage'),))
+        self.assertEqual(w.controls[306].properties['setLabel'], (w.t('refresh'),))
+        previous_right = 0
+        for ident in (300, 303, 306, 304, 305):
+            props = w.controls[ident].properties
+            x, y = props['setPosition']
+            right = (x + props['setWidth'][0]) / 3
+            self.assertLess(previous_right, x/3)
+            self.assertLessEqual(right, 640)
+            self.assertLessEqual((y+50)/3, 360)
+            previous_right = right
+        w._dvr.notice = 'dvr_series_verified'
         self.click(303)
         subject, current, finish = manager.request_dvr.call_args.args
         self.assertIs(subject, rows[0])
         self.assertTrue(current())
+        self.assertIsNone(w._dvr.notice)
+        self.click(self.hits('row')[('test-advanced',)])
+        self.assertFalse(current())
+        self.assertTrue(manager.request_dvr.call_args.kwargs['source_current']())
         finish(ManagerView('rename', error='pending'))
         w.process_pending()
+        self.assertEqual(w._dvr.notice, 'dvr_series_pending')
+        self.assertEqual(w.controls[115].properties['setLabel'], (w.t('dvr_series_pending'),))
+        self.click(self.hits('row')[('test-series',)])
         self.assertIsNone(command_label(w, 'dvr.manage'))
         self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('dvr_series_status'))
         self.click(304)
@@ -645,6 +671,26 @@ class NavigationTests(unittest.TestCase):
         self.assertFalse(current())
         self.assertFalse(status_current())
         self.assertIsNone(command_label(w, 'recording.status'))
+
+    def test_confirmed_series_success_refreshes_without_moving_the_other_selection(self):
+        workers, rows = self.connected_pass_fixture()
+        w = self.w
+        manager = Mock()
+        w._series_manager = Mock(return_value=manager)
+        self.pass_result(workers[0], rows)
+        self.click(303)
+        _, review_current, finish = manager.request_dvr.call_args.args
+        self.click(self.hits('row')[('test-advanced',)])
+        self.assertFalse(review_current())
+        finish(ManagerView('pause'))
+        w.process_pending()
+        self.assertTrue(w._current_data().loading)
+        workers[1].submit.assert_called_once_with('browse')
+        paused = rule_rows([dict(rows[0].payload(), Paused=True)])[0]
+        self.pass_result(workers[1], (paused, rows[1]))
+        self.assertEqual(w._dvr.selected().key, 'test-advanced')
+        self.assertIs(w._current_data().items[0].payload()['Paused'], True)
+        self.assertEqual(w.controls[115].properties['setLabel'], (w.t('dvr_series_verified'),))
 
     def test_pass_read_states_never_offer_controls_from_unsupported_or_old_data(self):
         workers, rows = self.connected_pass_fixture()

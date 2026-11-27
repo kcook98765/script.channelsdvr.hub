@@ -124,6 +124,8 @@ class DvrUI:
     def poll(self):
         w = self.w
         w._dispatcher.assert_owner()
+        if not self.passes and self.notice == 'dvr_series_verified':
+            self.notice = None  # Do not carry a prior success through Guide controls.
         scope = self._scope()
         changed = scope != self._frame
         if changed:
@@ -257,6 +259,13 @@ class DvrUI:
         if scope is None or (not status and row is None):
             return
         snapshot, selection = self._result, self._selection_epoch
+        source, config = scope[1:3]
+
+        def source_current():
+            w = self.w
+            session = w._live_session
+            return (session is not None and session.incarnation is source and w._guide_runtime._mode is None
+                    and w._recording_ui._current_config() == config)
 
         def current():
             return (scope == self._scope() and (status or (self._result is snapshot
@@ -267,11 +276,15 @@ class DvrUI:
                 self.notice = 'dvr_series_pending'
             elif result.error is None:
                 self.notice = 'dvr_series_verified'
+            elif self.notice == 'dvr_series_verified':
+                self.notice = None
             if result.error is None or result.error == 'stale':
                 self.refresh()
             self.w._paint_pending = True
 
-        manager.request_dvr(row, current, finished)
+        if manager.request_dvr(row, current, finished, source_current=source_current):
+            if self.notice == 'dvr_series_verified':
+                self.notice = None  # An earlier success says nothing about this request.
 
     def show(self, dialog, *, advanced=False):
         data, w = self.data(), self.w

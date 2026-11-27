@@ -1893,6 +1893,10 @@ msgctxt "#30660"
 msgid "Series storage is full (64 passes, 256 operations or status entries, 8 MiB). Changes are blocked; nothing is removed or reset."
 msgstr ""
 
+msgctxt "#30661"
+msgid "Name unchanged. No change was sent."
+msgstr ""
+
 msgctxt "#30700"
 msgid "Playback"
 msgstr ""
@@ -2178,11 +2182,11 @@ msgid "Series rule; management requires a fresh check."
 msgstr ""
 
 msgctxt "#30969"
-msgid "Series outcome unresolved. Check Series status before making another change. Do not retry."
+msgid "Series outcome unknown. Check Series status. Do not retry."
 msgstr ""
 
 msgctxt "#30970"
-msgid "Series check complete. The result was verified."
+msgid "Series result verified."
 msgstr ""
 
 msgctxt "#30971"

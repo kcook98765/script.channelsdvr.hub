@@ -82,6 +82,25 @@ class PackageTests(unittest.TestCase):
         self.assertTrue(all(n.get('type') == 'button' for n in controls if 200 <= int(n.get('id')) < 400))
         self.assertTrue(all(n.get('type') == 'textbox' for n in controls if int(n.get('id')) >= 400))
 
+    def test_dvr_tab_visibility_is_owner_managed_and_geometry_scales(self):
+        root = ET.parse(SKIN / '1080i/ChannelsDvr.xml').getroot()
+        def bounds(ident):
+            node = root.find(f'.//control[@id="{ident}"]')
+            return node, tuple(int(node.findtext(key)) / 3 for key in ('left', 'top', 'width', 'height'))
+
+        nav, (_, nav_y, _, nav_h) = bounds(203)
+        previous_right = 0
+        for ident in (230, 231):
+            node, (x, y, width, height) = bounds(ident)
+            self.assertIsNone(node.find('visible'))
+            self.assertIsNone(nav.find('visible'))
+            self.assertTrue(all(node.findtext(key) == str(ident) for key in ('onleft', 'onright', 'onup', 'ondown')))
+            self.assertLess(previous_right, x)
+            self.assertLessEqual(nav_y + nav_h, y)
+            self.assertLess(y + height, 250/3)  # row hits start at y=250 in the source grid
+            self.assertLess(x + width, 640)
+            previous_right = x + width
+
     def test_server_setting_defaults_blank(self):
         root = ET.parse(ADDON / "resources/settings.xml").getroot()
         settings = root.findall(".//setting[@id='server_origin']")

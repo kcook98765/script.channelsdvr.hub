@@ -81,6 +81,7 @@ class SeriesManagerWorker:
                     intent, self._intent = self._intent, None
                 assert intent is not None
                 operation, values = intent
+                executing = False
                 try:
                     if operation == 'browse':
                         result = self._browse()
@@ -89,16 +90,19 @@ class SeriesManagerWorker:
                     elif operation in {'list', 'status', 'details', 'prepare', 'abort'}:
                         result = getattr(commands, operation)(**values)
                     else:
+                        executing = True
                         result = commands.execute(operation, **values)
-                except ManagerError as error:
-                    code = error.code
-                    if store is not None and store.root.get('pending') is not None:
+                except Exception as error:
+                    code = error.code if isinstance(error, ManagerError) else 'schema'
+                    # finish() changes the in-memory root before saving, so the
+                    # durable burn may still exist even if root['pending'] is None.
+                    if executing and commands is not None and commands.dispatch_possible:
+                        code = 'pending'
+                    elif store is not None and store.root.get('pending') is not None and code != 'storage':
                         pending = store.root['history'][store.root['pending']]
-                        if pending['dispatched'] and code != 'storage':
+                        if pending['dispatched']:
                             code = 'pending'  # Never claim "no change sent" after dispatch.
                     result = ManagerView(operation, error=code)
-                except Exception:
-                    result = ManagerView(operation, error='schema')
                 # Mutations have fully persisted BEFORE generation/close is considered.
                 with self._condition:
                     self._busy = False

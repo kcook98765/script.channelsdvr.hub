@@ -36,8 +36,8 @@
     <control type="textbox" id="405"><left>990</left><top>705</top><width>850</width><height>230</height><font>font13</font><textcolor>FFFFFFFF</textcolor></control>
     <control type="label" id="112"><left>80</left><top>175</top><width>1760</width><height>40</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label></label></control>
     <!-- DVR-only tabs; directions and visibility are owned by WindowChrome. -->
-    <control type="button" id="230"><left>80</left><top>178</top><width>280</width><height>56</height><label></label><visible>false</visible><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>230</onleft><onright>230</onright><onup>230</onup><ondown>230</ondown></control>
-    <control type="button" id="231"><left>376</left><top>178</top><width>280</width><height>56</height><label></label><visible>false</visible><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>231</onleft><onright>231</onright><onup>231</onup><ondown>231</ondown></control>
+    <control type="button" id="230"><left>80</left><top>178</top><width>280</width><height>56</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>230</onleft><onright>230</onright><onup>230</onup><ondown>230</ondown></control>
+    <control type="button" id="231"><left>376</left><top>178</top><width>280</width><height>56</height><label></label><texturefocus>selected.png</texturefocus><texturenofocus>cell.png</texturenofocus><onleft>231</onleft><onright>231</onright><onup>231</onup><ondown>231</ondown></control>
     <!-- Dashboard-only absolute last success and separate consolidated warning. -->
     <control type="label" id="116"><left>80</left><top>215</top><width>1760</width><height>20</height><font>font10</font><textcolor>FFB6C8DB</textcolor><label></label></control>
     <control type="label" id="117"><left>80</left><top>195</top><width>1760</width><height>20</height><font>font10</font><textcolor>FFDEB560</textcolor><label></label></control>
