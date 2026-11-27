@@ -17,6 +17,7 @@ from .storage_catalog import ROWS as STORAGE_ROWS
 from .series_manager_catalog import ROWS as SERIES_ROWS
 from .playback_catalog import ROWS as PLAYBACK_ROWS
 from .dashboard_catalog import ROWS as DASHBOARD_ROWS
+from .dvr_catalog import ROWS as DVR_ROWS
 from .recordings_catalog import ROWS as RECORDINGS_ROWS
 
 _ROWS = (
@@ -50,7 +51,7 @@ _ROWS = (
     ('refresh', 30123, 'Refresh listings'),
     ('connection_status', 30124, 'Connection status'),
     ('disconnect', 30125, 'Disconnect'),
-    ('connection_settings', 30126, 'Connection settings'),
+    ('connection_settings', 30126, 'Kodi add-on preferences'),
     ('connect_first', 30127, 'Connect to your DVR first.'),
     ('configure_first', 30128, 'In Settings or Connection > Configure DVR address, set a numeric IP, then Connect. Uses HTTP port 8089; no hostnames.'),
     ('not_connected', 30129, 'Not connected'),
@@ -65,7 +66,7 @@ _ROWS = (
     ('guide_unavailable', 30139, 'Guide unavailable'),
     ('empty_update', 30140, 'No listings in the last successful update'),
     ('empty_view', 30141, '{view}: {status}'),
-    ('refresh_hint', 30142, 'Menu: Connection → Refresh listings.'),
+    ('refresh_hint', 30142, 'Settings → Refresh listings.'),
     ('demo_hint', 30143, 'Developer tools → Demo data status → Recover. OK explains this Demo state.'),
     ('search', 30144, 'Search'),
     ('recent', 30145, 'Recent recordings'),
@@ -118,7 +119,15 @@ _ROWS = (
     ('state_removed', 30192, 'Removal saved'),
     ('yes', 30193, 'Yes'),
     ('no', 30194, 'No'),
-) + OPERATION_ROWS + FINAL_ROWS + BUILD_ROWS + ARTWORK_ROWS + STORAGE_ROWS + SERIES_ROWS + PLAYBACK_ROWS + DASHBOARD_ROWS + RECORDINGS_ROWS
+    ('guide_day', 30980, 'Listing day'),
+    ('guide_no_channels', 30981, 'No channels here'),
+    ('guide_controls', 30982, 'Guide controls'),
+    ('guide_keys', 30983, 'Info: details | PgUp/PgDn: channels | Blue line: Now | {footer}'),
+    ('guide_dense_notice', 30984, 'Some listings hidden. Use arrows or change time.'),
+    ('startup_view', 30987, 'Startup view'),
+    ('startup_last', 30988, 'Last visited primary view'),
+    ('guide_ok_action', 30989, 'Guide OK action'),
+) + OPERATION_ROWS + FINAL_ROWS + BUILD_ROWS + ARTWORK_ROWS + STORAGE_ROWS + SERIES_ROWS + PLAYBACK_ROWS + DASHBOARD_ROWS + DVR_ROWS + RECORDINGS_ROWS
 IDS = MappingProxyType({key: number for key, number, _ in _ROWS})
 FALLBACK = MappingProxyType({key: value for key, _, value in _ROWS})
 RESERVED_IDS = BUILD_RESERVED_IDS | ARTWORK_RESERVED_IDS | frozenset((30103, 30104, 30105, 30134, 30498, 30703, 30710))

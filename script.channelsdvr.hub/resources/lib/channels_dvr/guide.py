@@ -117,10 +117,13 @@ class _Schedule:
         yield from visit(1, 0, self.size)
 
 
+def local_stamp(value: int, zone: tzinfo | None = None) -> datetime:
+    return (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=value)).astimezone(zone)
+
+
 def time_label(value: int, zone: tzinfo | None = None) -> str:
     """Offset is displayed so repeated DST hours are distinguishable."""
-    stamp = (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=value)).astimezone(zone)
-    return stamp.strftime("%a %d %b %H:%M %z")
+    return local_stamp(value, zone).strftime("%a %d %b %H:%M %z")
 
 
 class GuideController:
@@ -307,10 +310,17 @@ class GuideController:
         key = self.selection.channel
         index = self._rows.get(key, 0) if key is not None else 0
         index = max(0, min(index + direction, len(self.channels) - 1))
-        self._at(self.channels[index].key, self.selection.anchor)
+        if self.channels[index].key != key:
+            self._at(self.channels[index].key, self.selection.anchor)
         self.top = max(0, min(self.top, index))
         if index >= self.top + self.rows:
             self.top = index - self.rows + 1
+
+    def page(self, direction: int) -> None:
+        """Move the viewport a page, keeping the UTC anchor and screen row."""
+        top = self.top
+        self.vertical(direction * self.rows)
+        self.top = max(0, min(top + direction * self.rows, len(self.channels) - self.rows))
 
     def horizontal(self, direction: int) -> None:
         key = self.selection.channel
@@ -329,7 +339,10 @@ class GuideController:
             index = bisect_right(schedule.end_times, self.selection.anchor) - 1
             event = events[schedule.last_ended[index]] if index >= 0 else None
         if event is not None:
-            anchor = self._clamp_time(event.start)
+            # Stay in this viewport when the neighbour is already visible as
+            # a continuation, instead of scrolling to its off-screen start.
+            start = self.viewport if event.start < self.viewport < self.extent(event) else event.start
+            anchor = self._clamp_time(start)
             self.selection = Selection(key, event.id, anchor, event.start)
         else:
             self._at(key, self._clamp_time(self.selection.anchor + direction * 1800))
@@ -344,11 +357,12 @@ class GuideController:
         self.viewport = anchor - anchor % 1800
         self._reveal()
 
-    def focus_event(self, event: Event) -> bool:
+    def focus_event(self, event: Event, *, visible=False) -> bool:
         """Explicit search-to-guide selection by complete airing identity.
 
         Reject removed/filtered/out-of-horizon airings without changing position.
         In an overlap, don't re-resolve by time and accidentally choose a sibling.
+        A displayed mouse hit anchors at the visible edge of a continuing airing.
         """
         row = self._rows.get(event.channel)
         if row is None:
@@ -361,8 +375,10 @@ class GuideController:
         start, end = self.repository.horizon
         if current.start >= end or self.extent(current) <= start:
             return False
-        self.selection = Selection(current.channel, current.id,
-                                   self._clamp_time(current.start), current.start)
+        anchor = max(current.start, self.viewport) if visible else current.start
+        if visible and (anchor >= self.viewport + self.span or anchor >= self.extent(current)):
+            return False
+        self.selection = Selection(current.channel, current.id, self._clamp_time(anchor), current.start)
         self.top = max(0, min(self.top, row))
         if row >= self.top + self.rows:
             self.top = row - self.rows + 1
@@ -376,7 +392,7 @@ class GuideController:
         schedule = self._schedule(channel)
         if event_id is not None:
             index = schedule.positions.get((event_id, start))
-            return index is not None and self.focus_event(schedule.events[index])
+            return index is not None and self.focus_event(schedule.events[index], visible=True)
         anchor = self._clamp_time(start)
         if next(schedule.overlapping(anchor, anchor + 1), None) is not None:
             return False
@@ -450,7 +466,8 @@ class GuideController:
             return [], 0
         key = self.channels[index].key
         schedule = self._schedule(key)
-        left, right = self.viewport, self.viewport + self.span
+        left = self.viewport
+        right = min(left + self.span, self.repository.horizon[1])
         result: list[Cell] = []
         selected = self.selected_event() if key == self.selection.channel else None
         pin = (selected if selected is not None and selected.start < right

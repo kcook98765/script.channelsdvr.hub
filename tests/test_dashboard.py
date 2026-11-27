@@ -1313,6 +1313,7 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         w.t = lambda key, **values: text(w.strings, key, **values)
         w._render_memo = RenderMemo()
         w.pool = [(Control(), Control())]  # previously displayed listing row
+        w._guide_line = None
         w.path = ''
         w.guide = SimpleNamespace(prepared_ready=False, selection=object(), group='All')
         w.repository = SimpleNamespace(channels=())
@@ -1330,11 +1331,14 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
             None, None, 'Updated 37s ago | listing failure', '', False)
         w._guide_runtime.presentation = lambda data: data
         w._guide_runtime.poll = Mock(return_value=False)
+        w._hub_session = SimpleNamespace(poll=Mock(return_value=False), input_state=Mock(),
+                                         note_input=Mock(), cancel_startup=Mock(), startup_failed=False)
         w._artwork_ui = SimpleNamespace(poll=Mock(return_value=False), update=Mock(), draw=Mock())
         w._recording_ui = SimpleNamespace(poll=Mock(), _current_config=lambda: None)
         w._storage_ui = SimpleNamespace(poll=Mock())
         w._playback_ui.poll = Mock()
         w._series_ui = None
+        w._dvr = SimpleNamespace(poll=lambda: False, passes=False)
         w._large_exercise = None
         w._dispatcher = UiDispatcher()
         w.initialized = True
@@ -1553,11 +1557,13 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         w._dispatcher = UiDispatcher()
         w._revoke_demo = Mock()
         w._guide_runtime.poll = Mock(return_value=False)
+        w._hub_session = SimpleNamespace(poll=Mock(return_value=False))
         w._artwork_ui = SimpleNamespace(poll=Mock(return_value=False))
         w._recording_ui = SimpleNamespace(poll=Mock())
         w._storage_ui = SimpleNamespace(poll=Mock())
         w._playback_ui.poll = Mock()
         w._series_ui = SimpleNamespace(poll=Mock())
+        w._dvr = SimpleNamespace(poll=Mock(return_value=False))
         w._large_exercise = None
         w.initialized = True
         w._paint_pending = False
@@ -1580,8 +1586,8 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         self.assertEqual(w.focus_calls, [])
         self.assertIs(w.selection, selection)
         self.assertTrue(activation.matches(w._chrome.capture(201)))
-        for coordinator in (w._guide_runtime, w._artwork_ui, w._recording_ui, w._storage_ui,
-                            w._playback_ui, w._series_ui):
+        for coordinator in (w._guide_runtime, w._hub_session, w._artwork_ui, w._recording_ui, w._storage_ui,
+                            w._playback_ui, w._series_ui, w._dvr):
             self.assertEqual(coordinator.poll.call_count, 3)
 
 

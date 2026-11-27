@@ -112,8 +112,10 @@ class PlaybackUI:
         self.window._dispatcher.assert_owner()
         return 'play_live' if self.window.view in ('Guide', 'Search') else 'play_recording'
 
-    def request(self, gui):
+    def request(self, gui, *, eligible=None):
         self.cancel()  # a new explicit command always revokes earlier one-use consent
+        if eligible is not None and not eligible():
+            return
         selection = self.selection()
         if selection is None:
             gui.Dialog().ok(self.window.t('playback'), self.window.t('play_read_hint_required'))
@@ -124,7 +126,7 @@ class PlaybackUI:
         token = str(uuid4())
         # Include current view + exact snapshot lease; refresh/view changes revoke.
         context = (self.window.view, self.window._current_data().items,
-                   self.window._dispatcher.capture_playback_input())
+                   self.window._dispatcher.capture_playback_input(), eligible)
         if self.worker.submit(selection, token):
             self._pending = (selection, token, context)
             self.state = 'preparing'
@@ -149,7 +151,8 @@ class PlaybackUI:
         return (current == selection
                 and self.window._dispatcher.playback_input_current(context[2])
                 and self.window.view == context[0]
-                and self.window._current_data().items is context[1])
+                and self.window._current_data().items is context[1]
+                and (context[3] is None or context[3]()))
 
     def _consent_matches(self, consent, pending):
         return (type(consent) is _LiveConsent and pending is not None

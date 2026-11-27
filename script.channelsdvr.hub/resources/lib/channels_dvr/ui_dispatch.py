@@ -69,6 +69,32 @@ class UiDispatcher:
         with self._lock:
             self._input_epoch += 1
 
+    def startup_idle(self) -> bool:
+        """Already-posted input gets a turn before a delayed startup redirect."""
+        self.assert_owner()
+        with self._lock:
+            return self._startup_idle()
+
+    def _startup_idle(self) -> bool:
+        return not (self._closed or self._commands or self._dispatch_pending or self._modal_depth)
+
+    @contextmanager
+    def startup_transition(self):
+        """Claim a quiet transition atomically; never run SDK code under the lock."""
+        self.assert_owner()
+        with self._lock:
+            claimed = self._startup_idle()
+            if claimed:
+                self._input_epoch += 1
+                self._modal_depth += 1
+        try:
+            yield claimed
+        finally:
+            if claimed:
+                with self._lock:
+                    self._modal_depth -= 1
+                    self._input_epoch += 1
+
     @contextmanager
     def modal_input(self):
         self.assert_owner()

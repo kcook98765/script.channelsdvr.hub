@@ -88,11 +88,45 @@ class PackageTests(unittest.TestCase):
         controls = root.findall(".//control[@id]")
         ids = [int(n.get("id")) for n in controls]
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(set(ids), {100, 110, 112, 113, 114, 115, 116, 117, *range(120, 126), *range(140, 144),
-                                   *range(200, 206), *range(220, 225), *range(300, 311),
-                                   320, 321, 322, *range(400, 406)})
+        self.assertEqual(set(ids), {100, 110, 112, 113, 114, 115, 116, 117, *range(120, 132), *range(140, 144),
+                                    *range(150, 156), *range(200, 206), *range(220, 225), 230, 231,
+                                    *range(300, 311), *range(320, 323), *range(400, 406)})
         self.assertTrue(all(n.get('type') == 'button' for n in controls if 200 <= int(n.get('id')) < 400))
         self.assertTrue(all(n.get('type') == 'textbox' for n in controls if int(n.get('id')) >= 400))
+
+    def test_dvr_tab_visibility_is_owner_managed_and_geometry_scales(self):
+        root = ET.parse(SKIN / '1080i/ChannelsDvr.xml').getroot()
+        def bounds(ident):
+            node = root.find(f'.//control[@id="{ident}"]')
+            return node, tuple(int(node.findtext(key)) / 3 for key in ('left', 'top', 'width', 'height'))
+
+        nav, (_, nav_y, _, nav_h) = bounds(203)
+        previous_right = 0
+        for ident in (230, 231):
+            node, (x, y, width, height) = bounds(ident)
+            self.assertIsNone(node.find('visible'))
+            self.assertIsNone(nav.find('visible'))
+            self.assertTrue(all(node.findtext(key) == str(ident) for key in ('onleft', 'onright', 'onup', 'ondown')))
+            self.assertLess(previous_right, x)
+            self.assertLessEqual(nav_y + nav_h, y)
+            self.assertLess(y + height, 250/3)  # row hits start at y=250 in the source grid
+            self.assertLess(x + width, 640)
+            previous_right = x + width
+
+    def test_guide_skin_positions_share_the_presenter_coordinates(self):
+        from channels_dvr.guide_render import GRID_LEFT, GRID_WIDTH, ROW_PITCH, ROW_TOP
+        root = ET.parse(SKIN / '1080i/ChannelsDvr.xml').getroot()
+        controls = {int(n.get('id')): n for n in root.findall('.//control[@id]')}
+        self.assertEqual(controls[152].get('type'), 'textbox')
+        self.assertEqual(controls[154].get('type'), 'image')
+        self.assertEqual(controls[155].get('type'), 'image')
+        # Static cap ends exactly where the foreground owner-drawn line begins.
+        self.assertEqual(int(controls[154].findtext('top')) + int(controls[154].findtext('height')), ROW_TOP)
+        for tick in range(4):
+            self.assertEqual(int(controls[140 + tick].findtext('left')), GRID_LEFT + tick * GRID_WIDTH // 4)
+        for row in range(6):
+            self.assertEqual(int(controls[120 + row].findtext('top')), ROW_TOP + row * ROW_PITCH + 9)
+            self.assertEqual(int(controls[126 + row].findtext('top')), ROW_TOP + row * ROW_PITCH + 43)
 
     def test_server_setting_defaults_blank(self):
         root = ET.parse(ADDON / "resources/settings.xml").getroot()
@@ -105,6 +139,22 @@ class PackageTests(unittest.TestCase):
         # Kodi21 CSettingString rejects an empty default unless explicitly
         # permitted; an unregistered setting then raises Invalid setting type.
         self.assertEqual(settings[0].findtext("constraints/allowempty"), "true")
+
+    def test_hub_choices_are_closed_and_safe_by_default(self):
+        from channels_dvr.ui_text import IDS
+        root = ET.parse(ADDON / 'resources/settings.xml').getroot()
+        for key, default, values in (
+            ('hub_startup_view', 'Dashboard', (('dashboard', 'Dashboard'), ('guide', 'Guide'),
+                ('recordings', 'Recordings'), ('dvr_view', 'DVR'), ('startup_last', 'Last'))),
+            ('hub_guide_ok', 'details', (('details', 'details'), ('watch_short', 'live'))),
+        ):
+            with self.subTest(setting=key):
+                node = root.find(f".//category[@id='hub']//setting[@id='{key}']")
+                self.assertIsNotNone(node)
+                self.assertEqual(node.get('type'), 'string')
+                self.assertEqual(node.findtext('default'), default)
+                self.assertEqual([(n.get('label'), n.text) for n in node.findall('constraints/options/option')],
+                                 [(str(IDS[label]), value) for label, value in values])
 
     def test_development_metadata_optin_is_false_and_build_pin_is_explicit(self):
         root = ET.parse(ADDON / "resources/settings.xml").getroot()

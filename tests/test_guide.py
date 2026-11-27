@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 
 from channels_dvr.browser import library_rows, recording_row, scheduled_rows
 from channels_dvr.guide import GuideController, Selection, time_label
+from channels_dvr.guide_render import GRID_LEFT, GRID_WIDTH, ROW_TOP
+from channels_dvr.guide_screen import cell_rect, day_choices, now_position, time_axis, timeline_x
 from channels_dvr.models import Channel, ChannelKey, Event, Recording
 from channels_dvr.repository import MockRepository
 from channels_dvr.requests import LatestRequest
@@ -417,6 +419,89 @@ class GuideTests(unittest.TestCase):
         self.guide.jump(3600)
         self.assertEqual(self.guide.selection.event_id, "b")
         self.assertNotIn("a", [c.event_id for c in self.guide.cells()])
+
+    def test_axis_hits_and_now_share_clipped_utc_edges(self):
+        key = self.repo.channels[0].key
+        left = 3600
+        self.repo.events = (Event('before', key, 0, left + 900, 'Continues'),
+                            Event('short', key, left + 900, left + 905, 'Five seconds'),
+                            Event('long', key, left + 905, left + 2705, 'Thirty minutes'),
+                            Event('after', key, left + 5400, left + 9000, 'Continues'))
+        self.guide.jump(left)
+        cells = {cell.event_id: cell for cell in self.guide.cells(0) if cell.channel == key}
+        rect = lambda key: cell_rect(cells[key], left, self.guide.span, False)
+        self.assertEqual(rect('before'), (GRID_LEFT, ROW_TOP, 178, 73))
+        self.assertEqual(rect('short'), (GRID_LEFT + 180, ROW_TOP, 1, 73))
+        self.assertEqual(rect('long'), (GRID_LEFT + 181, ROW_TOP, 358, 73))
+        self.assertEqual(rect('after'), (GRID_LEFT + 1080, ROW_TOP, 358, 73))
+        self.assertTrue(cells['before'].continues_left and cells['after'].continues_right)
+        self.assertEqual(rect('short')[0], now_position(left + 900, left, self.guide.span))
+        self.assertEqual(now_position(left, left, self.guide.span), GRID_LEFT)
+        self.assertEqual(now_position(left + self.guide.span - 1, left, self.guide.span), GRID_LEFT + GRID_WIDTH - 1)
+        for outside in (left - 1, left + self.guide.span):
+            self.assertIsNone(now_position(outside, left, self.guide.span))
+
+    def test_short_horizon_never_draws_invented_gap_coverage(self):
+        repo = repository(count=1, now=100)
+        key = repo.channels[0].key
+        repo.horizon = (100, 1900)
+        repo.events = (Event('long', key, 1000, 3000, 'Beyond retained horizon'),)
+        guide = GuideController(repo)
+        guide.refresh()
+        gap, event = guide.cells(0)
+        self.assertEqual((gap.start, gap.end), (100, 1000))
+        self.assertEqual(event.width, 900 / guide.span)
+        x, _, width, _ = cell_rect(event, guide.viewport, guide.span, False, horizon_end=1900)
+        self.assertLessEqual(x + width, timeline_x(1900, guide.viewport, guide.span))
+
+    def test_channel_page_preserves_anchor_and_screen_row_until_the_edge(self):
+        repo = repository(count=20)
+        guide = GuideController(repo)
+        guide.vertical(2)
+        bookmark = guide.bookmark()
+        for direction, top, row in ((1, 6, 8), (1, 12, 14), (1, 14, 19), (1, 14, 19)):
+            guide.page(direction)
+            self.assertEqual((guide.top, guide.selection.channel), (top, repo.channels[row].key))
+            self.assertEqual((guide.selection.anchor, guide.viewport), (bookmark[1].anchor, bookmark[3]))
+        guide.restore_bookmark(bookmark)
+        self.assertEqual(guide.bookmark(), bookmark)
+
+    def test_clicking_continuation_keeps_the_visible_time_and_exact_source(self):
+        self.guide.jump(5400)
+        target = self.repo.events[1]
+        self.assertTrue(self.guide.focus_cell(target.channel, target.id, target.start))
+        self.assertEqual(self.guide.selected_event(), target)
+        self.assertEqual(self.guide.selection.anchor, 5400)
+        self.assertEqual(self.guide.viewport, 5400)
+        self.assertTrue(self.guide.focus_event(target))  # Search reveal still opens the start.
+        self.assertEqual(self.guide.selection.anchor, target.start)
+
+    def test_left_selects_visible_continuation_without_panning_offscreen(self):
+        key = self.repo.channels[0].key
+        long = Event('older', key, 0, 7200, 'Continuing from earlier')
+        later = Event('later', key, 4400, 5000, 'Later overlapping airing')
+        self.repo.events = (long, later)
+        self.guide.jump(4500)
+        self.assertEqual(self.guide.selected_event(), later)
+        self.guide.horizontal(-1)
+        self.assertEqual(self.guide.selected_event(), long)
+        self.assertEqual((self.guide.selection.anchor, self.guide.viewport), (3600, 3600))
+
+    def test_day_choices_and_axis_preserve_dst_fold_and_skip_missing_hour(self):
+        zone = ZoneInfo('America/Los_Angeles')
+        fold = int(datetime(2026, 11, 1, 7, tzinfo=timezone.utc).timestamp())
+        spring = int(datetime(2026, 3, 8, 8, tzinfo=timezone.utc).timestamp())
+        days = day_choices(fold - 7, fold + 5 * 3600, zone)
+        self.assertEqual([day.isoformat() for day, _, _ in days], ['2026-10-31', '2026-11-01'])
+        self.assertEqual(days[0][2], (fold - 7,))
+        self.assertEqual(days[1][2], tuple(range(fold, fold + 5 * 3600, 1800)))
+        axis = time_axis(fold + 3600, 7200, zone)
+        self.assertEqual(axis, tuple(zip(range(GRID_LEFT, GRID_LEFT + GRID_WIDTH, 360),
+                                        ('01:00 -0700', '01:30 -0700', '01:00 -0800', '01:30 -0800'))))
+        spring_slots = day_choices(spring, spring + 5 * 3600, zone)[0][2]
+        self.assertFalse(any(' 02:' in time_label(slot, zone) for slot in spring_slots))
+        self.assertIn('03:00 -0700', time_label(spring + 2 * 3600, zone))
+        self.assertLessEqual(sum(len(slots) for _, _, slots in day_choices(1, 10**8, timezone.utc)), 145)
 
     def test_dst_fold_spring_forward_and_local_midnight(self):
         zone = ZoneInfo("America/Los_Angeles")

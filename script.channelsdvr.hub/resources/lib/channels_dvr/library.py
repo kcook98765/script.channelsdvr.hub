@@ -399,6 +399,30 @@ class LibraryBrowser:
         self._load()
         return True
 
+    def restore_recording_selection(self, identity: tuple[str, str, str]) -> bool:
+        """Select one exact current leaf, not a saved folder, label or offset."""
+        if self._mode == 'Search':
+            return False
+        candidate = repr(identity)
+        context = self._context()
+
+        def matches(rows: tuple[Row, ...], path: _Path) -> Iterable[tuple[_Path, int]]:
+            for index, row in enumerate(rows):
+                if row.children:
+                    yield from matches(row.children, path + (row.id,))
+                elif row.id == candidate:
+                    yield path, index
+
+        found = iter(matches(self._root(context)[0], ()))
+        first = next(found, None)
+        if first is None or next(found, None) is not None:
+            return False
+        path, index = first
+        self._paths[context] = path
+        self._load()
+        self.move(index - self._position)
+        return True
+
     def set_query(self, query: str) -> None:
         normalized = normalize_query(query)
         self._remember()

@@ -48,10 +48,13 @@ def presentation_scope(w):
     return getattr(getattr(w, '_chrome', None), 'layout', None)
 
 
-def enter(w, target, *, guide_return=None, search_return=None, returning=False):
+def enter(w, target, *, guide_return=None, search_return=None, returning=False, automatic=False):
     w._dispatcher.assert_owner()
     if w._closed:
         return
+    hub = getattr(w, '_hub_session', None)
+    if not automatic and hub is not None:
+        hub.cancel_startup()
     old = w._route
     route = Route(target, 'Search' if guide_return is not None else None)
     if old == route and target == 'Dashboard':
