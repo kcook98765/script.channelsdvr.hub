@@ -6,12 +6,13 @@ from .browser import Row, recording_key, recording_row, scheduled_row
 from .dvr_ui import PassRows
 from .guide import time_label
 from .guide_projection import ChannelProjection
+from .models import Job, Recording
 from .normalization import DataState
 from .pass_browser import display_text
 from .search import MAX_SEARCH_CHANNELS, ProgrammeSearchIndex, airing_key, normalize_query
 from .search_projection import (MAX_LISTING_RECORDS, GuideScope, GuideSnapshot, Listing,
                                 ListingCoverage, PassEntry, PassId, ProgrammeId, RecordingId,
-                                ScheduledId, SearchCategory, project_search)
+                                ScheduledId, SearchCategory, SearchHit, project_search)
 from .ui_menu import command, group_label, select
 from .ui_modal import dialog_for, modal_input
 from .ui_routes import SearchReturn, enter, route_fence
@@ -52,8 +53,8 @@ class SearchUI:
     def invalidate(self):
         self._key = None
         self._page = None
-        self._hits = ()
-        self._rows = ()
+        self._hits: tuple[SearchHit, ...] = ()
+        self._rows: tuple[Row, ...] = ()
         self._empty = {}
         self.publication = object()
 
@@ -143,8 +144,11 @@ class SearchUI:
             return self._page
         pending = w._guide_runtime._mode
         loading = pending is not None and pending[0] == 'live' and pending[1] is not None
-        missing = Listing(coverage=ListingCoverage(loading=loading, unavailable=not loading))
-        listing_guide = listing_recordings = listing_jobs = listing_passes = missing
+        missing = ListingCoverage(loading=loading, unavailable=not loading)
+        listing_guide: Listing[GuideSnapshot] = Listing(coverage=missing)
+        listing_recordings: Listing[tuple[Recording, ...]] = Listing(coverage=missing)
+        listing_jobs: Listing[tuple[Job, ...]] = Listing(coverage=missing)
+        listing_passes: Listing[tuple[PassEntry, ...]] = Listing(coverage=missing)
         if admitted is not None:
             listing_guide = self._guide(guide)
             # Demo snapshots can change without visiting the Recordings route.
@@ -163,12 +167,16 @@ class SearchUI:
         page = project_search(w.search_query, source=str(self._serial), category=self.category,
                               guide=listing_guide, recordings=listing_recordings,
                               scheduled=listing_jobs, passes=listing_passes)
-        snapshots = {SearchCategory.GUIDE: listing_guide, SearchCategory.RECORDINGS: listing_recordings,
-                     SearchCategory.SCHEDULED: listing_jobs, SearchCategory.PASSES: listing_passes}
+        snapshots: dict[SearchCategory, GuideSnapshot | tuple[Recording | Job | PassEntry, ...] | None] = {
+            SearchCategory.GUIDE: listing_guide.snapshot,
+            SearchCategory.RECORDINGS: listing_recordings.snapshot,
+            SearchCategory.SCHEDULED: listing_jobs.snapshot,
+            SearchCategory.PASSES: listing_passes.snapshot,
+        }
         empty = {}
         rows, hits = [], []
         for group in page.groups:
-            snapshot = snapshots[group.category].snapshot
+            snapshot = snapshots[group.category]
             empty[group.category] = (snapshot == () or
                 (isinstance(snapshot, GuideSnapshot) and (not snapshot.scope.channels or not w._search_snapshot)))
             for hit in group.hits:
@@ -287,19 +295,19 @@ class SearchUI:
             return None
         if isinstance(identity, ProgrammeId):
             product = w.guide.current_product
-            key = identity.channel, identity.event_id, identity.start
+            airing_lookup = identity.channel, identity.event_id, identity.start
             if product is not None:
                 schedule = product.schedules.get(identity.channel)
-                index = schedule.positions.get(key[1:]) if schedule is not None else None
+                index = schedule.positions.get(airing_lookup[1:]) if schedule is not None else None
                 event = schedule.events[index] if schedule is not None and index is not None else None
             else:
                 records = w._search_index.retirement_records if w._search_index is not None else ()
-                event = next((event for event, _ in records if airing_key(event) == key), None)
+                event = next((event for event, _ in records if airing_key(event) == airing_lookup), None)
             return w.selected_indexed_event(event) if event is not None else None
         if isinstance(identity, RecordingId):
             records = self._records(admitted.recordings()) or ()
-            key = identity.namespace, identity.provenance, identity.recording_id
-            return next((r for r in islice(records, MAX_LISTING_RECORDS) if recording_key(r) == key), None)
+            recording_lookup = identity.namespace, identity.provenance, identity.recording_id
+            return next((r for r in islice(records, MAX_LISTING_RECORDS) if recording_key(r) == recording_lookup), None)
         if isinstance(identity, ScheduledId):
             return next((j for j in islice(admitted.jobs().items, MAX_LISTING_RECORDS) if j.id == identity.job_id), None)
         return next((r for r in islice(w._dvr.search_data().items, MAX_LISTING_RECORDS) if r.key == identity.pass_id), None)
