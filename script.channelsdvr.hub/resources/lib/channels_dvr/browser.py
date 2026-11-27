@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from .guide import time_label
-from .models import Recording, recording_duration
+from .models import Event, Job, Recording, recording_duration
 from .repository import MockRepository, job_match, recording_groups
 from .guide_projection import ChannelProjection
 from .ui_text import FALLBACK, text
@@ -75,25 +75,29 @@ def library_rows(repository: MockRepository, mode: str, strings=FALLBACK) -> tup
                  for group in recording_groups(repository.recordings))
 
 
-def scheduled_rows(repository: MockRepository, strings=FALLBACK, *, demo=False) -> tuple[Row, ...]:
-    result = []
+def scheduled_rows(repository: MockRepository, strings=FALLBACK, *, demo=False,
+                   jobs: tuple[Job, ...] | None = None) -> tuple[Row, ...]:
     projection = ChannelProjection(strings).update(repository.channels)
-    for job in repository.jobs:
-        match = job_match(job, repository.events)
-        channels = ', '.join(text(strings, 'scheduled_candidate', source=projection.source_label(key),
-            channel=(f'{projection.by_key[key].number} {projection.by_key[key].name}'
-                     if key in projection.by_key else text(strings, 'channel_unavailable')))
-            for key in job.candidates)
-        channel_detail = (text(strings, 'scheduled_candidates', channels=channels) if job.candidates
-                          else text(strings, 'scheduled_source_unknown'))
-        if job.padding_known:
-            padding = text(strings, 'scheduled_padding', before=job.padding_before, after=job.padding_after,
-                           start=time_label(job.start - job.padding_before), end=time_label(job.end + job.padding_after))
-        else:
-            padding = text(strings, 'scheduled_padding_unknown')
-        status = text(strings, 'match_' + match.status.value)
-        result.append(Row(job.id, text(strings, 'scheduled_row', title=job.title, match=status),
-            text(strings, 'scheduled_detail', start=time_label(job.start), end=time_label(job.end),
-                 padding=padding, channels=channel_detail, match=status,
-                 policy=text(strings, 'scheduled_demo_policy' if demo else 'scheduled_policy'))))
-    return tuple(result)
+    return tuple(scheduled_row(job, repository.events, projection, strings, demo=demo)
+                 for job in (repository.jobs if jobs is None else jobs))
+
+
+def scheduled_row(job: Job, events: tuple[Event, ...], projection: ChannelProjection,
+                  strings=FALLBACK, *, demo=False) -> Row:
+    match = job_match(job, events)
+    channels = ', '.join(text(strings, 'scheduled_candidate', source=projection.source_label(key),
+        channel=(f'{projection.by_key[key].number} {projection.by_key[key].name}'
+                 if key in projection.by_key else text(strings, 'channel_unavailable')))
+        for key in job.candidates)
+    channel_detail = (text(strings, 'scheduled_candidates', channels=channels) if job.candidates
+                      else text(strings, 'scheduled_source_unknown'))
+    if job.padding_known:
+        padding = text(strings, 'scheduled_padding', before=job.padding_before, after=job.padding_after,
+                       start=time_label(job.start - job.padding_before), end=time_label(job.end + job.padding_after))
+    else:
+        padding = text(strings, 'scheduled_padding_unknown')
+    status = text(strings, 'match_' + match.status.value)
+    return Row(job.id, text(strings, 'scheduled_row', title=job.title, match=status),
+        text(strings, 'scheduled_detail', start=time_label(job.start), end=time_label(job.end),
+             padding=padding, channels=channel_detail, match=status,
+             policy=text(strings, 'scheduled_demo_policy' if demo else 'scheduled_policy')))

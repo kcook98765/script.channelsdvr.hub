@@ -9,21 +9,22 @@ from .ui_hits import ContentHits
 from .ui_navigation import DESTINATIONS, SELECTION_COMMANDS, command_label, execute_command
 from .ui_recordings import ACTION_SLOTS as RECORDINGS_ACTIONS, SOURCE, TABS as RECORDINGS_TABS, TOOLS
 from .ui_recordings import active_tab as recordings_active_tab
+from .ui_search import TABS as SEARCH_TABS
 
 CONTENT = 100
 NAV = dict(zip(range(200, 206), DESTINATIONS))
 TABS = {**RECORDINGS_TABS, **{ident: code for ident, (code, _) in DVR_TABS.items()}}
 ACTIONS = {
     300: ('selection.open',), 301: ('playback.play',),
-    302: ('recording.schedule', 'search.guide'), 303: ('series.manager',),
+    302: ('recording.schedule', 'search.reveal'), 303: ('series.manager',),
     304: ('window.actions',), 305: ('window.back',),
-    306: ('search.programmes',), 307: ('search.clear',),
+    306: ('search.query',), 307: ('search.clear',),
     308: ('connection.configure',), 309: ('connection.connect',), 310: ('dashboard.refresh',),
     **TOOLS,
 }
 VIEW_ACTIONS = {('Guide', 306): ('guide.collection',), ('Guide', 307): ('guide.time',),
                 ('Guide', 308): ('guide.now',), ('DVR', 303): ('dvr.manage',),
-                ('DVR', 306): ('dvr.refresh',)}
+                ('DVR', 306): ('dvr.refresh',), ('Search', 304): ('search.coverage',)}
 # Kodi Omega ActionIDs; Select is delivered by native onClick (including mouse).
 LEFT, RIGHT, UP, DOWN, PAGE_UP, PAGE_DOWN = 1, 2, 3, 4, 5, 6
 BACK, INFO, NAV_BACK, CONTEXT = 10, 11, 92, 117
@@ -80,6 +81,9 @@ class WindowChrome:
                 w._development_blocked, w._guide_runtime._mode)
         if w.view == 'Recordings':
             scope += (w.library.navigation_scope,)
+        elif w.view == 'Search':
+            scope += (w._search_ui.category, w.search_query, w._guide_runtime.revision,
+                      getattr(session, '_generation', None), getattr(w.data_session, '_revision', None))
         return scope
 
     def _activation(self, ident, code, label, target=None):
@@ -91,6 +95,11 @@ class WindowChrome:
             if w.view == 'Settings' and (code in SELECTION_COMMANDS or code == 'selection.anchor'):
                 scope += (w.positions.get('Settings', 0),)
             return ButtonActivation(ident, code, label, scope, target=target)
+        if w.view == 'Search':
+            w._search_ui.page()
+            if target is None:
+                scope += (w.search_selection,)
+            return ButtonActivation(ident, code, label, scope, (w._search_ui.publication,), target=target)
         data = w._current_data()
         if w.view == 'DVR' and w._dvr.passes:
             if target is None:
@@ -102,11 +111,9 @@ class WindowChrome:
                 scope += (row.id if row else None,)
             elif w.view == 'Guide':
                 scope += (w.guide.selection, w.guide.group)
-            elif w.view == 'Search':
-                scope += (w.search_selection, w.search_query, w.guide.group)
             else:
                 scope += (w._dvr_selected,)
-        product = getattr(w.guide, 'current_product', None) if w.view in ('Guide', 'Search') else None
+        product = getattr(w.guide, 'current_product', None) if w.view == 'Guide' else None
         snapshot = (id(data.items), data.updated_at, data.can_browse, data.loading, w._guide_runtime.revision,
                     product.source.ticket if product is not None else None,
                     session._generation if session is not None else None,
@@ -176,6 +183,8 @@ class WindowChrome:
             return next((ident for ident, (code, _) in DVR_TABS.items() if code == self.w._dvr.tab), None)
         if self.w.view == 'Recordings':
             return recordings_active_tab(self.w)
+        if self.w.view == 'Search':
+            return self.w._search_ui.active_tab()
         return None
 
     def initialize_focus(self, preferred=None):
@@ -191,14 +200,15 @@ class WindowChrome:
         w = self.w
         visible = {ident: (code, label) for ident, code in NAV.items() if w.view != 'Guide'
                    if (label := command_label(w, code)) is not None}
-        visible.update({ident: (code, label) for ident, code in TABS.items()
+        tabs = SEARCH_TABS if w.view == 'Search' else TABS
+        visible.update({ident: (code, label) for ident, code in tabs.items()
                         if (label := command_label(w, code)) is not None})
         slots = {
             'Dashboard': (304, 305, 308, 309, 310),
             'Guide': (306, 307, 308, 300, 304, 305),
             'Recordings': RECORDINGS_ACTIONS,
             'DVR': (300, 303, 306, 304, 305),
-            'Search': (306, 307, 300, 302, 304, 305),
+            'Search': (306, 307, 300, 302, 301, 304, 305),
             'Settings': (300, 304, 305),
         }[w.view]
         for ident in slots:
@@ -250,6 +260,10 @@ class WindowChrome:
         state = {ident: self._activation(ident, *entry) for ident, entry in available.items()}
         if (label := command_label(w, 'selection.activate')) is not None:
             state[CONTENT] = self._activation(CONTENT, 'selection.activate', label)
+        elif w.view == 'Search' and w._rows():
+            # Stale rows remain focusable and pageable. This command is not
+            # registered for dispatch, even if the row later becomes current.
+            state[CONTENT] = self._activation(CONTENT, 'selection.focus', '')
         anchor = self._activation(0, 'selection.anchor', '')
         # Withdraw before SDK removals; do not let an old ID resolve to a new row.
         self.presented = MappingProxyType(dict(state))
@@ -287,7 +301,7 @@ class WindowChrome:
         if action in (BACK, NAV_BACK):
             return execute_command(self.w, gui, 'window.back')
         focus = self.focus()
-        if action in (WHEEL_UP, WHEEL_DOWN) and self.w.view in ('Guide', 'Recordings'):
+        if action in (WHEEL_UP, WHEEL_DOWN) and self.w.view in ('Guide', 'Recordings', 'Search'):
             # Scroll content, not the focus rail. Continued wheel travel can
             # outlive the hovered hit control when a viewport is repainted.
             if CONTENT in self.presented and focus in (CONTENT, None):

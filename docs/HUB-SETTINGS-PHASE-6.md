@@ -9,16 +9,18 @@
 
 Do not expose the live choice or wire Guide OK to Watch until #17 is accepted. If enabled then, require a fresh, positive, non-stale accepted Guide publication, the exact current source and primary Guide airing, and a known end time with `start <= now < end`. Recheck those facts before preparation, on confirmation and again at the native handoff; do not copy the looser age policy of the separate explicit Watch command. Keep the existing one-use confirmation and fresh playback descriptor checks. Any failed or expired OK eligibility falls back to Details before preparation, or cancels an in-flight request; never substitute a different airing or channel. Keep the fresh and expired listing regressions when reintroducing the option.
 
-## Unified Search handoff
+## Unified Search bookmarks
 
-Keep `recent_terms` in the v1 schema. Load it only for the matching binding into the unified Search history display (no restored active query, initial search, result row, airing time, or draft). When the user explicitly submits a valid term, merge that term into the current source's newest-first list using the codec's bounds and deduplication. Route it through the same owner-side overlay and serialized store submission; drop stale source/session receipts. Do not capture Settings inputs, cancelled edits or legacy Search state. This slice deliberately does not add that Search mapping.
+The Search input chooser offers recent terms only for the currently admitted source. Choosing a recent term prefills the stock Search input; cancelling that input does nothing. An explicit valid submission searches the current category and updates the bounded, newest-first `recent_terms` through the existing serialized bookmark worker. The chooser revalidates the source after modal return. Demo and disconnected inputs are not saved, and restore never fills the active query, changes tabs, runs a search, or writes a bookmark. Result IDs, airing times and drafts stay out of the profile.
+
+The Settings preferences row still uses the stock Kodi add-on settings dialog. The fake regression checks dispatch, input fencing and parent focus on return. Native Omega dialog visibility and focus remain a separate checkpoint.
 
 ## Independent gates
 
 From the worktree root, the focused offline cohort is:
 
 ```sh
-PYTHONPATH=script.channelsdvr.hub/resources/lib:tests python3 -B -m unittest test_navigation test_connection_config test_bookmark_storage test_dashboard test_package test_native_playback -v
+PYTHONPATH=script.channelsdvr.hub/resources/lib:tests python3 -B -m unittest test_navigation test_search test_connection_config test_bookmark_storage test_dashboard test_package test_native_playback -v
 ```
 
 Run the matching Omega Toolkit static lane separately. The fake cohort is not native UI/playback or physical-storage qualification.

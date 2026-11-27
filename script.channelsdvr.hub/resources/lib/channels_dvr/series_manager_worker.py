@@ -55,6 +55,10 @@ class SeriesManagerWorker:
                 self._ticket.finish()
             self._condition.notify_all()  # No join, SQL or HTTP on owner.
 
+    def _admit_dispatch(self):
+        with self._condition:
+            return not self._closed
+
     @property
     def finished(self):
         """Owner observation after close; never wait for the thread."""
@@ -69,7 +73,8 @@ class SeriesManagerWorker:
                 binding = profile_binding(self.config.origin, self.config.namespace, self.config.expected_version)
                 store = self._store_factory(self._profile, binding)
                 store.open()
-                commands = SeriesManagerCommands(self.config, store, self._client_factory)
+                commands = SeriesManagerCommands(self.config, store, self._client_factory,
+                                                 admit_dispatch=self._admit_dispatch)
             except Exception:
                 failed = True
         try:
@@ -126,4 +131,4 @@ class SeriesManagerWorker:
         with self._condition:
             need(not self._closed, 'closed')
         need(client.verify_status() == actual, 'source')
-        return ManagerView('browse', rows=rows, observed_at=int(time.time()))
+        return ManagerView('browse', rows=rows, observed_at=int(time.time()), browse_version=actual)

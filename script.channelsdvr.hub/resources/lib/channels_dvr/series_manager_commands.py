@@ -26,9 +26,10 @@ class Review:
 
 
 class SeriesManagerCommands:
-    def __init__(self, config, store, client_factory, *, clock=time.time):
+    def __init__(self, config, store, client_factory, *, clock=time.time, admit_dispatch=None):
         self.config, self.store, self._factory, self._clock = config, store, client_factory, clock
         self._review: Review | None = None
+        self._admit_dispatch = admit_dispatch
         self.dispatch_possible = False  # Ephemeral per execute; the durable gate stays in the store.
 
     def _client(self):
@@ -54,8 +55,15 @@ class SeriesManagerCommands:
 
     def status(self):
         self._review = None
+        pending = self.store.root.get('pending')
+        entry = self.store.root['history'][pending] if pending is not None else None
         disposition = self.store.reconcile(self.config, self._factory)
-        return ManagerView('status', error=None if disposition == 'clear' else 'pending')
+        if disposition != 'clear':
+            return ManagerView('status', error='pending')
+        # Only this exact read-only successor can clear the captured entry.
+        if entry is not None and self.store.root['pending'] is None and entry['operation'] != 'adopt':
+            return ManagerView('status', status_outcome='verified' if entry['dispatched'] else 'unsent')
+        return ManagerView('status')
 
     def _fresh(self, client, key):
         rows = rule_rows(client.rules())
@@ -218,9 +226,14 @@ class SeriesManagerCommands:
         need(self._status(client) == actual, 'source')
         need(0 <= self._clock() - review.at <= TTL, 'expired')
         self.dispatch_possible = True
-        proof = self.store.dispatch()
-        need(0 <= self._clock() - review.at <= TTL, 'expired')
-        reply = client.mutate(proof, capture=self.store.capture)
+        proof = self.store.dispatch(admit=self._admit_dispatch)
+        try:
+            need(0 <= self._clock() - review.at <= TTL, 'expired')
+            reply = client.mutate(proof, capture=self.store.capture)
+        except Exception:
+            if self.store.mark_undispatched(proof):
+                self.dispatch_possible = False
+            raise
         if operation == 'create':
             need(type(reply) is dict, 'schema')
             key = reply.get('ID')

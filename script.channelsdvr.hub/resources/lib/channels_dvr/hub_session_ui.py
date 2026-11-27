@@ -139,6 +139,30 @@ class HubSessionUI:
             if binding == self._binding:
                 self._unrestored.discard(view)
 
+    def recent_search(self) -> tuple[tuple | None, tuple[str, ...]]:
+        """Capture an admitted source receipt and only its loaded search history."""
+        self.w._dispatcher.assert_owner()
+        binding, admission = self._source()
+        if (binding is None or binding != self._binding or self._model is None
+                or admission is not StartupAdmission.ADMITTED):
+            return None, ()
+        return binding, self._model.recent_terms if self._loaded else ()
+
+    def remember_search_term(self, receipt: tuple | None, term: str) -> None:
+        """Record only an explicit, still-current Search input submission."""
+        current, _ = self.recent_search()
+        model = self._model
+        if receipt is None or receipt != current or model is None or self.w.view != 'Search':
+            return
+        updated = replace(model, recent_terms=(term, *model.recent_terms))
+        if updated.recent_terms == model.recent_terms:
+            return
+        self._model = updated
+        if self._loaded:
+            self._save()
+        else:
+            self._overlay['recent_terms'] = updated.recent_terms
+
     def close(self) -> None:
         # Retain the last already authorized save only if the source is still current.
         if self._binding is not None:
@@ -201,7 +225,10 @@ class HubSessionUI:
             else:
                 base = HubBookmarks(self._model.source)
                 self._writes_allowed = saved is BookmarkReadState.MISSING
-            self._model = replace(base, **self._overlay)
+            overlay = dict(self._overlay)
+            if 'recent_terms' in overlay:
+                overlay['recent_terms'] = (*overlay['recent_terms'], *base.recent_terms)
+            self._model = replace(base, **overlay)
             self._loaded = True
             self._restore_pending()
             if self._overlay and self._model != base:

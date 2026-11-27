@@ -31,7 +31,7 @@
     </category>
     <category id="hub" label="30119">
       <group id="1">
-        <setting id="hub_startup_view" type="string" label="30987">
+        <setting id="hub_startup_view" type="string" label="30996">
           <level>0</level>
           <default>Dashboard</default>
           <constraints>
@@ -40,13 +40,13 @@
               <option label="30106">Guide</option>
               <option label="30107">Recordings</option>
               <option label="30948">DVR</option>
-              <option label="30988">Last</option>
+              <option label="30997">Last</option>
             </options>
           </constraints>
           <control type="spinner" format="string"/>
         </setting>
         <!-- Details only until the separate Phase 7 live-OK gate is accepted. -->
-        <setting id="hub_guide_ok" type="string" label="30989">
+        <setting id="hub_guide_ok" type="string" label="30998">
           <level>0</level>
           <default>details</default>
           <constraints>

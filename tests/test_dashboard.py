@@ -1338,7 +1338,7 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         w._storage_ui = SimpleNamespace(poll=Mock())
         w._playback_ui.poll = Mock()
         w._series_ui = None
-        w._dvr = SimpleNamespace(poll=lambda: False, passes=False)
+        w._dvr = SimpleNamespace(poll=lambda: False, passes=False, child=False)
         w._large_exercise = None
         w._dispatcher = UiDispatcher()
         w.initialized = True

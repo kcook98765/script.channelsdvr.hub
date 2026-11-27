@@ -8,11 +8,10 @@ navigation compares them directly and never parses them. Input coverage and the
 from collections.abc import Iterable
 from itertools import islice
 from typing import TypeAlias
-import unicodedata
 
 from .browser import Row, origin_label, provenance_label, recording_key, recording_row
 from .models import Recording, recording_duration
-from .search import normalize_query
+from .search import matches_tokens, normalize_query, normalize_search_text, recording_search_text
 from .ui_text import FALLBACK, text
 
 
@@ -29,13 +28,9 @@ MODE_LABELS = {'Recent': 'recordings_recent', 'Shows': 'recordings_tv', 'Movies'
 SORT_LABELS = {'title': 'recordings_title', 'newest': 'recordings_newest', 'oldest': 'recordings_oldest'}
 
 
-def _text(text: str) -> str:
-    return " ".join(unicodedata.normalize("NFKC", text).casefold().split())
-
-
 def _sort_key(order: str, title: str, created: int) -> tuple[bool, str | int]:
     if order == 'title':
-        normalized = _text(title)
+        normalized = normalize_search_text(title)
         return not normalized, normalized  # A blank title sorts after known titles.
     return False, -created if order == 'newest' else created
 
@@ -170,6 +165,15 @@ class LibraryBrowser:
         return self._coverage_limited
 
     @property
+    def search_records(self) -> tuple[Recording, ...]:
+        """Accepted leaves, independent of library mode/filter; not listing health."""
+        return self._records or ()
+
+    def search_records_for(self, items: tuple[Recording, ...]) -> tuple[Recording, ...] | None:
+        """Borrow leaves only from the exact listing used to build this library."""
+        return self.search_records if items is self._source else None
+
+    @property
     def depth(self) -> int:
         return len(self._paths.get(self._context(), ()))
 
@@ -218,7 +222,7 @@ class LibraryBrowser:
                 self._coverage_limited = True
                 continue
             retained.append(record)
-            index.append((record, _text(record.title + " " + (record.show or "")), row))
+            index.append((record, recording_search_text(record), row))
         self._records = tuple(retained)
         self._index = tuple(index)
         self._views.clear()
@@ -267,8 +271,9 @@ class LibraryBrowser:
             if mode == "Search":
                 matches: list[Row] = []
                 if query:
+                    tokens = query.split()
                     for entry in ordered:
-                        if all(token in entry[1] for token in query.split()):
+                        if matches_tokens(entry[1], tokens):
                             if len(matches) == 100:
                                 more = True
                                 break
@@ -299,7 +304,7 @@ class LibraryBrowser:
                          origin=origin_label(representative.namespace, representative.provenance, strings))
             # Locale is presentation only. Title ties use source codes, not
             # translated labels; date ties go directly to the full folder ID.
-            origin = (representative.provenance, _text(representative.namespace)) if order == 'title' else ('', '')
+            origin = (representative.provenance, normalize_search_text(representative.namespace)) if order == 'title' else ('', '')
             seasons: dict[int | None, list[_Member]] = {}
             for record, row in members:
                 seasons.setdefault(record.season, []).append((record, row))

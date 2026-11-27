@@ -150,7 +150,6 @@ msgctxt "#30131"
 msgid "Disconnecting this guide does not stop DVR recordings or remove saved passes."
 msgstr ""
 
-#. View is a localized display label, never an internal view identifier.
 msgctxt "#30132"
 msgid "Channels DVR Hub | {view}"
 msgstr ""
@@ -283,20 +282,16 @@ msgctxt "#30165"
 msgid "Enter search text…"
 msgstr ""
 
-msgctxt "#30166"
-msgid "Previous results"
-msgstr ""
-
 msgctxt "#30167"
 msgid "Clear search"
 msgstr ""
 
 msgctxt "#30168"
-msgid "Search programmes (up to 128 characters)"
+msgid "Search (up to 128 characters)"
 msgstr ""
 
 msgctxt "#30169"
-msgid "Use up to 128 characters for your search."
+msgid "Use up to 128 characters."
 msgstr ""
 
 msgctxt "#30170"
@@ -1344,15 +1339,11 @@ msgid "Enter search text"
 msgstr ""
 
 msgctxt "#30460"
-msgid "No matching programmes"
-msgstr ""
-
-msgctxt "#30461"
-msgid "Choose Search programmes from the menu"
+msgid "No matches"
 msgstr ""
 
 msgctxt "#30462"
-msgid "{position}/{count} | OK: details / show in guide | Info: details"
+msgid "{position}/{count} | Info: details"
 msgstr ""
 
 msgctxt "#30463"
@@ -1372,11 +1363,11 @@ msgid "Choose Search recordings to enter text"
 msgstr ""
 
 msgctxt "#30467"
-msgid "Scheduled recordings (read only); unconfirmed listing matches remain unconfirmed"
+msgid "Read only; scheduled matches are unverified."
 msgstr ""
 
 msgctxt "#30468"
-msgid "Demo scheduled recordings (read only); possible matches may be ambiguous"
+msgid "Demo schedules (read only); matches may be ambiguous."
 msgstr ""
 
 msgctxt "#30469"
@@ -1384,19 +1375,15 @@ msgid "{position}/{count} | Details only"
 msgstr ""
 
 msgctxt "#30470"
-msgid "Select a search result to view programme details. Playback is unavailable."
+msgid "Result is not current."
 msgstr ""
 
 msgctxt "#30471"
-msgid "Programme search result"
+msgid "Search result"
 msgstr ""
 
 msgctxt "#30472"
 msgid "Show in guide"
-msgstr ""
-
-msgctxt "#30473"
-msgid "This airing is no longer in the current guide collection."
 msgstr ""
 
 msgctxt "#30474"
@@ -1607,10 +1594,6 @@ msgctxt "#30526"
 msgid "{status}. {message}"
 msgstr ""
 
-msgctxt "#30527"
-msgid "{title} | {number} {source} | {time}"
-msgstr ""
-
 msgctxt "#30528"
 msgid "{number} {name}\n{source}"
 msgstr ""
@@ -1676,7 +1659,6 @@ msgctxt "#30554"
 msgid "This is a historical status observation. Choose Connect for a fresh check. It does not renew saved listings or allow recording changes."
 msgstr ""
 
-#. Compact banner.
 msgctxt "#30555"
 msgid "{status} | {age}{cache}"
 msgstr ""
@@ -1737,7 +1719,6 @@ msgctxt "#30569"
 msgid "The channel list returned no visible channels for this view."
 msgstr ""
 
-#. IDs30570..30590 reserved.
 msgctxt "#30591"
 msgid "Artwork handled by Kodi: {available} references available; {assigned} assigned; {unavailable} unavailable. Delivery and decoding are not verified."
 msgstr ""
@@ -1851,11 +1832,11 @@ msgid "Read only: unsupported rule, pending operation, or management consent req
 msgstr ""
 
 msgctxt "#30651"
-msgid "Series operation stopped. Refresh details and reconfirm external changes. Unknown outcomes stay read only. Storage or history capacity failures require review; history is never evicted."
+msgid "Series stopped. Refresh details and reconfirm external changes. Unknown outcomes stay read only. Review storage/capacity failures; history is never evicted."
 msgstr ""
 
 msgctxt "#30652"
-msgid "Linked job activity is active or unknown. No change was sent. Fresh inactivity is only a current observation, not a guarantee against future jobs."
+msgid "Linked jobs active or unknown. No change sent. Current inactivity does not rule out future jobs."
 msgstr ""
 
 msgctxt "#30653"
@@ -2251,13 +2232,49 @@ msgid "Pass changed. Review refreshed list first."
 msgstr ""
 
 msgctxt "#30987"
-msgid "Startup view"
+msgid "Intent cleared; not sent."
 msgstr ""
 
 msgctxt "#30988"
-msgid "Last visited primary view"
+msgid "Scheduled recordings"
 msgstr ""
 
 msgctxt "#30989"
+msgid "Coverage"
+msgstr ""
+
+msgctxt "#30990"
+msgid "Local listings only"
+msgstr ""
+
+msgctxt "#30991"
+msgid "Partial"
+msgstr ""
+
+msgctxt "#30992"
+msgid "Input capped"
+msgstr ""
+
+msgctxt "#30993"
+msgid "Show in DVR"
+msgstr ""
+
+msgctxt "#30994"
+msgid "Open recording"
+msgstr ""
+
+msgctxt "#30995"
+msgid "Guide programmes"
+msgstr ""
+
+msgctxt "#30996"
+msgid "Startup view"
+msgstr ""
+
+msgctxt "#30997"
+msgid "Last primary view"
+msgstr ""
+
+msgctxt "#30998"
 msgid "Guide OK action"
 msgstr ""
