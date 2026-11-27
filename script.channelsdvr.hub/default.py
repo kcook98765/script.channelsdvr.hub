@@ -13,5 +13,5 @@ from channels_dvr.ui_routes import launch_view  # noqa: E402
 
 if __name__ == "__main__":
     # Kodi script arguments are closed view names, never URLs or commands.
-    view = sys.argv[1] if len(sys.argv) == 2 else 'Dashboard'
-    open_window(ADDON.getAddonInfo("path"), ADDON, start_view=launch_view(view))
+    view = None if len(sys.argv) == 1 else launch_view(sys.argv[1] if len(sys.argv) == 2 else 'Dashboard')
+    open_window(ADDON.getAddonInfo("path"), ADDON, start_view=view)

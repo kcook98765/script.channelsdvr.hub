@@ -61,10 +61,13 @@ def presentation_scope(w):
 
 
 def enter(w, target, *, guide_return=None, dvr_return=None, search_return=None,
-          search_context=None, returning=False):
+          search_context=None, returning=False, automatic=False):
     w._dispatcher.assert_owner()
     if w._closed:
         return
+    hub = getattr(w, '_hub_session', None)
+    if not automatic and hub is not None:
+        hub.cancel_startup()
     old = w._route
     origin = getattr(w, '_search_origin', None)
     from_result = returning and old.parent == target == 'Search'

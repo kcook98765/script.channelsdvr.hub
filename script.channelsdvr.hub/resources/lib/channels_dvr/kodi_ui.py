@@ -22,6 +22,7 @@ from .guide_gap import show_station_gap
 from .guide_render import RenderMemo, draw
 from .guide_screen import hide_guide, paint_clock, paint_guide, station_rows
 from .guide_fixtures import cancel_large, install_fixture, tick_large
+from .hub_session_ui import HubSessionUI
 from .library import LibraryBrowser, PAGE_ROWS
 from .metrics import GuiMetrics
 from .live_loader import DevelopmentConfig, MetadataLoader
@@ -39,7 +40,7 @@ from .session import OfflineDataSession, Presentation
 from .series_manager_models import RuleRow
 from .ui_dispatch import UiDispatcher
 from .ui_text import capture, text
-from .ui_menu import CONNECTION
+from .ui_menu import SETTINGS
 from .ui_navigation import execute_command
 from .ui_routes import Route, SearchReturn, VIEW_KEYS, enter, launch_view, presentation_scope
 from .ui_hits import Hit
@@ -65,7 +66,8 @@ class SettingsProtocol(Protocol):
 
 class ChannelsWindow(xbmcgui.WindowXML):
     def __init__(self, *args, **kwargs):
-        start_view = launch_view(kwargs.pop('start_view', 'Dashboard'))
+        requested_view = kwargs.pop('start_view', None)
+        start_view = launch_view(requested_view or 'Dashboard')
         super().__init__(*args, **kwargs)
         self._dispatcher = UiDispatcher()
         self._closed = False
@@ -84,6 +86,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self.repository: MockRepository = DevelopmentRepository(0, (0, 7200))
         self.guide = GuideController(display_repository(self.repository), deferred=True)
         self._route = Route(start_view)
+        self._automatic_launch = requested_view is None
+        self._hub_session = HubSessionUI(self)
         self._guide_return: tuple[str, Selection, int, int] | None = None
         self._search_return: SearchReturn | None = None
         self._search_origin: tuple[str, int] | None = None
@@ -154,13 +158,18 @@ class ChannelsWindow(xbmcgui.WindowXML):
                     self._initialize()
             elif not self._owns_input():
                 continue
-            elif kind == "action":
-                self._handle_action(value)
-            elif kind == 'chrome':
-                cancel_large(self, 'click')
-                self._chrome.click(value, xbmcgui)
+            else:
+                previous = self._hub_session.input_state()
+                if kind == "action":
+                    self._handle_action(value)
+                elif kind == 'chrome':
+                    cancel_large(self, 'click')
+                    self._chrome.click(value, xbmcgui)
+                self._hub_session.note_input(previous)
         if not self._closed:
             changed = self._guide_runtime.poll()
+            if self.initialized:
+                changed = self._hub_session.poll() or changed
             changed = self._dvr.poll() or changed
             changed = self._artwork_ui.poll() or changed
             changed = self._dashboard_ui.poll() or changed
@@ -170,9 +179,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
             now = monotonic()
             if self._status_tick is None or now - self._status_tick >= 1:
                 if self.view == 'Search':
-                    previous = self._search_ui.publication
+                    search_publication = self._search_ui.publication
                     self._search_ui.page()
-                    if previous is not self._search_ui.publication:
+                    if search_publication is not self._search_ui.publication:
                         self.render()
                 else:
                     self._label(114, self._current_data().banner)
@@ -193,6 +202,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
             return
         if self._series_ui is not None:
             self._series_ui.close()  # Revoke Series admission before other teardown.
+        self._hub_session.close()
         self._closed = True
         self._dashboard_ui.close()
         self._playback_ui.close()
@@ -262,6 +272,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
                 config = self._saved_config()
                 if config is not None:
                     self._activate(config)
+                    if self._automatic_launch:
+                        self._hub_session.arm_startup(config)
                     self._request_live(int(time()))
                 else:
                     self._suspend_development()
@@ -269,17 +281,14 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._chrome.initialize_focus()
 
     def get_setting(self, key: str) -> str | bool:
-        if key not in ("server_origin", "server_expected_version", "development_metadata_enabled", "ShowDeveloperTools", "dashboard_refresh_minutes"):
+        if key not in ("server_origin", "server_expected_version", "development_metadata_enabled",
+                       "ShowDeveloperTools", "dashboard_refresh_minutes", "hub_startup_view", "hub_guide_ok"):
             raise ValueError("Unknown owned setting")
         if self._addon is None:
             return False if key in ("development_metadata_enabled", "ShowDeveloperTools") else ""
         if key in ("development_metadata_enabled", "ShowDeveloperTools"):
             return self._addon.getSettingBool(key)
-        if key == "server_origin":
-            return self._addon.getSettingString("server_origin")
-        if key == "dashboard_refresh_minutes":
-            return self._addon.getSettingString("dashboard_refresh_minutes")
-        return self._addon.getSettingString("server_expected_version")
+        return self._addon.getSettingString(key)
 
     def t(self, key: str, **values: object) -> str:
         return text(self.strings, key, **values)
@@ -316,6 +325,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
 
     def _close_demo(self) -> None:
         self._dispatcher.assert_owner()
+        self._hub_session.source_changed()
         self.transient_demo_mode = False
         self._development_blocked = 'metadata disabled'
         cancel_large(self, 'demo closed')
@@ -393,8 +403,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
     def _activate(self, config: DevelopmentConfig) -> None:
         self._dispatcher.assert_owner()
         self.transient_demo_mode = False
-        if (self._live_session is not None and config == self._development_config
-                and self._development_blocked is None):
+        pending = self._guide_runtime._mode
+        if self._development_blocked is None and (pending == ('live', config) or (
+                pending is None and self._live_session is not None and config == self._development_config)):
             return
         self._replace_live(config)
         self._development_blocked = None
@@ -405,6 +416,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
 
     def _replace_live(self, config: DevelopmentConfig | None) -> None:
         self._dispatcher.assert_owner()
+        self._hub_session.source_changed()
         self._playback_ui.cancel()
         cancel_large(self, "mode changed")
         self._guide_runtime.mode("live", config)
@@ -447,13 +459,17 @@ class ChannelsWindow(xbmcgui.WindowXML):
     def _refresh_live(self) -> None:
         if self._development_blocked is not None:
             return
+        if self._guide_runtime._mode is not None or (
+                self._live_session is not None and self._live_session._generation is None):
+            self._request_live(self.utc_now())
+            return
         anchor = self._intended_anchor if self._intended_anchor is not None else self.guide.selection.anchor
         start = self.repository.horizon[0]
         self._request_live(start)
         self._intended_anchor = anchor
 
     def _jump_time(self, anchor: int) -> None:
-        if self._development_blocked is not None:
+        if self._development_blocked is not None or self._guide_runtime._mode is not None:
             return
         if self._route.parent == 'Search':
             # A drill-in browses the shared accepted horizon without replacing
@@ -517,7 +533,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
         if self.view in ('Dashboard', 'Guide'):
             return ()
         if self.view == 'Settings':
-            return tuple(Row(code, self.t(label), '') for code, label in CONNECTION)
+            return tuple(Row(code, self.t(label), '') for code, label in SETTINGS)
         if self.view == 'Search':
             return self._search_ui.rows()
         if self._dvr.passes:
@@ -654,6 +670,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
             hide_guide(self)
         if self.view == 'Dashboard':
             self._dashboard_ui.render()
+            if self._hub_session.startup_failed:
+                self._label(112, self.t('refresh_hint'))
             return
         self._label(116, '')
         self._label(117, '')
@@ -676,6 +694,14 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._label(115, self.t('demo_footer') if self.demo_allowed() else self.t('listings_footer'))
         if self.view == 'Settings':
             self._label(112, self.t('connection'))
+            session = self._live_session
+            if isinstance(session, LiveDataSession) and self._development_blocked is None:
+                connection_presentation = session.guide()
+                self._label(114, connection_presentation.banner)
+                self._label(113, connection_presentation.message)
+            else:
+                self._label(114, self.t('not_connected'))
+                self._label(113, self.t('connection_prompt'))
             self._label(115, '')
             self._render_rows(self._rows())
             return
@@ -904,7 +930,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
             self._navigate(action_id)
 
 
-def open_window(addon_path: str, addon: SettingsProtocol | None = None, *, start_view='Dashboard') -> None:
+def open_window(addon_path: str, addon: SettingsProtocol | None = None, *, start_view: str | None = None) -> None:
     window = ChannelsWindow("ChannelsDvr.xml", addon_path, "Default", "1080i", start_view=start_view)
     window.path = addon_path
     window._addon = addon

@@ -6,6 +6,7 @@ CONNECTION = (
     ('connection.disconnect', 'disconnect'), ('connection.settings', 'connection_settings'),
     ('connection.storage', 'storage_title'),
 )
+SETTINGS = (*CONNECTION, ('connection.diagnostics', 'connection_diagnostics'))
 PROGRAMME = (
     ('programme.preview', 'preview'), ('programme.saved', 'saved_series'),
     ('programme.prepare', 'prepare_pass'), ('programme.status', 'pass_status'),

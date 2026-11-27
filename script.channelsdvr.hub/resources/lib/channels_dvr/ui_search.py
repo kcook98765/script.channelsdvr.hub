@@ -485,30 +485,53 @@ class SearchUI:
                     w.render()
                     w._chrome.initialize_focus(origin)
             return
-        value = '' if code == 'search.clear' else self._query(gui)
-        if value is not None:
-            try:
-                normalize_query(value)
-            except ValueError:
-                dialog_for(w, gui).ok(w.t('search'), w.t('search_limit'))
-                return
-            with modal_input(w):
-                w._set_search_query(value)
-                route_fence(w, guide=False)
-                w.render()
-                w._chrome.initialize_focus(origin)
+        submission = ('', None) if code == 'search.clear' else self._query(gui)
+        if submission is None:
+            return
+        value, receipt = submission
+        try:
+            normalize_query(value)
+        except ValueError:
+            dialog_for(w, gui).ok(w.t('search'), w.t('search_limit'))
+            return
+        with modal_input(w):
+            w._set_search_query(value)
+            if receipt is not None:
+                w._hub_session.remember_search_term(receipt, value)
+            route_fence(w, guide=False)
+            w.render()
+            w._chrome.initialize_focus(origin)
 
     def _query(self, gui):
         w = self.w
         intent = w._chrome.command_activation('search.query', 'search')
         dialog = dialog_for(w, gui)
+        source, terms = w._hub_session.recent_search()
         presets = ('special', 'atlas', 'sample', 'no-match-xyz') if w.demo_allowed() else ()
         entries = [('enter', w.t('search_enter')), ('clear', w.t('search_clear'))]
         entries.extend((f'preset.{i}', w.t('demo_preset', query=preset)) for i, preset in enumerate(presets))
+        recent = {f'recent.{i}': term for i, term in enumerate(terms)}
+        for code, term in recent.items():
+            if (label := display_text(term, 72, w.strings)) is not None:
+                entries.append((code, f"{w.t('recordings_recent')}: {label}"))
         chosen = command(tuple(entries), dialog.select(w.t('search'), [label for _, label in entries]))
         if chosen is None or not w._owns_input() or not w._chrome.command_current(intent):
             return None
-        if chosen == 'enter':
-            value = dialog.input(w.t('search_input'), defaultt=w.search_query, type=gui.INPUT_ALPHANUM)
-            return value if value and w._owns_input() and w._chrome.command_current(intent) else None
-        return '' if chosen == 'clear' else presets[int(chosen.removeprefix('preset.'))] if w.demo_allowed() else None
+        if chosen == 'clear':
+            return '', None
+        if chosen.startswith('preset.'):
+            return (presets[int(chosen.removeprefix('preset.'))], None) if w.demo_allowed() else None
+        recalled = recent.get(chosen)
+        if source is not None:
+            current, available = w._hub_session.recent_search()
+            if source != current or (recalled is not None and recalled not in available):
+                return None
+        # Selecting a recent term prefills input only. Search still requires
+        # an explicit nonempty submission from the normal input dialog.
+        value = dialog.input(w.t('search_input'), defaultt=recalled if recalled is not None else w.search_query,
+                             type=gui.INPUT_ALPHANUM)
+        if not value or not w._owns_input() or not w._chrome.command_current(intent):
+            return None
+        if source is not None and w._hub_session.recent_search()[0] != source:
+            return None
+        return value, source

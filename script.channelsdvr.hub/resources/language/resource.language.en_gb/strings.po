@@ -127,7 +127,7 @@ msgid "Disconnect"
 msgstr ""
 
 msgctxt "#30126"
-msgid "Connection settings"
+msgid "Kodi add-on preferences"
 msgstr ""
 
 msgctxt "#30127"
@@ -150,7 +150,6 @@ msgctxt "#30131"
 msgid "Disconnecting this guide does not stop DVR recordings or remove saved passes."
 msgstr ""
 
-#. View is a localized display label, never an internal view identifier.
 msgctxt "#30132"
 msgid "Channels DVR Hub | {view}"
 msgstr ""
@@ -188,7 +187,7 @@ msgid "{view}: {status}"
 msgstr ""
 
 msgctxt "#30142"
-msgid "Menu: Connection → Refresh listings."
+msgid "Settings → Refresh listings."
 msgstr ""
 
 msgctxt "#30143"
@@ -558,7 +557,6 @@ msgctxt "#30239"
 msgid "Channels DVR may use another available source."
 msgstr ""
 
-#. Owned button100, set on every onInit with captured strings; no built-in IDs.
 msgctxt "#30240"
 msgid "Close"
 msgstr ""
@@ -1100,7 +1098,6 @@ msgctxt "#30375"
 msgid " [truncated]"
 msgstr ""
 
-#. Live status: the strings do not cache age, TTL, empty-result or permission state.
 msgctxt "#30400"
 msgid "Connected"
 msgstr ""
@@ -1609,7 +1606,6 @@ msgctxt "#30530"
 msgid "Channels DVR Hub"
 msgstr ""
 
-#. Developer captions are localized; timing syntax/IDs/guard reasons are data.
 msgctxt "#30531"
 msgid "Init {init} Render {render}/{render_samples} (count/samples)\nRender {render_times}\nDir {directions}/{direction_samples} {direction_times}\nPairs cur/hi={pairs}/{pairs_high} Cells cur/hi={cells}/{cells_high}\nAPI updates, not frames/MCP/menu wait.\nProcess/native memory unmeasured."
 msgstr ""
@@ -1663,7 +1659,6 @@ msgctxt "#30554"
 msgid "This is a historical status observation. Choose Connect for a fresh check. It does not renew saved listings or allow recording changes."
 msgstr ""
 
-#. Compact banner.
 msgctxt "#30555"
 msgid "{status} | {age}{cache}"
 msgstr ""
@@ -1724,7 +1719,6 @@ msgctxt "#30569"
 msgid "The channel list returned no visible channels for this view."
 msgstr ""
 
-#. IDs30570..30590 reserved.
 msgctxt "#30591"
 msgid "Artwork handled by Kodi: {available} references available; {assigned} assigned; {unavailable} unavailable. Delivery and decoding are not verified."
 msgstr ""
@@ -2222,7 +2216,7 @@ msgid "Guide controls"
 msgstr ""
 
 msgctxt "#30983"
-msgid "OK/Info: details | PgUp/PgDn: channels | Blue line: Now | {footer}"
+msgid "Info: details | PgUp/PgDn: channels | Blue line: Now | {footer}"
 msgstr ""
 
 msgctxt "#30984"
@@ -2271,4 +2265,16 @@ msgstr ""
 
 msgctxt "#30995"
 msgid "Guide programmes"
+msgstr ""
+
+msgctxt "#30996"
+msgid "Startup view"
+msgstr ""
+
+msgctxt "#30997"
+msgid "Last primary view"
+msgstr ""
+
+msgctxt "#30998"
+msgid "Guide OK action"
 msgstr ""

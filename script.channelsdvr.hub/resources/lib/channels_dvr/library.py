@@ -404,6 +404,33 @@ class LibraryBrowser:
         self._load()
         return True
 
+    def restore_recording_selection(self, identity: tuple[str, str, str]) -> bool:
+        """Select one exact current leaf, not a saved folder, label or offset."""
+        if self._mode == 'Search':
+            return False
+        candidate = repr(identity)
+        context = self._context()
+
+        def matches(rows: tuple[Row, ...], trail: tuple[tuple[str, int], ...]
+                    ) -> Iterable[tuple[tuple[str, int], ...]]:
+            for index, row in enumerate(rows):
+                if row.children:
+                    yield from matches(row.children, trail + ((row.id, index),))
+                elif row.id == candidate:
+                    yield trail + ((row.id, index),)
+
+        found = iter(matches(self._root(context)[0], ()))
+        first = next(found, None)
+        if first is None or next(found, None) is not None:
+            return False
+        path: _Path = ()
+        for row_id, index in first:
+            self._bookmarks[context, path] = (row_id, index, index - index % PAGE_ROWS)
+            path += (row_id,)
+        self._paths[context] = path[:-1]
+        self._load()
+        return True
+
     def set_query(self, query: str) -> None:
         normalized = normalize_query(query)
         self._remember()

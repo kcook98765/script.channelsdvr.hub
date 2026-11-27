@@ -134,6 +134,7 @@ class DvrUI:
     def reset(self):
         self._observed = self._observed_source = None
         self.refresh()
+        self.tab = 'dvr.scheduled'
         self._selected, self.position, self.notice = None, 0, None
         self._selection_epoch += 1
 
