@@ -273,7 +273,17 @@ class PackageTests(unittest.TestCase):
                       and node.name == "ChannelsWindow")
         for method in window.body:
             if isinstance(method, ast.FunctionDef) and method.name in ("onInit", "onAction", "onClick"):
-                self.assertEqual(len(method.body), 1)
+                if method.name == 'onAction':
+                    read_id, ignore, enqueue = method.body
+                    self.assertEqual(ast.unparse(read_id), 'ident = action.getId()')
+                    self.assertIsInstance(ignore, ast.If)
+                    self.assertEqual(ast.unparse(ignore.test), 'ident == xbmcgui.ACTION_MOUSE_LEFT_CLICK')
+                    self.assertEqual([ast.unparse(node) for node in ignore.body], ['return'])
+                    self.assertEqual(ignore.orelse, [])
+                    self.assertEqual(ast.unparse(enqueue),
+                                     "self._dispatcher.post(('action', self._chrome.capture_action(ident)))")
+                else:
+                    self.assertEqual(len(method.body), 1)
                 calls = {dotted(node.func) for node in ast.walk(method) if isinstance(node, ast.Call)}
                 self.assertLessEqual(calls, {"self._dispatcher.post", "action.getId", "self._chrome.capture",
                                              "self._chrome.capture_action"})
@@ -323,9 +333,13 @@ class PackageTests(unittest.TestCase):
                     elif path == LIB / 'playback_native.py' and qualified == 'player.play':
                         # Exactly the reviewed direct script adapter, not a global
                         # exemption for Player/play/resolvers/builtins elsewhere.
-                        self.assertEqual(ast.unparse(node),'player.play(descriptor.url, item)')
+                        self.assertEqual(ast.unparse(node), 'player.play(descriptor.url, item, windowed=False)')
                         self.assertEqual(sum(isinstance(n,ast.Call) and dotted(n.func) == 'player.play'
                                              for n in ast.walk(tree)),1)
+                    elif path == LIB / 'playback_native.py' and qualified.startswith(('player.', 'self._player.')):
+                        self.assertIn(qualified, {'player.isPlaying', 'player.isPlayingVideo',
+                                                  'player.isPlayingAudio', 'player.isExternalPlayer',
+                                                  'player.getPlayingFile', 'self._player.getPlayingFile'})
                     elif path == LIB / "operation_storage.py" and qualified in {"os.makedirs", "sqlite3.connect"}:
                         if qualified == "os.makedirs":
                             self.assertEqual(ast.unparse(node), "os.makedirs(self._profile, exist_ok=True)")

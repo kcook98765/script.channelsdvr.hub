@@ -293,7 +293,11 @@ class PlaybackUI:
                     self.state = state  # old playback callbacks cannot shadow pending consent/read state
 
     def diagnostic_text(self):
-        return text(self.window.strings, 'play_diagnostic', state=self.state)
+        self.window._dispatcher.assert_owner()
+        # An explicit diagnostic checkpoint, not a poll loop or a control gate.
+        sample = self.player.recording_readback() if self.player is not None else None
+        state = self.state if sample is None else f'{self.state}; {sample.value}'
+        return text(self.window.strings, 'play_diagnostic', state=state)
 
     def close(self):
         self.window._dispatcher.assert_owner()

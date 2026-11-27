@@ -18,6 +18,9 @@ from channels_dvr.library import LibraryBrowser
 from channels_dvr.live_loader import IndexResult
 from channels_dvr.models import Event
 from channels_dvr.normalization import DataState
+from channels_dvr.playback_descriptors import PlaybackDescriptor
+from channels_dvr.playback_ui import PlaybackUI
+from channels_dvr.playback_worker import PlaybackResult
 from channels_dvr.repository import MockRepository
 from channels_dvr.search import airing_key
 from channels_dvr.series_manager_models import GeneralSeriesPlan, ManagerView, rule_rows
@@ -86,9 +89,11 @@ class WindowXML:
 class NavigationTests(unittest.TestCase):
     def setUp(self):
         self.front = 10000
-        self.dialog = SimpleNamespace(select=Mock(return_value=-1), textviewer=Mock(), ok=Mock(), input=Mock(return_value=''))
+        self.dialog = SimpleNamespace(select=Mock(return_value=-1), textviewer=Mock(), ok=Mock(),
+                                      input=Mock(return_value=''), yesno=Mock(return_value=False))
         self.gui = SimpleNamespace(WindowXML=WindowXML, ControlLabel=Control, ControlImage=Control, ControlButton=Control,
-                                   getCurrentWindowId=lambda: self.front, Dialog=lambda: self.dialog, INPUT_ALPHANUM=0)
+                                   getCurrentWindowId=lambda: self.front, Dialog=lambda: self.dialog, INPUT_ALPHANUM=0,
+                                   ACTION_MOUSE_LEFT_CLICK=100, ACTION_STOP=13, DLG_YESNO_NO_BTN=10)
         fakes = patch.dict(sys.modules, {'xbmc': SimpleNamespace(), 'xbmcgui': self.gui, 'xbmcvfs': SimpleNamespace()})
         fakes.start()
         self.addCleanup(fakes.stop)
@@ -713,6 +718,190 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(w.library.selected_recording().provenance, 'import')
         self.assertIsNone(w._chrome.capture(301))
         w._playback_ui.request.assert_not_called()
+
+    def playback_fixture(self, view='Recordings'):
+        self.seed()
+        w = self.w
+        data = w.data_session.recordings()
+        w.transient_demo_mode = False
+        w._live_session = SimpleNamespace(loading=False, incarnation=object(), _generation=1,
+                                          _catalog_epoch=object(), recordings=lambda: data,
+                                          guide=w.data_session.guide)
+        w._development_config = config = SimpleNamespace(namespace='synthetic')
+        w._saved_config = lambda: config
+        w._addon.getSettingBool = lambda key: key == 'development_metadata_enabled'
+        w._dashboard_ui.poll = Mock(return_value=False)
+        worker = Mock(submit=Mock(return_value=True), poll=Mock(return_value=None))
+        start = Mock()
+
+        def handoff(descriptor, *, admit):
+            if admit() is not True:
+                return False
+            start(descriptor)
+            self.assertFalse(admit())  # existing final lease cannot be consumed twice
+            return True
+
+        player = Mock(handoff=Mock(side_effect=handoff), poll=Mock(return_value=()),
+                      recording_readback=Mock(return_value=None))
+        w._playback_ui = PlaybackUI(w, worker_factory=lambda binding: worker,
+                                   player_factory=lambda assert_owner: player, clock=lambda: 10.0)
+        if view == 'Guide':
+            w._guide_runtime.presentation = lambda data: data
+            ready = patch.object(type(w._guide_runtime), 'ready', True)
+            ready.start()
+            self.addCleanup(ready.stop)
+        self.enter(view)
+        if view == 'Recordings':
+            self.click(220)  # Recent leaf, not a show folder.
+            self.assertEqual(w._chrome.capture(301).command, 'playback.play')
+        return worker, player, start
+
+    @staticmethod
+    def prepare_playback_result(worker):
+        selection, attempt = worker.submit.call_args.args
+        descriptor = PlaybackDescriptor(selection, 'fixture://' + attempt, 'video/mp2t', attempt, 10.0,
+                                        resolved_label='Fixture station')
+        worker.poll.return_value = PlaybackResult(selection, attempt, descriptor)
+        return descriptor
+
+    def test_playback_mouse_action_before_or_after_click_keeps_one_exact_handoff(self):
+        for raw_first in (True, False):
+            with self.subTest(raw_first=raw_first):
+                if not raw_first:
+                    self.w = self.window()
+                worker, player, start = self.playback_fixture()
+                w = self.w
+                w.focus_id = 301
+                raw = self.gui.ACTION_MOUSE_LEFT_CLICK
+                self.action(raw)  # raw action alone is never a Play command
+                worker.submit.assert_not_called()
+                if raw_first:
+                    self.post_action(raw)
+                w.onClick(301)
+                if not raw_first:
+                    self.post_action(raw)
+                w.process_pending()
+                worker.submit.assert_called_once()
+                player.handoff.assert_not_called()
+                self.assertEqual(w._playback_ui.state, 'preparing')
+                self.post_action(raw)  # same non-command during an already pending read
+                descriptor = self.prepare_playback_result(worker)
+                self.assertEqual(descriptor.selection.identity.file_id, w.library.selected_recording().id)
+                self.assertEqual(descriptor.selection.identity.namespace, w._development_config.namespace)
+                w.process_pending()
+                w.process_pending()  # even if a late result is returned again
+                start.assert_called_once_with(descriptor)
+                player.handoff.assert_called_once()
+                self.assertEqual(w._playback_ui.state, 'handoff')
+
+    def test_playback_newer_navigation_stop_and_even_stale_click_still_cancel(self):
+        for newer in (RIGHT, self.gui.ACTION_STOP, 'stale-click'):
+            with self.subTest(newer=newer):
+                self.w = self.window()
+                worker, player, _ = self.playback_fixture()
+                w = self.w
+                w.focus_id = 301
+                w.onClick(301)
+                self.post_action(self.gui.ACTION_MOUSE_LEFT_CLICK)
+                if newer == 'stale-click':
+                    w.onClick(9999)  # unknown target, but a separate actual click callback
+                else:
+                    self.post_action(newer)
+                w.process_pending()
+                worker.submit.assert_called_once()
+                self.assertIsNone(w._playback_ui._pending)
+                self.prepare_playback_result(worker)
+                w.process_pending()
+                player.handoff.assert_not_called()
+
+    def test_playback_final_lease_rejects_input_during_item_preparation(self):
+        worker, player, start = self.playback_fixture()
+        self.click(301)
+        self.prepare_playback_result(worker)
+        handoff = player.handoff.side_effect
+
+        def prepare_then_admit(descriptor, *, admit):
+            self.post_action(self.gui.ACTION_STOP)
+            return handoff(descriptor, admit=admit)
+
+        player.handoff.side_effect = prepare_then_admit
+        self.w.process_pending()
+        player.handoff.assert_called_once()
+        start.assert_not_called()
+        self.assertEqual(self.w._playback_ui.state, 'handoff_refused')
+
+    def test_playback_pending_selection_keeps_exact_source_snapshot_view_and_position(self):
+        for changed in ('source', 'items', 'view', 'position'):
+            with self.subTest(changed=changed):
+                self.w = w = self.window()
+                worker, player, _ = self.playback_fixture()
+                self.click(301)
+                self.prepare_playback_result(worker)
+                if changed == 'source':
+                    w._live_session._catalog_epoch = object()
+                elif changed == 'items':
+                    data = w._current_data()
+                    replacement = tuple(list(data.items))
+                    self.assertEqual(replacement, data.items)
+                    self.assertIsNot(replacement, data.items)
+                    w._live_session.recordings = lambda: replace(data, items=replacement)
+                elif changed == 'view':
+                    self.enter('Settings')
+                else:
+                    before = w.library.position
+                    w.library.move(1)
+                    self.assertNotEqual(w.library.position, before)
+                w.process_pending()
+                player.handoff.assert_not_called()
+                self.assertIsNone(w._playback_ui._pending)
+                if changed == 'items':
+                    self.assertEqual(w._playback_ui.state, 'selection_changed')
+                if changed == 'source':
+                    worker.close.assert_called_once()
+
+    def test_watch_live_defaults_to_no_and_only_current_yes_gets_fresh_descriptor(self):
+        for confirm, mapped_during_modal in ((False, False), (True, True), (True, False)):
+            with self.subTest(confirm=confirm, mapped_during_modal=mapped_during_modal):
+                self.w = w = self.window()
+                worker, player, start = self.playback_fixture('Guide')
+                self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('watch_short'))
+                self.dialog.yesno.reset_mock()
+
+                def answer(*args, **kwargs):
+                    self.assertTrue(w._dispatcher.modal_active)
+                    self.post_action(self.gui.ACTION_MOUSE_LEFT_CLICK)
+                    if mapped_during_modal:
+                        self.post_action(self.gui.ACTION_STOP)
+                    return confirm
+
+                self.dialog.yesno.side_effect = answer
+                w.focus_id = 304
+                w.onClick(304)  # Guide More -> Watch Live; no programme auto-play.
+                self.post_action(self.gui.ACTION_MOUSE_LEFT_CLICK)
+                w.process_pending()
+                worker.submit.assert_called_once()
+                first = self.prepare_playback_result(worker)
+                self.assertEqual(first.selection.kind, 'live')
+                w.process_pending()
+                self.dialog.yesno.assert_called_once()
+                self.assertEqual(self.dialog.yesno.call_args.kwargs['defaultbutton'], self.gui.DLG_YESNO_NO_BTN)
+                player.handoff.assert_not_called()
+                if not confirm or mapped_during_modal:
+                    worker.submit.assert_called_once()
+                    self.assertEqual(w._playback_ui.state, 'cancelled')
+                    w.process_pending()
+                    start.assert_not_called()
+                else:
+                    self.assertEqual(worker.submit.call_count, 2)
+                    w.process_pending()  # pre-consent result cannot stand in for fresh read
+                    player.handoff.assert_not_called()
+                    second = self.prepare_playback_result(worker)
+                    self.assertEqual(second.selection, first.selection)
+                    self.assertNotEqual(second.attempt, first.attempt)
+                    w.process_pending()
+                    w.process_pending()
+                    start.assert_called_once_with(second)
+                    self.assertEqual(w._playback_ui.state, 'handoff')
 
     def test_search_drill_in_returns_to_results_and_preserves_primary_guide(self):
         repo = self.seed()

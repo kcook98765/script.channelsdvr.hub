@@ -126,7 +126,13 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._dispatcher.post(("initialize", None))
 
     def onAction(self, action):
-        self._dispatcher.post(("action", self._chrome.capture_action(action.getId())))
+        ident = action.getId()
+        if ident == xbmcgui.ACTION_MOUSE_LEFT_CLICK:
+            # Hub mouse activation comes through onClick, including stale or
+            # unrecognized targets. The raw action carries no Hub command and
+            # must not enter the input lease stream in either callback order.
+            return
+        self._dispatcher.post(("action", self._chrome.capture_action(ident)))
 
     def onClick(self, control_id):
         self._dispatcher.post(('chrome', self._chrome.capture(control_id)))
