@@ -9,6 +9,17 @@ import xml.etree.ElementTree as ET
 ADDON = Path(__file__).resolve().parents[1] / "script.channelsdvr.hub"
 LIB = ADDON / "resources/lib/channels_dvr"
 SKIN = ADDON / "resources/skins/Default"
+BOOKMARK_STORAGE = LIB / "bookmark_storage.py"
+BOOKMARK_WRITES = {
+    "os.mkdir": "os.mkdir(self._directory, mode=448)",  # 0o700
+    "tempfile.NamedTemporaryFile": ("tempfile.NamedTemporaryFile(mode='wb', dir=self._directory, "
+                                    "prefix='.bookmark-', suffix='.tmp', delete=False)"),
+    "stream.write": "stream.write(payload)",
+    "stream.flush": "stream.flush()",
+    "os.fsync": "os.fsync(stream.fileno())",
+    "os.replace": "os.replace(temp_path, self._path)",
+    "os.unlink": "os.unlink(temp_path)",
+}
 
 
 def dotted(node):
@@ -261,6 +272,8 @@ class PackageTests(unittest.TestCase):
             "write_text", "write_bytes", "mkdir", "makedirs", "unlink", "remove", "rmdir",
             "rename", "replace", "copy", "copyfile", "copytree", "rmtree", "setSetting",
             "setSettingString", "setSettingBool", "setSettingInt", "setSettingNumber",
+            "NamedTemporaryFile", "TemporaryFile", "TemporaryDirectory", "mkstemp", "mkdtemp",
+            "fsync", "flush",
         }
         # Path.resolve and dataclasses.replace are pure operations, not I/O writes.
         for path, tree in self.python_sources():
@@ -299,6 +312,8 @@ class PackageTests(unittest.TestCase):
                             self.assertIn(ast.unparse(node.args[0]), {"os.path.join(self._profile, DB_NAME)", "uri"})
                             self.assertEqual(next(ast.literal_eval(k.value) for k in node.keywords
                                                   if k.arg == 'isolation_level'), None)
+                    elif path == BOOKMARK_STORAGE and qualified in BOOKMARK_WRITES:
+                        self.assertEqual(ast.unparse(node), BOOKMARK_WRITES[qualified])
                     elif qualified != "dataclasses.replace":
                         self.assertNotIn(leaf, forbidden_calls)
                     if leaf in {"open", "File"}:
@@ -313,6 +328,35 @@ class PackageTests(unittest.TestCase):
                         if isinstance(node.args[0], ast.Constant) and node.args[0].value == "IsPlayable":
                             self.assertIsInstance(node.args[1], ast.Constant)
                             self.assertEqual(node.args[1].value, "false")
+
+    def test_bookmark_storage_paths_and_file_calls_are_closed(self):
+        tree = ast.parse(BOOKMARK_STORAGE.read_text(encoding='utf-8'))
+        expected_bindings = [
+            ("BOOKMARK_DIRECTORY", "'hub-bookmarks'"),
+            ("self._profile", "normalize_profile(profile)"),
+            ("self._directory", "os.path.join(self._profile, BOOKMARK_DIRECTORY)"),
+            ("self._path", "os.path.join(self._directory, source.server_key + '.json')"),
+            ("payload", "encode_bookmarks(bookmarks)"),
+            ("temp_path", "stream.name"),
+            ("temp_path", "None"),  # cleared after replace, never redirected
+            ("temp_path", "None"),  # initial sentinel
+        ]
+        names = {name for name, _ in expected_bindings}
+        bindings = [(dotted(target), ast.unparse(n.value)) for n in ast.walk(tree)
+                    if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None
+                    for target in (n.targets if isinstance(n, ast.Assign) else [n.target])
+                    if dotted(target) in names]
+        self.assertCountEqual(bindings, expected_bindings)
+        calls = [ast.unparse(n) for n in ast.walk(tree) if isinstance(n, ast.Call)
+                 and (dotted(n.func) == 'open' or dotted(n.func).startswith(('os.', 'tempfile.', 'stream.')))]
+        self.assertCountEqual(calls, [
+            *BOOKMARK_WRITES.values(),
+            "os.path.join(self._profile, BOOKMARK_DIRECTORY)",
+            "os.path.join(self._directory, source.server_key + '.json')",
+            "os.lstat(path)", "os.lstat(self._path)", "os.lstat(self._path)",
+            "open(self._path, 'rb')", "os.fstat(stream.fileno())",
+            "stream.read(MAX_BOOKMARK_BYTES + 1)", "stream.fileno()", "stream.fileno()",
+        ])
 
     def test_private_journal_paths_and_profile_access_are_narrow(self):
         tree = ast.parse((LIB / "operation_storage.py").read_text())
