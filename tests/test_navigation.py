@@ -1,6 +1,8 @@
-"""Phase 1 owner/route/pointer regressions using inert WindowXML controls only."""
+"""Hub route/pointer regressions with inert controls, and pure bookmark policy tests."""
 from dataclasses import replace
+from functools import partial
 from importlib.util import module_from_spec, spec_from_file_location
+import json
 from pathlib import Path
 import runpy
 import sys
@@ -9,7 +11,13 @@ import unittest
 from unittest.mock import Mock, patch
 
 from channels_dvr.guide import GuideController
+from channels_dvr.hub_bookmarks import (
+    BookmarkScope, HubBookmarks, MAX_BOOKMARK_BYTES, MAX_RECENT_TERMS,
+    StartupAdmission, decode_bookmarks, encode_bookmarks, startup_destination,
+)
 from channels_dvr.library import LibraryBrowser
+from channels_dvr.live_loader import DevelopmentConfig
+from channels_dvr.models import ChannelKey, Recording
 from channels_dvr.normalization import DataState
 from channels_dvr.repository import MockRepository
 from channels_dvr.search import airing_key
@@ -708,6 +716,132 @@ class NavigationTests(unittest.TestCase):
         self.click(self.hits('row')[('connection.settings',)])
         w._addon.openSettings.assert_called_once()
         w._addon.setSettingBool.assert_not_called()
+
+
+class HubBookmarkTests(unittest.TestCase):
+    def setUp(self):
+        self.a = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
+        self.b = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.11'))
+        self.channel = ChannelKey(self.a.namespace, 'antenna', '001')
+        self.saved = HubBookmarks(
+            self.a, guide_group='Favorites', guide_channel=self.channel,
+            recordings_category='All', recordings_filter='dvr', recordings_sort='oldest',
+            recording_selection=(self.a.namespace, 'dvr', '001'),
+            dvr_tab='passes', recent_terms=('Café', 'Weather'), last_view='Recordings',
+        )
+        self.raw = encode_bookmarks(self.saved)
+
+    def test_round_trip_is_closed_and_does_not_include_server_address(self):
+        root = json.loads(self.raw)
+        self.assertEqual(set(root), {
+            'version', 'source', 'guide_group', 'guide_channel', 'recordings_category',
+            'recordings_filter', 'recordings_sort', 'recording_selection', 'dvr_tab',
+            'recent_terms', 'last_view',
+        })
+        self.assertEqual(decode_bookmarks(self.a, self.raw), self.saved)
+        self.assertNotIn(b'192.0.2.', self.raw)
+        root.update(guide_time=123, programme={'title': 'not navigation'},
+                    draft={'term': 'never keep'}, url='http://example.invalid/', password='not a bookmark')
+        projected = decode_bookmarks(self.a, json.dumps(root).encode())
+        assert projected is not None
+        self.assertEqual(encode_bookmarks(projected), self.raw)
+
+    def test_canonical_reconnect_and_distinct_servers_with_same_metadata_namespace(self):
+        self.assertEqual(self.a.namespace, self.b.namespace)
+        self.assertNotEqual(self.a.server_key, self.b.server_key)
+        alias = DevelopmentConfig.from_address(' HTTP://192.0.2.10:8089/ ')
+        self.assertEqual(BookmarkScope.from_config(alias), self.a)
+        self.assertEqual(BookmarkScope.from_config(replace(alias, expected_version='test-build')), self.a)
+        self.assertNotEqual(BookmarkScope.from_config(replace(alias, namespace='different')), self.a)
+        self.assertIsNone(decode_bookmarks(self.b, self.raw))
+        saved_b = HubBookmarks(self.b, last_view='DVR')
+        raw_b = encode_bookmarks(saved_b)
+        self.assertEqual(decode_bookmarks(self.b, raw_b), saved_b)
+        self.assertIsNone(decode_bookmarks(self.a, raw_b))
+        self.assertEqual(decode_bookmarks(BookmarkScope.from_config(alias), self.raw), self.saved)
+
+    def test_missing_corrupt_and_unsupported_envelopes_are_not_snapshots(self):
+        root = json.loads(self.raw)
+        invalid = [None, b'', self.raw[:-1], b'\xff', b'[]', b'{}',
+                   b'[' * 2000 + b']' * 2000, b' ' * (MAX_BOOKMARK_BYTES + 1),
+                   self.raw.replace(b'"version":1', b'"version":1,"version":1'),
+                   self.raw.replace(b'"version":1', b'"version":NaN')]
+        for version in (0, 2, True, '1', 1.0):
+            invalid.append(json.dumps(dict(root, version=version)).encode())
+        for raw in invalid:
+            with self.subTest(size=len(raw) if raw else 0):
+                self.assertIsNone(decode_bookmarks(self.a, raw))
+
+    def test_invalid_fields_drop_without_rebinding_selection_or_truncating_identity(self):
+        root = json.loads(self.raw)
+        root.update(guide_group={}, guide_channel=['antenna', '001' + 'x' * 128],
+                    recordings_category='unknown', recordings_filter='cable',
+                    recordings_sort=['title'], dvr_tab='https:example.invalid',
+                    recent_terms=[{}, 'https://example.invalid/', 'one\u0000two', 'data:text/plain,x'], last_view='Search')
+        self.assertEqual(decode_bookmarks(self.a, json.dumps(root).encode()), HubBookmarks(self.a))
+        self.assertIsNone(replace(self.saved, recordings_filter='import').recording_selection)
+        self.assertIsNone(replace(self.saved, recordings_category='Search').recording_selection)
+        self.assertIsNone(replace(self.saved, recording_selection=('other', 'dvr', '001')).recording_selection)
+        self.assertIsNone(replace(self.saved, guide_channel=ChannelKey('other', 'antenna', '001')).guide_channel)
+
+    def test_recent_terms_are_bounded_cleaned_and_deduplicated_newest_first(self):
+        candidate_terms = ('  Café  ', 'ＣＡＦÉ', '', 'x' * 129, 'file:///private',
+                           *(str(i) for i in range(100)))
+        model = replace(self.saved, recent_terms=candidate_terms)
+        self.assertEqual(model.recent_terms, ('Café', *(str(i) for i in range(MAX_RECENT_TERMS - 1))))
+        self.assertEqual(decode_bookmarks(self.a, encode_bookmarks(model)), model)
+        largest = replace(self.saved, recent_terms=tuple('😀' * 127 + str(i) for i in range(MAX_RECENT_TERMS)))
+        raw = encode_bookmarks(largest)
+        self.assertLessEqual(len(raw), MAX_BOOKMARK_BYTES)
+        self.assertEqual(decode_bookmarks(self.a, raw), largest)
+
+    def test_guide_restore_uses_full_channel_key_and_current_group_membership(self):
+        other = ChannelKey(self.a.namespace, 'cable', '001')
+        groups = {'All': (other, self.channel), 'Favorites': (other, self.channel)}
+        self.assertEqual(self.saved.guide_target(self.a, groups), ('Favorites', self.channel))
+        self.assertEqual(self.saved.guide_target(self.a, {'All': (other,)}), ('All', other))
+        self.assertEqual(self.saved.guide_target(self.a, {'Favorites': (other,)}), ('Favorites', other))
+        self.assertEqual(self.saved.guide_target(self.b, groups), ('All', other))
+        self.assertEqual(self.saved.guide_target(self.a, {}), (None, None))
+
+    def test_dvr_restore_uses_available_stable_tab_keys(self):
+        self.assertEqual(self.saved.dvr_target(self.a, ('scheduled', 'passes')), 'passes')
+        self.assertEqual(self.saved.dvr_target(self.a, ('scheduled',)), 'scheduled')
+        self.assertEqual(self.saved.dvr_target(self.b, ('scheduled', 'passes')), 'scheduled')
+        self.assertIsNone(self.saved.dvr_target(self.a, ()))
+
+    def test_recording_restore_matches_only_current_unambiguous_qualified_leaf(self):
+        recording = Recording('001', 'Example', None, None, None, False, 100, 1800,
+                              namespace=self.a.namespace, provenance='dvr')
+        browser = LibraryBrowser((replace(recording, provenance='import'), recording))
+        browser.set_mode('All')
+        browser.set_provenance_filter('dvr')
+        row_ids = tuple(row.id for row in browser.rows())
+        self.assertEqual(self.saved.matching_recording_row(self.a, row_ids), repr(self.saved.recording_selection))
+        self.assertIsNone(self.saved.matching_recording_row(self.b, row_ids))
+        self.assertIsNone(self.saved.matching_recording_row(self.a, row_ids * 2))
+        browser.set_provenance_filter('import')
+        self.assertIsNone(self.saved.matching_recording_row(self.a, (row.id for row in browser.rows())))
+
+    def test_startup_defaults_and_last_use_only_current_admitted_server(self):
+        choose = partial(startup_destination, admission=StartupAdmission.ADMITTED, intent_current=True)
+        for view in ('Dashboard', 'Guide', 'Recordings', 'DVR'):
+            self.assertEqual(choose(view), view)
+        for invalid in (None, '', 3, True, 'Scheduled', 'Search', 'Settings', 'guide', []):
+            self.assertEqual(choose(invalid), 'Dashboard')
+        self.assertEqual(choose(), 'Dashboard')
+        self.assertEqual(choose('Last', source=self.a, bookmarks=self.saved), 'Recordings')
+        self.assertEqual(choose('Last', source=self.b, bookmarks=self.saved), 'Dashboard')
+        self.assertEqual(choose('Last', source=self.a), 'Dashboard')
+        for preference in ('Guide', 'Last'):
+            self.assertEqual(startup_destination(preference, admission=StartupAdmission.UNAVAILABLE, intent_current=True,
+                                                 source=self.a, bookmarks=self.saved), 'Dashboard')
+
+    def test_pending_and_superseded_launch_intent_do_not_select_automatic_route(self):
+        self.assertIsNone(startup_destination('Guide', admission=StartupAdmission.PENDING, intent_current=True))
+        for admission in StartupAdmission:
+            self.assertIsNone(startup_destination('Guide', admission=admission, intent_current=False))
+            self.assertIsNone(startup_destination('Guide', admission=admission, intent_current=True, launch_override=True))
 
 
 if __name__ == '__main__':
