@@ -87,7 +87,7 @@ Do not run it under the public runner's subprocess-forbidding guard or confuse i
 fixture commits with changes to the source repository. Static checks require a
 matched Omega interpreter, Kodistubs and checker/cache; `--branch omega` alone does
 not select stubs. For private qualification use the exact reviewed, committed
-add-on root (currently unpublished numeric `0.1.4`), checking for retained-version
+add-on root (currently numeric `0.2.0`), checking for retained-version
 collisions first. Preserve the add-on ID, profile and operation history. Source/ZIP
 digests and native evidence stay private. Static/fake-GUI passes are not native
 qualification or a release; prior `0.1.2` / `0.1.3~issue4` evidence does not qualify

@@ -1,148 +1,52 @@
 # Channels DVR Hub for Kodi
 
-**Unofficial Kodi Program add-on · Kodi 21 Omega · ALPHA (work in progress)**
+**0.2.0 ALPHA · Kodi 21 Omega only · Unofficial Program add-on**
 
-**Source candidate: `0.1.4` ALPHA · unpublished Dashboard presentation follow-up (#7)**
+Channels DVR Hub connects Kodi to your existing Channels DVR. It provides a
+Dashboard, a full-screen Guide, recording browsing, scheduling and pass
+management, Search, and Settings. Managed Omega qualification was partial.
+Use a secondary Channels DVR for testing where practical and check DVR changes
+in the server before relying on them.
 
-Channels DVR Hub is an independent, pre-release client for an existing Channels DVR
-server. Its goal is to provide guide, recording and pass workflows inside Kodi,
-with explicit playback through Kodi's native player. It is **not** a Kodi PVR
-replacement or a DVR server administration/update tool.
+[Changelog](CHANGELOG.md) · [Known limitations](docs/LIMITATIONS.md) ·
+[User guide](docs/USERGUIDE.md) · [Report an issue](https://github.com/kcook98765/script.channelsdvr.hub/issues)
 
-> **Alpha status:** The 0.1.2 package is published for testing, but connected
-> DVR behavior, video/audio playback, seeking, scheduling, pass operations and
-> failure recovery have **not** completed native acceptance testing for this
-> release. Do not rely on this alpha for important recordings or DVR changes.
-> This project is not affiliated with or endorsed by Channels or Fancy Bits, LLC.
+## Install or update from kcook-lab-repo
 
-The 0.1.4 source candidate has **no connected/native acceptance**. Prior
-Hub builds, the `0.1.3~issue4` qualification build and EPG observations do not accept
-this combined runtime. Source and fake-adapter tests are not full feature acceptance.
+On Kodi 21 Omega, open **Settings → Add-ons → Install from repository →
+kcook-lab-repo → Program add-ons → Channels DVR Hub**. Choose **Install** for a
+new installation or check the add-on's **Update** menu for 0.2.0. If Kodi still
+shows 0.1.4, open the repository's information screen and choose **Check for
+updates**, then reopen the Hub entry.
 
-## Install on Kodi 21 Omega
+If you need the repository installer, add
+`https://kcook98765.github.io/kcook-lab-repo/` in **Settings → File manager →
+Add source**. In **Settings → Add-ons → Install from zip file**, select the
+source and install the current `repository.ai.kodi` ZIP. Kodi may prompt you to
+review and enable **Unknown sources**. Launch Hub from **Add-ons → Program
+add-ons** after installation. The distribution repository tracks which build
+is available through the public catalog.
 
-**Recommended: install from the Kodi repository** to use Kodi's normal
-dependency handling and update mechanism.
+[Repository installer and instructions](https://github.com/kcook98765/kcook-lab-repo)
 
-1. In Kodi, open **Settings → File manager → Add source**.
-2. Enter `https://kcook98765.github.io/kcook-lab-repo/` and name the source
-   `kcook-lab-repo`.
-3. Open **Settings → Add-ons → Install from zip file**. If Kodi requests it,
-   enable **Unknown sources** in **Settings → System → Add-ons**, and review
-   Kodi's warning.
-4. Select `kcook-lab-repo` and install `repository.ai.kodi-0.1.1.zip`
-   (or the current approved repository installer displayed there).
-5. Open **Install from repository → kcook-lab-repo → Program add-ons →
-   Channels DVR Hub**, then choose **Install**.
-6. Launch it from **Add-ons → Program add-ons → Channels DVR Hub**.
+## Configure your DVR
 
-**Alternative: install the add-on ZIP directly.**
+The DVR address starts blank. In Hub **Settings → Configure DVR address**, enter
+an authorized DVR's numeric IP address and select **Connect**. HTTP port 8089 is
+used when omitted. The backend version floor is `2026.08.07.0346`; future builds
+may change response behavior. Use an authorized server and content with the
+necessary subscriptions. Keep the DVR on your trusted network.
 
-1. Open the [Channels DVR Hub 0.1.2 Alpha GitHub release]
-   (https://github.com/kcook98765/kcook-lab-repo/releases/tag/channelsdvr-hub-0.1.2-alpha).
-2. Download **`script.channelsdvr.hub-0.1.2.zip`** (not the source-code ZIP).
-3. Make the downloaded ZIP accessible to your Kodi device.
-4. In Kodi, use **Settings → Add-ons → Install from zip file** and choose the
-   downloaded ZIP. Enable **Unknown sources** if prompted.
-5. Open **Add-ons → Program add-ons → Channels DVR Hub**.
+## Development and licensing
 
-Direct ZIP installation does not by itself enroll the add-on for updates from
-this repository. For ongoing updates, install the repository as described above.
+The release package is built from committed runtime files. Developers can use
+`python3 -B tools/package.py` for a local Omega build and provenance. The GitHub
+auto-generated source archive is for source inspection. See the [development
+notes](docs/DEVELOPMENT.md), [profile identity](docs/IDENTITY.md), [material
+origins](docs/MATERIALS.md), and [OpenCode distribution
+integration](docs/OPENCODE-DISTRIBUTION.md).
 
-**Links:** [Published release and direct ZIP download]
-(https://github.com/kcook98765/kcook-lab-repo/releases/tag/channelsdvr-hub-0.1.2-alpha)
-· [Kodi repository project](https://github.com/kcook98765/kcook-lab-repo)
-· [Report a problem](https://github.com/kcook98765/script.channelsdvr.hub/issues)
-
-## Requirements and first connection
-
-- **Kodi 21 Omega** is the only published, targeted Kodi release for this alpha;
-  other Kodi versions and platforms have not been accepted.
-- An existing, authorized **Channels DVR server** and any necessary subscription
-  or content entitlements.
-- Channels DVR backend build **`2026.08.07.0346` or newer**. This is a minimum
-  version check, not a guarantee of compatibility with every later backend.
-- Network access from Kodi to your own DVR server.
-
-Hub starts with **no server address configured**. Use the add-on's
-**Connection** settings to enter your DVR's numeric IP address; the published
-0.1.2 package uses HTTP port **8089** if a port is omitted. Do not expose an
-unauthenticated DVR server to the public internet.
-
-## Functionality implemented in source
-
-- **Dashboard and navigation:** Guide, Recordings, Scheduled, Pass list,
-  Search and Connection. Counts distinguish server-reported totals from
-  loaded, potentially stale or unknown data.
-- **Guide and recordings:** Browse programme details, shows, seasons, episodes,
-  recent recordings and movies; locally search loaded data. DVR, Imported
-  and Unknown recording provenance are distinguished.
-- **Deliberate playback:** **OK opens details by default.** An explicit
-  **Play** action can hand an eligible completed recording or advertised live
-  channel to Kodi's native player. Live tuning may need an additional
-  confirmation; available tuner capacity is not assumed.
-- **Recording and pass workflows:** Source support for future recording requests,
-  programme-only passes and Series pass creation/management, with confirmation,
-  ownership and uncertain-result safeguards. Existing Series passes require
-  explicit adoption; Series editing is **name-only** and advanced conditions
-  remain read-only.
-- **Local state:** Operation history is stored in standard-library SQLite
-  within Hub's own Kodi profile. Artwork and media are handled by Kodi.
-
-These are **implemented source features, not confirmed working end-to-end** in
-the published 0.1.2 alpha. There is no automatic old-EPG-profile migration,
-watched/resume synchronization, arbitrary advanced-rule editing or native PVR
-replacement. Backend write operations may persist after exiting Kodi. If a
-write has an uncertain outcome, reconcile it before retrying.
-
-## Development status and source versions
-
-The [published 0.1.2 Alpha ZIP]
-(https://github.com/kcook98765/kcook-lab-repo/releases/tag/channelsdvr-hub-0.1.2-alpha)
-is hosted in **kcook-lab-repo** and listed in its Omega Program add-ons catalog.
-This checkout declares **0.1.4** in `script.channelsdvr.hub/addon.xml` as an
-unpublished ALPHA candidate based on merged 0.1.3 source at `7f2d8af`. Issue #7's
-Dashboard-only presentation correction removes elapsed runtime and repeated or
-routine status copy, with one absolute Last updated label and one separate warning.
-Statistics scheduling, listing views and safety checks are unchanged. This is not
-a published artifact; GitHub's source archive is not an installable add-on ZIP.
-
-Developers can prepare the local Omega candidate with `python3 -B tools/package.py`
-**after reviewing and committing the runtime inputs**. The packager binds the ZIP
-to exact committed runtime bytes and retains provenance under `dist/`; this is
-not release or publication approval. See [Development](docs/DEVELOPMENT.md).
-
-The release has static/offline and packaging verification, but **0.1.2 has not
-been natively exercised against a connected DVR**. Prior results for 0.1.0
-or the former EPG add-on identity are not evidence that this release passed.
-
-Development has used [Kodi Lab](https://forum.kodi.tv/showthread.php?tid=388999),
-a project for managing and inspecting Kodi environments during agent-assisted
-add-on development. That tooling does not substitute for live feature
-acceptance. Contributions, bug reports and testing feedback are welcome via
-[GitHub issues](https://github.com/kcook98765/script.channelsdvr.hub/issues).
-
-## Kodi distribution preparation
-
-The canonical distribution repository is
-**https://github.com/kcook98765/kcook-lab-repo**; this source repository remains
-https://github.com/kcook98765/script.channelsdvr.hub. Do not repoint its origin.
-Use the separately installed `/kodi-release-prepare` command or `github-operator`
-from this source project without selecting the distribution project. See
-[OpenCode setup restoration and the exact 0.1.2 evidence binding](docs/OPENCODE-DISTRIBUTION.md).
-Preparation supplies no native acceptance or publication authority.
-
-## Documentation
-
-- [User guide](docs/USERGUIDE.md): navigation, configuration and guarded actions.
-- [Material origins](docs/MATERIALS.md): code provenance, generated artwork and notices.
-- [Development](docs/DEVELOPMENT.md): source layout and offline-test scope.
-- [Limitations](docs/LIMITATIONS.md): unsupported features and acceptance gaps.
-- [Identity](docs/IDENTITY.md): separate profile and reconciliation boundaries.
-
-**Notice:** This is an unofficial integration. Use only your own authorized
-server and content. Provider authorization for all API operations used here
-has not been obtained or verified; see the distribution release notes for
-the unresolved limitations. Keep secrets out of Git.
-
-Source licensed under the [MIT license](LICENSE).
+Source is licensed under the [MIT license](LICENSE). This independent project
+has no affiliation with or endorsement from Channels or Fancy Bits, LLC.
+Provider authorization for all API operations and content rights remain
+unverified. See [known limitations](docs/LIMITATIONS.md).

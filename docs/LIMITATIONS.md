@@ -1,18 +1,28 @@
 # Limitations and acceptance status
 
-## Pre-release status
+## 0.2.0 ALPHA acceptance
 
-Channels DVR Hub `0.1.3` is an **unpublished ALPHA candidate** targeting Kodi 21 /
-Omega. **The combined candidate has no connected/native acceptance.** Results from
-0.1.2, 0.1.3~issue4, Hub 0.1.0 or an earlier EPG identity do not establish its
-acceptance. Source tests, fake adapters and static validation are useful evidence,
-but are not full functional or release acceptance.
+Kodi 21 Omega is the only supported distribution lane. Managed native tests
+covered representative changed workflows and preserved settings on upgrade.
+Qualification remains **PARTIAL**.
 
-Broader platform coverage, audio, seeking and native Series create/read/update/
-delete workflows and adoption remain unaccepted. Implemented source behavior must
-not be presented as completed native validation. A portable design and an
-all-platform manifest are not proof that every host, skin or embedded Python
-environment works.
+- Recording playback can intermittently stall on Kodi's loading spinner.
+  Decoded full-screen playback, background browsing and Stop were observed on
+  retained-recording checkpoints. Audible playback and native seek remain open.
+- Live confirmation was tested and declined. Actual live playback and tuner
+  release await supervised qualification. Compact Now Playing controls are
+  incomplete. [Playback #17](https://github.com/kcook98765/script.channelsdvr.hub/issues/17)
+- Some recording totals and storage statistics can be Unknown. A reported
+  tuner count or idle activity cannot establish free tuner capacity. Dashboard
+  text may clip at some viewport sizes. [Statistics #6](https://github.com/kcook98765/script.channelsdvr.hub/issues/6) · [Clipping #9](https://github.com/kcook98765/script.channelsdvr.hub/issues/9)
+- Native switching between two admitted DVRs, Guide-origin pass creation and
+  some recovery scenarios remain outside the observed coverage. Search uses
+  bounded loaded listings and discloses partial coverage.
+
+Testing against a secondary DVR is recommended where practical. This is an
+independent integration. Use only an authorized DVR and permitted content.
+Provider permission and content authorization for all operations remain
+unverified. [Channels terms](https://getchannels.com/tos/) · [Server API](https://getchannels.com/docs/server-api/introduction/)
 
 ## Backend compatibility and data
 
@@ -52,7 +62,5 @@ Hub does not automatically discover, copy or migrate the old EPG profile. Separa
 profiles do not make concurrent writers safe. Reconcile unresolved old operations
 and establish an exclusive writer first; see [Identity](IDENTITY.md).
 
-The public offline runner covers an explicit 15-module subset (372 tests in the
-initial Python 3.12 run). Broader Dashboard UI, recording/pass lifecycle, recovery
-and archive-replay cohorts are not included. See [Development](DEVELOPMENT.md).
-A passing subset is not full regression coverage or native acceptance.
+The public offline runner covers a subset of the regressions. Source and static
+checks complement the scoped native evidence. See [Development](DEVELOPMENT.md).
