@@ -6,7 +6,7 @@ from uuid import uuid4
 from .models import ChannelKey
 from .normalization import DataState
 from .pass_browser import display_text
-from .playback_descriptors import PlaybackSelection, LibraryRecording, PlaybackError
+from .playback_descriptors import PlaybackSelection, LibraryRecording, LiveProviderScope, PlaybackError
 from .playback_worker import PlaybackWorker
 from .ui_text import text
 
@@ -20,6 +20,8 @@ class _LiveConsent:
     binding: tuple = field(repr=False)
     expires_at: float
     source_pinned: bool
+    display_label: str = field(repr=False)
+    provider_scope: LiveProviderScope = field(repr=False)
 
 
 class PlaybackUI:
@@ -113,9 +115,14 @@ class PlaybackUI:
         return 'play_live' if self.window.view in ('Guide', 'Search') else 'play_recording'
 
     def request(self, gui):
+        self.window._dispatcher.assert_owner()
+        if not self.window._owns_input():
+            return
         self.cancel()  # a new explicit command always revokes earlier one-use consent
+        self._detach_player()  # new attempt cannot sample or publish the old one
         selection = self.selection()
         if selection is None:
+            self.state = 'selection_unavailable'
             gui.Dialog().ok(self.window.t('playback'), self.window.t('play_read_hint_required'))
             return
         if self.worker is None:
@@ -128,6 +135,9 @@ class PlaybackUI:
         if self.worker.submit(selection, token):
             self._pending = (selection, token, context)
             self.state = 'preparing'
+        else:
+            self.window._dispatcher.cancel_playback_input(context[2])
+            self.state = 'prepare_refused'
 
     def cancel(self, *, keep_input=False):
         if self._pending is not None and not keep_input:
@@ -145,11 +155,17 @@ class PlaybackUI:
         return self._pending is pending and current
 
     def _context_current(self, selection, context):
+        w = self.window
         current = self.selection()
         return (current == selection
-                and self.window._dispatcher.playback_input_current(context[2])
-                and self.window.view == context[0]
-                and self.window._current_data().items is context[1])
+                and w._dispatcher.playback_input_current(context[2])
+                and w.view == context[0]
+                and w._current_data().items is context[1]
+                and w._owns_input())
+
+    def _fresh(self, descriptor):
+        return (type(descriptor.prepared_at) in (int, float)
+                and 0 <= self._clock() - descriptor.prepared_at <= 30)
 
     def _consent_matches(self, consent, pending):
         return (type(consent) is _LiveConsent and pending is not None
@@ -157,16 +173,29 @@ class PlaybackUI:
                 and consent.selection == pending[0] and consent.attempt == pending[1]
                 and consent.context is pending[2] and self._current(pending))
 
-    def _review_live(self, gui, pending: tuple[PlaybackSelection, str, tuple], descriptor):
+    def _review_live(self, gui, pending: tuple[PlaybackSelection, str, tuple], descriptor,
+                     display_label: str, provider_scope: LiveProviderScope):
         """First six-GET result is review intent only, never a playable authority."""
         assert pending is not None
         w = self.window
         scope = w.t('play_source_pin' if descriptor.source_pinned else 'play_source_any')
         self._reviewing = True
         try:
-            confirmed = gui.Dialog().yesno(w.t('play_live'),
-                w.t('play_live_confirm', source=scope) + '\n\n' + w.t('live_recheck_notice',
-                    channel=descriptor.resolved_label or pending[0].title), defaultbutton=gui.DLG_YESNO_NO_BTN)
+            dialog = gui.Dialog()
+            heading = w.t('play_live')
+            body = (w.t('play_live_confirm', source=scope) + '\n\n'
+                    + w.t('live_recheck_notice', channel=display_label))
+            default_no = gui.DLG_YESNO_NO_BTN
+            if not self._current(pending):
+                if self._pending is pending:
+                    self.cancel()
+                    self.state = 'selection_changed'
+                return
+            if not self._fresh(descriptor):
+                self.cancel()
+                self.state = 'expired'
+                return
+            confirmed = dialog.yesno(heading, body, defaultbutton=default_no)
         except Exception:
             if self._pending is pending:
                 self.cancel()
@@ -185,7 +214,7 @@ class PlaybackUI:
         assert self.worker is not None and self._binding is not None
         attempt = str(uuid4())
         consent = _LiveConsent(selection, attempt, context, self._binding,
-                               self._clock() + 300, descriptor.source_pinned)
+                                self._clock() + 300, descriptor.source_pinned, display_label, provider_scope)
         # Same serial worker, NEW client/attempt, original input lease. No GUI post
         # and no old URL/descriptor is carried into the fresh post-consent read.
         if self.worker.submit(selection, attempt):
@@ -240,28 +269,33 @@ class PlaybackUI:
                 self.cancel()
                 self.state = 'metadata_rejected'
                 return
-            if selection.kind == 'live' and consent is None:
-                self._review_live(gui, pending, descriptor)
-                return
-            if selection.kind == 'live' and (type(consent) is not _LiveConsent or not self._consent_matches(consent, pending)
-                    or descriptor.source_pinned != consent.source_pinned):
-                self.cancel()
-                self.state = 'consent_scope_changed'
-                return
-            if (descriptor.selection != selection or descriptor.attempt != token
-                    or not 0 <= self._clock()-descriptor.prepared_at <= 30):
+            if not self._fresh(descriptor):
                 self.cancel()
                 self.state = 'expired'
                 return
-            if (not self._current(pending)
-                    or not 0 <= self._clock()-descriptor.prepared_at <= 30):
+            if selection.kind == 'live':
+                label, provider = descriptor.resolved_label, descriptor.live_scope
+                if (type(label) is not str or not label.strip()
+                        or type(provider) is not LiveProviderScope
+                        or not provider.matches(selection.identity, descriptor.source_pinned)):
+                    self.cancel()
+                    self.state = 'metadata_rejected'
+                    return
+                if consent is None:
+                    self._review_live(gui, pending, descriptor, label, provider)
+                    return
+                if (not self._consent_matches(consent, pending) or label != consent.display_label
+                        or provider != consent.provider_scope or descriptor.source_pinned != consent.source_pinned):
+                    self.cancel()
+                    self.state = 'consent_scope_changed'
+                    return
+            if not self._current(pending) or not self._fresh(descriptor):
                 self.cancel()
                 self.state = 'cancelled'
                 return
             self.cancel(keep_input=True)
+            lease = pending[2][2]
             try:
-                if self.player is not None:
-                    self.player.close()  # detach callbacks only; NEVER stop Kodi
                 factory = self._player_factory
                 if factory is None:
                     from .playback_native import NativePlayer
@@ -272,32 +306,38 @@ class PlaybackUI:
                 if reference:
                     descriptor = replace(descriptor, art=(('thumb', reference),))
                 self.player = factory(w._dispatcher.assert_owner)
-                lease = pending[2][2]
                 def admit():
                     return (self._context_current(selection, pending[2])
-                        and 0 <= self._clock()-descriptor.prepared_at <= 30
+                        and self._fresh(descriptor)
                         and (selection.kind != 'live' or (type(consent) is _LiveConsent
                              and consent.binding is self._binding and self._clock() < consent.expires_at))
                         and w._dispatcher.commit_playback(lease))
-                self.state = 'handoff' if self.player.handoff(descriptor,
-                    admit=admit) is True else 'handoff_refused'
-                w._dispatcher.cancel_playback_input(lease)
+                outcome = self.player.handoff(descriptor, admit=admit)
+                self.state = ('handoff' if outcome is True else
+                              'handoff_unknown' if outcome is None else 'handoff_refused')
             except Exception:
-                w._dispatcher.cancel_playback_input(pending[2][2])
                 self.state = 'handoff_failed'
                 if not w._closed:
                     gui.Dialog().ok(w.t('playback'), w.t('play_failed'))
+            finally:
+                w._dispatcher.cancel_playback_input(lease)
         if self.player is not None:
             for state in self.player.poll():
-                if self._pending is None:
-                    self.state = state  # old playback callbacks cannot shadow pending consent/read state
+                if self._pending is None and self.state != 'handoff_unknown':
+                    self.state = state  # callbacks cannot resolve an ambiguous send
 
     def diagnostic_text(self):
         self.window._dispatcher.assert_owner()
         # An explicit diagnostic checkpoint, not a poll loop or a control gate.
-        sample = self.player.recording_readback() if self.player is not None else None
+        sample = (self.player.recording_readback() if self.player is not None and self._pending is None
+                  else None)
         state = self.state if sample is None else f'{self.state}; {sample.value}'
         return text(self.window.strings, 'play_diagnostic', state=state)
+
+    def _detach_player(self):
+        player, self.player = self.player, None
+        if player is not None:
+            player.close()  # detach callbacks only; NEVER stop Kodi
 
     def close(self):
         self.window._dispatcher.assert_owner()
@@ -305,6 +345,4 @@ class PlaybackUI:
         if self.worker is not None:
             self.worker.close()
             self.worker = None
-        if self.player is not None:
-            self.player.close()
-            self.player = None
+        self._detach_player()

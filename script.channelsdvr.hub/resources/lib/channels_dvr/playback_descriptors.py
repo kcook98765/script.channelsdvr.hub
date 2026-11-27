@@ -10,6 +10,7 @@ from urllib.parse import quote, unquote, urljoin, urlsplit
 
 from .metadata_http import _origin
 from .models import ChannelKey, Recording
+from .newbuild_compatibility import supported_build
 from .pass_browser import display_text
 
 
@@ -58,6 +59,21 @@ class PlaybackSelection:
 
 
 @dataclass(frozen=True)
+class LiveProviderScope:
+    """Bookended build and advertised source from an exact live metadata join."""
+    build: str
+    advertised_source: str
+
+    def matches(self, key: ChannelKey, pinned: bool) -> bool:
+        if (type(key) is not ChannelKey or type(pinned) is not bool
+                or not supported_build(self.build) or type(self.advertised_source) is not str):
+            return False
+        if pinned:
+            return self.advertised_source != 'ANY' and self.advertised_source == key.source_id
+        return self.advertised_source == 'ANY'
+
+
+@dataclass(frozen=True)
 class PlaybackDescriptor:
     selection: PlaybackSelection
     url: str = field(repr=False)
@@ -71,7 +87,8 @@ class PlaybackDescriptor:
     resume_sync: bool = False
     art: tuple[tuple[str, str], ...] = field(default=(), repr=False)
     recording: LibraryRecording | None = None
-    resolved_label: str | None = None
+    resolved_label: str | None = field(default=None, repr=False)
+    live_scope: LiveProviderScope | None = field(default=None, repr=False)
 
 
 def rows(value, limit=10000):

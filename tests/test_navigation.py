@@ -18,7 +18,7 @@ from channels_dvr.library import LibraryBrowser
 from channels_dvr.live_loader import IndexResult
 from channels_dvr.models import Event
 from channels_dvr.normalization import DataState
-from channels_dvr.playback_descriptors import PlaybackDescriptor
+from channels_dvr.playback_descriptors import LiveProviderScope, PlaybackDescriptor
 from channels_dvr.playback_ui import PlaybackUI
 from channels_dvr.playback_worker import PlaybackResult
 from channels_dvr.repository import MockRepository
@@ -757,12 +757,21 @@ class NavigationTests(unittest.TestCase):
         return worker, player, start
 
     @staticmethod
-    def prepare_playback_result(worker):
+    def prepare_playback_result(worker, **changes):
         selection, attempt = worker.submit.call_args.args
+        scope = LiveProviderScope('2026.10.24.0621', 'ANY') if selection.kind == 'live' else None
         descriptor = PlaybackDescriptor(selection, 'fixture://' + attempt, 'video/mp2t', attempt, 10.0,
-                                        resolved_label='Fixture station')
+                                        resolved_label='Fixture station', live_scope=scope)
+        descriptor = replace(descriptor, **changes)
         worker.poll.return_value = PlaybackResult(selection, attempt, descriptor)
         return descriptor
+
+    def watch_live_fixture(self):
+        worker, player, start = self.playback_fixture('Guide')
+        self.dialog.select.side_effect = lambda _, labels: labels.index(self.w.t('watch_short'))
+        self.click(304)
+        worker.submit.assert_called_once()
+        return worker, player, start
 
     def test_playback_mouse_action_before_or_after_click_keeps_one_exact_handoff(self):
         for raw_first in (True, False):
@@ -829,6 +838,76 @@ class NavigationTests(unittest.TestCase):
         player.handoff.assert_called_once()
         start.assert_not_called()
         self.assertEqual(self.w._playback_ui.state, 'handoff_refused')
+
+    def test_playback_raw_only_click_cannot_authorize_after_foreground_loss(self):
+        for during_prep in (False, True):
+            with self.subTest(during_prep=during_prep):
+                self.w = w = self.window()
+                worker, player, start = self.playback_fixture()
+                self.click(301)
+                self.prepare_playback_result(worker)
+
+                def leave_foreground():
+                    self.front += 1
+                    self.post_action(self.gui.ACTION_MOUSE_LEFT_CLICK)
+
+                if during_prep:
+                    handoff = player.handoff.side_effect
+
+                    def prepare_then_admit(descriptor, *, admit):
+                        leave_foreground()
+                        return handoff(descriptor, admit=admit)
+
+                    player.handoff.side_effect = prepare_then_admit
+                else:
+                    leave_foreground()
+                try:
+                    w.process_pending()
+                    self.assertEqual(w._playback_ui.state,
+                                     'handoff_refused' if during_prep else 'selection_changed')
+                    self.assertEqual(player.handoff.call_count, int(during_prep))
+                finally:
+                    self.front = w._native_window
+                w.process_pending()  # recovering foreground does not revive the old request
+                start.assert_not_called()
+
+    def test_new_pending_play_does_not_sample_or_publish_the_previous_player(self):
+        worker, previous, _ = self.playback_fixture()
+        w = self.w
+        self.click(301)
+        self.prepare_playback_result(worker)
+        w.process_pending()
+        previous.recording_readback.return_value = SimpleNamespace(value='recording_exact_video')
+        self.assertIn('recording_exact_video', w._playback_ui.diagnostic_text())
+        previous.recording_readback.reset_mock()
+        previous.poll.reset_mock()
+        previous.poll.return_value = ('stopped_observed',)
+
+        self.click(301)
+        previous.close.assert_called_once()
+        self.assertIsNone(w._playback_ui.player)
+        diagnostic = w._playback_ui.diagnostic_text()
+        self.assertIn('preparing', diagnostic)
+        self.assertNotIn('recording_exact_video', diagnostic)
+        self.assertNotIn('stopped_observed', diagnostic)
+        previous.recording_readback.assert_not_called()
+        previous.poll.assert_not_called()
+
+    def test_unknown_send_stays_distinct_from_advisory_callbacks_and_does_not_retry(self):
+        worker, player, start = self.playback_fixture()
+        handoff = player.handoff.side_effect
+        player.handoff.side_effect = lambda descriptor, *, admit: (
+            None if handoff(descriptor, admit=admit) is True else False)
+        player.poll.return_value = ('error_observed',)
+        player.recording_readback.return_value = SimpleNamespace(value='recording_player_idle')
+        self.click(301)
+        self.prepare_playback_result(worker)
+        self.w.process_pending()
+        self.w.process_pending()
+        self.assertIn('handoff_unknown; recording_player_idle', self.w._playback_ui.diagnostic_text())
+        start.assert_called_once()
+        player.handoff.assert_called_once()
+        self.dialog.ok.assert_not_called()
 
     def test_playback_pending_selection_keeps_exact_source_snapshot_view_and_position(self):
         for changed in ('source', 'items', 'view', 'position'):
@@ -902,6 +981,64 @@ class NavigationTests(unittest.TestCase):
                     w.process_pending()
                     start.assert_called_once_with(second)
                     self.assertEqual(w._playback_ui.state, 'handoff')
+
+    def test_watch_live_refuses_stale_or_unresolved_review_before_opening(self):
+        for changes, state in (({'prepared_at': -20.001}, 'expired'),
+                               ({'prepared_at': 10.001}, 'expired'),
+                               ({'resolved_label': None}, 'metadata_rejected'),
+                               ({'live_scope': None}, 'metadata_rejected'),
+                               ({'source_pinned': True}, 'metadata_rejected')):
+            with self.subTest(changes=changes):
+                self.w = self.window()
+                worker, player, _ = self.watch_live_fixture()
+                self.prepare_playback_result(worker, **changes)
+                self.w.process_pending()
+                self.dialog.yesno.assert_not_called()
+                player.handoff.assert_not_called()
+                self.assertEqual(self.w._playback_ui.state, state)
+
+    def test_watch_live_rechecks_freshness_at_modal_entry(self):
+        worker, player, _ = self.watch_live_fixture()
+        now = [10.0]
+        self.w._playback_ui._clock = lambda: now[0]
+
+        def prepare_dialog():
+            now[0] = 10.001
+            return self.dialog
+
+        self.prepare_playback_result(worker, prepared_at=-20.0)  # age 30 s at poll
+        with patch.object(self.gui, 'Dialog', side_effect=prepare_dialog):
+            self.w.process_pending()
+        self.dialog.yesno.assert_not_called()
+        player.handoff.assert_not_called()
+        self.assertEqual(self.w._playback_ui.state, 'expired')
+
+    def test_watch_live_yes_cannot_authorize_a_changed_label_provider_scope_or_pin(self):
+        for changed in ('label', 'build', 'pin'):
+            with self.subTest(changed=changed):
+                self.w = self.window()
+                worker, player, _ = self.watch_live_fixture()
+                self.dialog.yesno.return_value = True
+                self.dialog.yesno.reset_mock()
+                first = self.prepare_playback_result(worker)
+                self.w.process_pending()
+                self.assertIn('Fixture station', self.dialog.yesno.call_args.args[1])
+                self.assertEqual(worker.submit.call_count, 2)
+                if changed == 'label':
+                    updates = {'resolved_label': 'Fixture Station'}  # exact, not casefolded
+                elif changed == 'build':
+                    updates = {'live_scope': replace(first.live_scope, build='2026.10.25.0100')}
+                else:
+                    updates = {'source_pinned': True,
+                               'live_scope': replace(first.live_scope,
+                                                     advertised_source=first.selection.identity.source_id)}
+                second = self.prepare_playback_result(worker, **updates)
+                self.assertEqual(second.selection, first.selection)
+                self.w.process_pending()
+                self.w.process_pending()
+                self.dialog.yesno.assert_called_once()  # no implicit re-prompt or retry
+                player.handoff.assert_not_called()
+                self.assertEqual(self.w._playback_ui.state, 'consent_scope_changed')
 
     def test_search_drill_in_returns_to_results_and_preserves_primary_guide(self):
         repo = self.seed()

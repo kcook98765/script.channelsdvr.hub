@@ -188,14 +188,20 @@ class MetadataTransport(unittest.TestCase):
         self.assertEqual(descriptor.selection.identity.provenance, 'unknown')
 
     def test_live_prepare_six_metadata_gets_native_url_unopened(self):
-        opener = Opener([status(), Response(PUBLIC), Response(DEVICES),
-            Response(PLAYLIST, 'audio/x-mpegurl'), Response(ACTIVITY), status()])
-        descriptor = PlaybackMetadataClient(CONFIG, opener=opener).prepare(selection('live'), 'live-attempt')
-        self.assertEqual(descriptor.url, MEDIA)
-        self.assertFalse(descriptor.source_pinned)
-        self.assertEqual(descriptor.availability, 'UNKNOWN')
-        self.assertEqual(len(opener.requests), 6)
-        self.assertFalse(any('/stream.mpg' in r[0] for r in opener.requests))
+        for source in ('ANY', KEY.source_id):
+            with self.subTest(source=source):
+                playlist = PLAYLIST.replace(b'/devices/ANY/', f'/devices/{source}/'.encode())
+                opener = Opener([status(), Response(PUBLIC), Response(DEVICES),
+                    Response(playlist, 'audio/x-mpegurl'), Response(ACTIVITY), status()])
+                descriptor = PlaybackMetadataClient(CONFIG, opener=opener).prepare(selection('live'), 'live-attempt')
+                self.assertEqual(descriptor.url, MEDIA.replace('/devices/ANY/', f'/devices/{source}/'))
+                self.assertIs(descriptor.source_pinned, source != 'ANY')
+                self.assertEqual(descriptor.live_scope.advertised_source, source)
+                self.assertEqual(descriptor.live_scope.build, '2026.10.24.0621')
+                self.assertTrue(descriptor.live_scope.matches(KEY, descriptor.source_pinned))
+                self.assertEqual(descriptor.availability, 'UNKNOWN')
+                self.assertEqual(len(opener.requests), 6)
+                self.assertFalse(any('/stream.mpg' in r[0] for r in opener.requests))
 
     def test_named_404_missing_no_public_or_media_follow(self):
         opener = Opener([status(), HTTPError(ORIGIN, 404, 'secret', Message(), io.BytesIO())])

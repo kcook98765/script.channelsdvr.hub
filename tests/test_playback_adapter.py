@@ -67,19 +67,29 @@ class PlaybackAdapterTests(unittest.TestCase):
         self.assertFalse(self.native.handoff(self.descriptor, admit=admit))
         self.play.assert_called_once_with(LOCATOR, self.item, windowed=False)
 
-    def test_denied_or_failed_send_never_creates_recording_readback(self):
+    def test_denied_or_preparation_failure_never_creates_recording_readback(self):
         self.assertIsNone(self.native.recording_readback())
         self.assertFalse(self.native.handoff(self.descriptor, admit=lambda: False))
         self.play.assert_not_called()
         self.assertIsNone(self.native.recording_readback())
-        self.play.side_effect = RuntimeError('ambiguous dispatch')
+        self.item.setPath.side_effect = RuntimeError('item setup failed')
+        admit = Mock(return_value=True)
         with self.assertRaises(RuntimeError):
-            self.native.handoff(self.descriptor, admit=lambda: True)
-        self.assertFalse(self.native.handoff(self.descriptor, admit=lambda: True))
+            self.native.handoff(self.descriptor, admit=admit)
+        admit.assert_not_called()
+        self.play.assert_not_called()
         self.assertIsNone(self.native.recording_readback())
-        self.play.assert_called_once()
         for observer in self.observers:
             observer.isPlaying.assert_not_called()
+
+    def test_uncertain_sdk_send_retains_only_passive_readback_and_is_not_repeated(self):
+        self.play.side_effect = RuntimeError(LOCATOR)
+        self.assertIsNone(self.native.handoff(self.descriptor, admit=lambda: True))
+        self.assertIs(self.native.recording_readback(), self.Reading.EXACT_VIDEO)
+        self.assertFalse(self.native.handoff(self.descriptor, admit=lambda: True))
+        self.play.assert_called_once_with(LOCATOR, self.item, windowed=False)
+        self.native.close()
+        self.assertIsNone(self.native.recording_readback())
 
     def test_readback_sample_does_not_depend_on_callbacks_or_normalize_aliases(self):
         player = self.start()

@@ -1,4 +1,4 @@
-"""Owner-only, I/O-free playback state. No Kodi callback can supply readback.
+"""Offline ownership prototype; deliberately outside the installable add-on.
 
 The existing source/selection/consent gate remains the authority for sending
 Play. This model tracks that send and subsequent observations, not permission

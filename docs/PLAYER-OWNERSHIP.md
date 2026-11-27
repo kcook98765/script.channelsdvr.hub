@@ -1,8 +1,8 @@
 # Hub #17: player ownership contract (source only)
 
-`player_ownership.py` is a pure, owner-local contract. It is not wired to the
-window, worker, or native player. It neither authorizes the existing Play
-handoff nor diagnoses the pre-handoff `selection_changed` failure.
+[`tests/player_ownership_model.py`](../tests/player_ownership_model.py) is an
+offline prototype outside the installable add-on. It is not wired to the window,
+worker, or native player and does not authorize the existing Play handoff.
 
 - `begin()` replaces the one tracked intent and withdraws prior control
   authority; it does not stop prior playback. `mark_sent()` records a dispatch
@@ -29,19 +29,54 @@ Hub's parent WindowXML receives activation via `onClick`. The raw
 `ACTION_MOUSE_LEFT_CLICK` notification does not enter the command mailbox;
 actual click callbacks (even stale targets) and every other action still do.
 This handles either callback order without pairing, timing, or reissuing a
-Play lease. The existing final handoff and live consent gates are unchanged.
+Play lease. None of the existing final handoff or live consent guards is removed.
+The owner also rechecks the active Hub window and its modal fence before using
+an intent and at final admission. A raw-only click with no Hub command and no
+sampled foreground change does not revoke Play. Native delivery for background,
+disabled, and retired targets, a transient foreground switch between samples,
+and Kodi-owned overlays are not qualified by those checks. Do not infer gesture
+pairing, pointer target, or continuous foreground authority from a raw action.
+
+Live review requires a fresh descriptor (0–30 seconds in the same monotonic
+clock) at the dialog boundary. Only Yes on that exact display label and source
+scope can authorize a new read; the new build, advertised source and pin flag
+must match exactly, in addition to the existing input, selection and source
+lease. The first locator is not retained in consent. A logical scope is not
+server authentication, and no recheck establishes physical tuner capacity.
 
 The script requests native video with `Player.play(..., windowed=False)` once.
 That is the non-windowed start request, not proof of actual fullscreen. After
-a successful recording handoff, `NativePlayer.recording_readback()` can sample
-the last handed-off recording on the owner. The readback in Connection status
+an admitted recording send attempt, `NativePlayer.recording_readback()` can
+sample the recording on the owner. The readback in Connection status
 is a closed code (`recording_exact_video`, `recording_player_idle`,
 `recording_other_active`, or `recording_readback_unknown`). The sample does not
-require a callback, does not run continuously, and is absent before a successful
-recording handoff. A stable but different locator is a nonmatch, never a
+require a callback, does not run continuously, and is absent without an admitted
+recording send attempt. A stable but different locator is a nonmatch, never a
 normalized alias; an external player, failed or inconsistent reads are unknown.
 Even a stable exact locator identifies media, not a native start. No new player
-controls, backend checks, or playback preferences are wired.
+controls, backend checks, or playback preferences are wired. If `Player.play`
+raises after admission, the status is `handoff_unknown`: the same readback is
+available, but neither it nor advisory callbacks prove what that send did.
+There is no automatic retry. A new explicit Play detaches the older observer
+without stopping Kodi, so its callbacks and readback never describe the new intent.
+
+## Preview limits and background gate
+
+In the earlier private retained-file run, explicit Recording Play reached Kodi
+and opened one recording stream, but video remained at the spinner during the
+observation. Physical Kodi Stop returned to browsing with idle readback, and
+the observed stream later cleared. The Watch Live check reached default No and
+was declined without tuning. These observations do not qualify fullscreen AV,
+audio, provider reception, a live Yes, or the corrected source in this worktree.
+
+No visible background preference is enabled. Omega's `windowed=True` requests
+windowed video; it does not prove that this `WindowXML` (with a full-screen Hub
+background) retains usable input/focus alongside playback or restores the route
+and selection afterward. The #17 route must qualify before exposing an option.
+For a later Phase 6 merge, keep it a standalone native playback setting, default
+off, read only for an explicit admitted start, and independent of startup route,
+per-source bookmarks, and live consent. Do not use a global fullscreen toggle,
+restart the stream, or enable compact controls based on the preference.
 
 ## Future ownership integration (plan)
 
@@ -83,7 +118,7 @@ controls, backend checks, or playback preferences are wired.
 ## Focused offline check
 
 ```sh
-PYTHONPATH=script.channelsdvr.hub/resources/lib:tests python3 -B -m unittest test_navigation test_ui_dispatch test_playback_adapter test_player_ownership -v
+PYTHONPATH=script.channelsdvr.hub/resources/lib:tests python3 -B -m unittest test_navigation test_ui_dispatch test_playback_adapter test_native_playback test_player_ownership -v
 PYTHONPATH=script.channelsdvr.hub/resources/lib:tests python3 -B -m unittest test_package.PackageTests.test_gui_settings_protocol_and_callbacks_are_closed_boundaries test_package.PackageTests.test_ast_no_playback_resolver_external_execution_or_persistent_writes -v
 ```
 

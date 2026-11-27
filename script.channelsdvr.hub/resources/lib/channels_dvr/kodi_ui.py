@@ -142,9 +142,12 @@ class ChannelsWindow(xbmcgui.WindowXML):
         return self._route.view
 
     def _owns_input(self):
-        if not self.initialized or self._dispatcher.modal_active:
+        if not self.initialized or self._native_window is None or self._dispatcher.modal_active:
             return False
-        return self._native_window is None or xbmcgui.getCurrentWindowId() == self._native_window
+        try:
+            return xbmcgui.getCurrentWindowId() == self._native_window
+        except (RuntimeError, TypeError, ValueError):
+            return False
 
     def process_pending(self) -> None:
         self._dispatcher.assert_owner()

@@ -1,7 +1,7 @@
 """Pure owner/readback contract; no Kodi SDK, locators in use, or network."""
 import unittest
 
-from channels_dvr.player_ownership import (
+from player_ownership_model import (
     MediaFingerprint, PlayerOwnership, PlayerReadback, PlayerSession, PlayerState,
     ReadbackKind,
 )

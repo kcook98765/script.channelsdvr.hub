@@ -29,7 +29,8 @@ class NativePlayer:
         self._descriptor = None
         self._player = None
 
-    def handoff(self, descriptor, *, admit=lambda: True):
+    def handoff(self, descriptor, *, admit=lambda: True) -> bool | None:
+        """False if refused, True if sent, None if SDK send outcome is unknown."""
         self._owner()
         if self._closed or self._dispatch_attempted:
             return False
@@ -65,8 +66,13 @@ class NativePlayer:
             return False
         # Script context: exactly one API, no plugin handle/resolver/builtin.
         self._dispatch_attempted = True  # do not repeat an ambiguous send if the SDK raises
-        player.play(descriptor.url, item, windowed=False)
         self._descriptor, self._player = descriptor, player
+        try:
+            player.play(descriptor.url, item, windowed=False)
+        except Exception:
+            # Kodi may already have accepted the async message. Retain only the
+            # same owner-scoped readback and never emit the SDK exception text.
+            return None
         return True  # handed off, NOT AV/audio/seek/stop acceptance
 
     def _enqueue(self, token, kind):
@@ -75,7 +81,7 @@ class NativePlayer:
                 self._events.append((token, kind))
 
     def recording_readback(self) -> RecordingReadback | None:
-        """Owner checkpoint for the handed-off recording; no locator leaves here."""
+        """Owner checkpoint after an admitted recording send; no locator leaves here."""
         self._owner()
         descriptor, player = self._descriptor, self._player
         if descriptor is None or descriptor.selection.kind != 'recording' or player is None:
