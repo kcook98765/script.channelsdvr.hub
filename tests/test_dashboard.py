@@ -1331,6 +1331,8 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
             None, None, 'Updated 37s ago | listing failure', '', False)
         w._guide_runtime.presentation = lambda data: data
         w._guide_runtime.poll = Mock(return_value=False)
+        w._hub_session = SimpleNamespace(poll=Mock(return_value=False), input_state=Mock(),
+                                         note_input=Mock(), cancel_startup=Mock(), startup_failed=False)
         w._artwork_ui = SimpleNamespace(poll=Mock(return_value=False), update=Mock(), draw=Mock())
         w._recording_ui = SimpleNamespace(poll=Mock(), _current_config=lambda: None)
         w._storage_ui = SimpleNamespace(poll=Mock())
@@ -1555,6 +1557,7 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         w._dispatcher = UiDispatcher()
         w._revoke_demo = Mock()
         w._guide_runtime.poll = Mock(return_value=False)
+        w._hub_session = SimpleNamespace(poll=Mock(return_value=False))
         w._artwork_ui = SimpleNamespace(poll=Mock(return_value=False))
         w._recording_ui = SimpleNamespace(poll=Mock())
         w._storage_ui = SimpleNamespace(poll=Mock())
@@ -1583,7 +1586,7 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         self.assertEqual(w.focus_calls, [])
         self.assertIs(w.selection, selection)
         self.assertTrue(activation.matches(w._chrome.capture(201)))
-        for coordinator in (w._guide_runtime, w._artwork_ui, w._recording_ui, w._storage_ui,
+        for coordinator in (w._guide_runtime, w._hub_session, w._artwork_ui, w._recording_ui, w._storage_ui,
                             w._playback_ui, w._series_ui, w._dvr):
             self.assertEqual(coordinator.poll.call_count, 3)
 

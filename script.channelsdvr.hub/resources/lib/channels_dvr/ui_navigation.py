@@ -3,7 +3,7 @@ from types import MappingProxyType
 
 from .dvr_ui import DVR_LABELS, DVR_MORE
 from .guide_screen import choose_group, choose_time
-from .ui_menu import CONNECTION, DEVELOPER, command, select
+from .ui_menu import CONNECTION, DEVELOPER, SETTINGS, command, select
 from .ui_modal import ModalGui, dialog_for, modal_call
 from . import ui_recordings, ui_search
 from .ui_routes import VIEW_KEYS, back, enter, route_fence
@@ -19,7 +19,7 @@ LABELS = MappingProxyType({
     'guide.now': 'now', 'guide.time': 'date_time', 'guide.previous': 'previous_hour', 'guide.next': 'next_hour',
     'playback.play': 'play_short', 'recording.schedule': 'schedule', 'recording.status': 'recording_status',
     'programme.tools': 'programme_tools', 'series.manager': 'series_manager',
-    'connection.menu': 'connection', 'addon.settings': 'connection_settings', **dict(CONNECTION),
+    'connection.menu': 'connection', 'addon.settings': 'connection_settings', **dict(SETTINGS),
     'dashboard.refresh': 'dashboard_refresh', 'developer.menu': 'developer',
     'window.actions': 'more', 'window.back': 'back', 'window.exit': 'exit',
     **DVR_LABELS,
@@ -33,7 +33,7 @@ MORE_COMMANDS = {
     'Recordings': ('search.context',),
     'DVR': ('search.context', *DVR_MORE),
     'Search': (),
-    'Settings': ('connection.menu', 'developer.menu'),
+    'Settings': ('connection.storage', 'connection.diagnostics', 'developer.menu'),
 }
 
 SELECTION_COMMANDS = frozenset(('selection.activate', 'selection.open', 'selection.info', 'window.actions',
@@ -81,6 +81,8 @@ def command_label(w, code):
     if code == 'developer.menu':
         return label if view in ('Dashboard', 'Guide', 'Settings') and w.developer_enabled() else None
     if code == 'connection.menu' and view != 'Settings':
+        return None
+    if code == 'connection.diagnostics' and view != 'Settings':
         return None
     if code == 'series.manager':
         return label if w._guide_runtime._mode is None and w._recording_ui._current_config() is not None else None
@@ -174,6 +176,9 @@ def execute_command(w, gui, selected, *, origin=100, guide_ok=False):
         enter(w, DESTINATIONS[selected])
         return True
     if selected in ('dvr.scheduled', 'dvr.passes'):
+        hub = getattr(w, '_hub_session', None)
+        if hub is not None:
+            hub.keep_tab('DVR')
         w._dvr.switch(selected, origin)
         return True
     if selected == 'window.back':
@@ -183,6 +188,9 @@ def execute_command(w, gui, selected, *, origin=100, guide_ok=False):
         w.close()
         return True
     if selected in ui_recordings.LABELS:
+        hub = getattr(w, '_hub_session', None)
+        if hub is not None and selected in ui_recordings.TAB_MODES:
+            hub.keep_tab('Recordings')
         ui_recordings.execute(w, gui, selected, origin)
         return True
     if selected in ui_search.LABELS:
@@ -222,6 +230,10 @@ def _execute_workflow(w, gui, selected, origin, *, guide_ok=False):
         if guide_ok and selected == 'selection.activate' and w._playback_ui.request_guide_ok():
             return
         w._details(allow_search_action=selected != 'selection.info', origin=origin)
+    elif selected == 'connection.diagnostics':
+        from .build_status_ui import status_text
+        body = '\n\n'.join((status_text(w), w._artwork_ui.diagnostic_text(), w._playback_ui.diagnostic_text()))
+        dialog_for(w, gui).textviewer(w.t('connection_diagnostics'), body)
     elif selected in CONNECTION_ACTIONS:
         execute_connection(w, gui, selected)
     elif selected == 'connection.menu':
@@ -267,6 +279,9 @@ def _execute_workflow(w, gui, selected, origin, *, guide_ok=False):
 def settings(w):
     if w._addon is None:
         return
+    hub = getattr(w, '_hub_session', None)
+    if hub is not None:
+        hub.cancel_startup()
     series = getattr(w, '_series_ui', None)
     if series is not None:
         series.close()  # Native Settings can revoke the source before it returns.
@@ -307,13 +322,12 @@ def execute_connection(w, gui, selected):
                 or w._development_blocked is not None):
             dialog_for(w, gui).ok(w.t('connection'), w.t('connect_first'))
             return
-        anchor = w._intended_anchor if w._intended_anchor is not None else w.guide.selection.anchor
         same_scope = config == w._development_config
         w._activate(config)
         if same_scope:
             w._refresh_live()
         else:
-            w._request_live(anchor)
+            w._request_live(w.utc_now())
     elif selected == 'connection.status':
         session = w._live_session
         body = w.t('not_connected')

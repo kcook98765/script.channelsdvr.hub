@@ -1,22 +1,34 @@
-"""Phase 1 owner/route/pointer regressions using inert WindowXML controls only."""
+"""Hub route/pointer regressions with inert controls, and pure bookmark policy tests."""
 from dataclasses import replace
+from functools import partial
 from importlib.util import module_from_spec, spec_from_file_location
+import json
 from pathlib import Path
 import runpy
 import sys
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+from channels_dvr.bookmark_storage import BookmarkReadState, BookmarkStore
 from channels_dvr.dvr_ui import TABS as DVR_TABS
 from channels_dvr.guide import GuideController
 from channels_dvr.guide_fixtures import stress_repository
 from channels_dvr.guide_index import IndexInput, build_index
 from channels_dvr.guide_render import GRID_LEFT, ROW_TOP
 from channels_dvr.guide_screen import DESCRIPTION, METADATA, NOW, TITLE, day_choices, paint_clock, timeline_x
+from channels_dvr.hub_bookmarks import (
+    BookmarkScope, HubBookmarks, MAX_BOOKMARK_BYTES, MAX_RECENT_TERMS,
+    StartupAdmission, decode_bookmarks, encode_bookmarks, startup_destination,
+)
+from channels_dvr.hub_session_ui import BookmarkWorker
 from channels_dvr.library import LibraryBrowser
-from channels_dvr.live_loader import IndexResult
-from channels_dvr.models import Event
+from channels_dvr.live_loader import DevelopmentConfig, IndexResult, LoadResult
+from channels_dvr.live_session import LiveDataSession
+from channels_dvr.metadata_models import MetadataBatch
+from channels_dvr.metadata_repository import DevelopmentSnapshot
+from channels_dvr.models import Channel, ChannelKey, Event, Recording
 from channels_dvr.normalization import DataState
 from channels_dvr.playback_descriptors import LiveProviderScope, PlaybackDescriptor
 from channels_dvr.playback_ui import PlaybackUI
@@ -28,7 +40,7 @@ from channels_dvr.series_manager_models import GeneralSeriesPlan, ManagerView, r
 from channels_dvr.session import OfflineDataSession
 from channels_dvr.ui_chrome import (ACTIONS, CONTENT, CONTEXT, DOWN, INFO, LEFT, NAV, NAV_BACK,
                                    PAGE_DOWN, RIGHT, UP, WHEEL_DOWN, WHEEL_UP)
-from channels_dvr.ui_navigation import command_label, execute_command
+from channels_dvr.ui_navigation import command_label, execute_command, execute_connection
 from channels_dvr.ui_recordings import QUERY, SORT, SOURCE, TABS as RECORDINGS_TABS
 from channels_dvr.ui_routes import PRIMARY, Route, launch_view
 
@@ -108,7 +120,7 @@ class NavigationTests(unittest.TestCase):
         spec.loader.exec_module(self.adapter)
         self.w = self.window()
 
-    def window(self, start='Dashboard'):
+    def window(self, start='Dashboard', *, configure=None):
         w = self.adapter.ChannelsWindow(start_view=start)
         w._addon = SimpleNamespace(getSettingBool=lambda key: key == 'ShowDeveloperTools', getSettingString=lambda _: '',
                                    setSettingBool=Mock(), setSettingString=Mock(), openSettings=Mock())
@@ -120,6 +132,8 @@ class NavigationTests(unittest.TestCase):
         w._playback_ui.request = self.forbidden('play')
         w._recording_ui.request = self.forbidden('recording')
         w._save_development = self.forbidden('settings write')
+        if configure is not None:
+            configure(w)
         w.onInit()
         w.process_pending()
         self.addCleanup(w.shutdown)
@@ -199,11 +213,529 @@ class NavigationTests(unittest.TestCase):
         fake_entry = SimpleNamespace(open_window=launch)
         with patch.dict(sys.modules, {'xbmcaddon': SimpleNamespace(Addon=lambda: addon),
                                      'channels_dvr.kodi_ui': fake_entry}), patch.object(sys, 'path', sys.path.copy()):
-            for arguments, view in (([], 'Dashboard'), (['Scheduled'], 'DVR'), (['Guide'], 'Guide'),
+            for arguments, view in (([], None), (['Dashboard'], 'Dashboard'), (['unknown'], 'Dashboard'),
+                                    (['Scheduled'], 'DVR'), (['Guide'], 'Guide'),
                                     (['Recordings'], 'Recordings'), (['Search'], 'Search'), (['Guide', 'bad'], 'Dashboard')):
                 with patch.object(sys, 'argv', ['default.py', *arguments]):
                     runpy.run_path(str(ADDON / 'default.py'), run_name='__main__')
                 launch.assert_called_with(str(ADDON), addon, start_view=view)
+
+    def pending_hub_startup(self, preference, *, explicit=None, saved=None, enabled=True, profile=None):
+        config = DevelopmentConfig.from_address('192.0.2.10')
+        now = 3600
+        key = ChannelKey(config.namespace, 'device', '1')
+        record = Recording('record', 'Episode', 'Show', 2, 1, False, 1000, 1800,
+                           namespace=config.namespace, provenance='dvr', show_id='show')
+        prefs = {'server_origin': config.origin, 'hub_startup_view': preference}
+        worker = Mock()
+
+        def configure(w):
+            w._addon.getSettingString = lambda name: prefs.get(name, '')
+            w._addon.getSettingBool = lambda name: name == 'development_metadata_enabled' and enabled
+            w._hub_session._worker = worker
+            w._recording_ui._programme_profile = lambda: str(ADDON if profile is None else profile)
+            w.utc_now = lambda: now + 60
+            w._dvr.poll = Mock(return_value=False)
+            w._dashboard_ui.poll = Mock(return_value=False)
+            w._dashboard_ui.worker.request = self.forbidden('Dashboard transport in startup fake')
+            w._set_search_query = self.forbidden('startup search')
+
+            def activate(value):
+                w._hub_session.source_changed()
+                w._development_config = value
+                w._live_session = LiveDataSession(value.namespace, value.expected_version, clock=lambda: now + 60)
+                w.repository = w._live_session.repository
+                w._live_session.begin(1, now, guide_windows=1)
+                w.library = LibraryBrowser((), strings=w.strings)
+                w._reset_dvr()
+                w._reset_search()
+
+            w._activate = activate
+            w._request_live = Mock()  # the accepted result below replaces transport
+
+        w = self.window(start=explicit, configure=configure)
+        worker.take.side_effect = lambda: (w._hub_session._store,
+                                           BookmarkReadState.MISSING if saved is None else saved)
+        patch_ready = patch.object(type(w._guide_runtime), 'ready', property(lambda runtime: runtime.window is w))
+        patch_ready.start()
+        self.addCleanup(patch_ready.stop)
+
+        def publish(*, failure=False, prime_library=True, additional_recordings=(), channels=None):
+            session = w._live_session
+            stations = channels if channels is not None else (Channel(key, '1', 'Station', ('Favorites',)),)
+            snapshot = None if failure else DevelopmentSnapshot(config.namespace, config.expected_version, now,
+                (now, now + 1800), MetadataBatch(stations, DataState.READY),
+                MetadataBatch((Event('event', key, now, now + 600, 'Programme'),), DataState.READY),
+                MetadataBatch((*additional_recordings, record), DataState.READY), MetadataBatch((), DataState.EMPTY))
+            self.assertTrue(session.apply(LoadResult(session._generation, now, 1, snapshot, None)))
+            w.guide = GuideController(w.repository, strings=w.strings)
+            if prime_library:
+                w.library.update(w.repository.recordings)
+
+        return w, worker, prefs, config, publish
+
+    def test_configured_startup_choices_wait_for_admission_and_do_not_save(self):
+        for pref, destination in (('Dashboard', 'Dashboard'), ('Guide', 'Guide'), ('Recordings', 'Recordings'),
+                                  ('DVR', 'DVR'), ('Search', 'Dashboard'), ('bad', 'Dashboard')):
+            with self.subTest(pref=pref):
+                w, worker, _, _, publish = self.pending_hub_startup(pref)
+                self.assertEqual(w.view, 'Dashboard')
+                worker.bind.assert_not_called()
+                publish()
+                w.process_pending()
+                self.assertEqual(w.view, destination)
+                worker.submit.assert_not_called()
+                w._playback_ui.request.assert_not_called()
+                w._recording_ui.request.assert_not_called()
+                w._request_live.assert_called_once()
+
+    def test_recent_search_restore_is_passive_and_recall_requires_input_submission(self):
+        scope = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
+        saved = HubBookmarks(scope, recent_terms=('Episode', 'Older phrase'), last_view='Guide')
+        w, worker, _, _, publish = self.pending_hub_startup('Last', saved=saved)
+        publish()
+        w.process_pending()
+        self.assertEqual((w.view, w.search_query, w.search_selection), ('Guide', '', None))
+        worker.submit.assert_not_called()
+
+        w._set_search_query = partial(self.adapter.ChannelsWindow._set_search_query, w)
+        execute_command(w, self.gui, 'view.search')
+        execute_command(w, self.gui, 'search.tab.recordings')
+        self.assertEqual((w.view, w.search_query, w._search_ui.category), ('Search', '', SearchCategory.RECORDINGS))
+        worker.submit.assert_not_called()
+        prefix = w.t('recordings_recent') + ': '
+        self.dialog.select.side_effect = lambda _, labels: labels.index(prefix + 'Older phrase')
+        self.dialog.input.return_value = ''
+        execute_command(w, self.gui, 'search.query')
+        self.assertEqual(self.dialog.input.call_args.kwargs['defaultt'], 'Older phrase')
+        self.assertEqual(w.search_query, '')
+        worker.submit.assert_not_called()
+
+        self.dialog.input.return_value = 'Older phrase'
+        execute_command(w, self.gui, 'search.query')
+        self.assertEqual((w.search_query, w._search_ui.category), ('Older phrase', SearchCategory.RECORDINGS))
+        worker.submit.assert_called_once_with(w._hub_session._store,
+                                             replace(saved, recent_terms=('Older phrase', 'Episode')))
+
+        self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('search_enter'))
+        self.dialog.input.return_value = 'Episode two'
+        execute_command(w, self.gui, 'search.query')
+        self.assertEqual(worker.submit.call_args.args[1],
+                         replace(saved, recent_terms=('Episode two', 'Older phrase', 'Episode')))
+        worker.submit.reset_mock()
+        for invalid in ('', 'x' * 129, 'https://example.invalid/media'):
+            self.dialog.input.return_value = invalid
+            execute_command(w, self.gui, 'search.query')
+        worker.submit.assert_not_called()
+
+    def test_recent_search_choices_are_fenced_by_current_source_and_modal_receipt(self):
+        a = DevelopmentConfig.from_address('192.0.2.10')
+        b = DevelopmentConfig.from_address('192.0.2.11')
+        saved_a = HubBookmarks(BookmarkScope.from_config(a), recent_terms=('Only A',))
+        saved_b = HubBookmarks(BookmarkScope.from_config(b), recent_terms=('Only B',))
+        w, worker, prefs, _, publish = self.pending_hub_startup('Dashboard', explicit='Search', saved=saved_a)
+        publish()
+        w.process_pending()
+        token, _ = w._hub_session.recent_search()
+        self.assertIsNotNone(token)
+        prefix = w.t('recordings_recent') + ': '
+
+        def select_after_source_changes(_, labels):
+            self.assertNotIn(prefix + 'Only B', labels)
+            prefs['server_origin'] = b.origin  # Even before the layout or session is replaced.
+            return labels.index(prefix + 'Only A')
+
+        self.dialog.select.side_effect = select_after_source_changes
+        execute_command(w, self.gui, 'search.query')
+        self.dialog.input.assert_not_called()
+        self.assertEqual((w.view, w.search_query), ('Search', ''))
+        self.assertEqual(w._hub_session.recent_search(), (None, ()))
+        worker.submit.assert_not_called()
+
+        w._activate(b)
+        worker.take.side_effect = lambda: (w._hub_session._store, saved_b)
+        publish()
+        w.process_pending()
+        self.dialog.select.side_effect = None
+        self.dialog.select.return_value = -1
+        execute_command(w, self.gui, 'search.query')
+        labels = self.dialog.select.call_args.args[1]
+        self.assertIn(prefix + 'Only B', labels)
+        self.assertNotIn(prefix + 'Only A', labels)
+        w._hub_session.remember_search_term(token, 'Stale A submission')
+        self.assertEqual(w._hub_session.recent_search()[1], ('Only B',))
+        worker.submit.assert_not_called()
+
+        def submit_after_keyboard_source_change(*args, **kwargs):
+            prefs['server_origin'] = a.origin
+            return 'Rejected after editing'
+
+        self.dialog.select.return_value = 0
+        self.dialog.input.side_effect = submit_after_keyboard_source_change
+        execute_command(w, self.gui, 'search.query')
+        self.assertEqual(w.search_query, '')
+        worker.submit.assert_not_called()
+
+    def test_recent_search_merges_explicit_input_while_profile_read_is_pending(self):
+        scope = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
+        saved = HubBookmarks(scope, recent_terms=('Older phrase', 'Another phrase'))
+        w, worker, _, _, publish = self.pending_hub_startup('Dashboard', explicit='Search', saved=saved)
+        w._set_search_query = partial(self.adapter.ChannelsWindow._set_search_query, w)
+        worker.take.side_effect = lambda: None
+        publish()
+        w.process_pending()
+        self.dialog.select.return_value = 0
+        self.dialog.input.return_value = 'New term'
+        execute_command(w, self.gui, 'search.query')
+        self.assertEqual(w.search_query, 'New term')
+        worker.submit.assert_not_called()
+        worker.take.side_effect = lambda: (w._hub_session._store, saved)
+        w.process_pending()
+        worker.submit.assert_called_once_with(w._hub_session._store,
+            replace(saved, recent_terms=('New term', 'Older phrase', 'Another phrase')))
+        self.assertEqual((w.view, w.search_query), ('Search', 'New term'))
+
+    def test_failed_search_save_cannot_replay_on_navigation_after_profile_recovery(self):
+        scope = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
+        initial = HubBookmarks(scope, recent_terms=('Initial history',))
+        recovered = HubBookmarks(scope, recent_terms=('Recovered history',), last_view='DVR')
+        with TemporaryDirectory() as root:
+            profile = Path(root) / 'profile'
+            path = profile / 'hub-bookmarks' / (scope.server_key + '.json')
+            path.parent.mkdir(parents=True)
+            path.write_bytes(encode_bookmarks(initial))
+            w, _, prefs, config, publish = self.pending_hub_startup('Dashboard', explicit='Search', profile=profile)
+            w._hub_session._worker = worker = BookmarkWorker()
+            w._set_search_query = partial(self.adapter.ChannelsWindow._set_search_query, w)
+
+            def finish_read():
+                w.process_pending()
+                with worker._condition:
+                    self.assertTrue(worker._condition.wait_for(
+                        lambda: worker._loaded is not None or w._hub_session._loaded, timeout=2))
+                w.process_pending()
+
+            try:
+                publish()
+                finish_read()
+                self.assertEqual(w._hub_session.recent_search()[1], initial.recent_terms)
+                with patch.object(BookmarkStore, 'save', autospec=True, side_effect=BookmarkStore.save) as save:
+                    unavailable = profile.rename(Path(root) / 'unavailable')
+                    self.dialog.select.return_value = 0
+                    self.dialog.input.return_value = 'Unsaved term'
+                    execute_command(w, self.gui, 'search.query')
+                    self.assertEqual(w.search_query, 'Unsaved term')
+                    with worker._condition:
+                        self.assertTrue(worker._condition.wait_for(
+                            lambda: worker._fence is not None and worker._fence.failed, timeout=2))
+                    self.assertEqual(save.call_count, 1)
+
+                    unavailable.rename(profile)
+                    recovered_bytes = encode_bookmarks(recovered)
+                    path.write_bytes(recovered_bytes)
+                    w.onClick(201)
+                    w.process_pending()
+                    self.assertEqual(w.view, 'Guide')
+                    self.assertEqual(path.read_bytes(), recovered_bytes)
+                    self.assertEqual(save.call_count, 1)
+
+                    # A passive drop and readmission of the same incarnation
+                    # may reread the recovered history, but must not enable saves.
+                    incarnation = w._live_session.incarnation
+                    prefs['server_origin'] = ''
+                    w.process_pending()
+                    prefs['server_origin'] = config.origin
+                    finish_read()
+                    self.assertIs(w._live_session.incarnation, incarnation)
+                    self.assertEqual(w._hub_session.recent_search()[1], recovered.recent_terms)
+                    w.onAction(SimpleNamespace(getId=lambda: NAV_BACK))
+                    w.process_pending()
+                    self.assertEqual(w.view, 'Dashboard')
+                    self.assertEqual(path.read_bytes(), recovered_bytes)
+                    self.assertEqual(save.call_count, 1)
+
+                    # A deliberate source replacement gets a new lease and a
+                    # fresh read, not the failed term from the old snapshot.
+                    w._activate(config)
+                    self.assertIsNot(w._live_session.incarnation, incarnation)
+                    publish()
+                    finish_read()
+                    self.assertEqual(w._hub_session.recent_search()[1], recovered.recent_terms)
+                    w.onClick(202)
+                    w.process_pending()
+                    w.shutdown()
+                    worker._thread.join(2)
+                    self.assertFalse(worker._thread.is_alive())
+                    self.assertEqual(save.call_count, 2)
+                    self.assertEqual(decode_bookmarks(scope, path.read_bytes()),
+                                     replace(recovered, last_view='Recordings'))
+            finally:
+                worker.close()
+                if worker._thread is not None:
+                    worker._thread.join(2)
+
+    def test_no_recent_search_writes_for_disconnected_or_demo_input(self):
+        w = self.w
+        worker = w._hub_session._worker = Mock()
+        self.enter('Search')
+        self.dialog.select.return_value = 0
+        self.dialog.input.return_value = 'Disconnected term'
+        execute_command(w, self.gui, 'search.query')
+        self.assertEqual(w.search_query, 'Disconnected term')
+        self.seed()
+        self.dialog.input.return_value = 'Demo term'
+        execute_command(w, self.gui, 'search.query')
+        self.assertEqual(w.search_query, 'Demo term')
+        self.assertEqual(w._hub_session.recent_search(), (None, ()))
+        worker.submit.assert_not_called()
+
+    def test_explicit_launch_manual_route_and_failed_initial_admission_supersede_startup(self):
+        w, worker, _, _, publish = self.pending_hub_startup('Guide', explicit='Dashboard')
+        publish()
+        w.process_pending()
+        self.assertEqual(w.view, 'Dashboard')
+        worker.submit.assert_not_called()
+        w, _, _, _, publish = self.pending_hub_startup('Guide')
+        publish()
+        w._guide_runtime.poll.side_effect = lambda: (w.onClick(205), False)[1]
+        w.process_pending()  # user route was posted while the accepted result was polled
+        self.assertEqual(w.view, 'Dashboard')
+        w._guide_runtime.poll.side_effect = None
+        w.process_pending()
+        self.assertEqual(w.view, 'Settings')
+        w, _, _, _, publish = self.pending_hub_startup('Guide')
+        publish(failure=True)
+        w.process_pending()
+        self.assertEqual(w.view, 'Dashboard')
+        self.assertEqual(w.controls[112].properties['setLabel'], (w.t('refresh_hint'),))
+        w._live_session.begin(2, 3600, guide_windows=1)
+        publish()
+        w.process_pending()
+        self.assertEqual(w.view, 'Dashboard')  # a later successful refresh is not startup
+        w, worker, _, _, _ = self.pending_hub_startup('Guide', enabled=False)
+        self.assertEqual(w.view, 'Dashboard')
+        w._request_live.assert_not_called()
+        worker.bind.assert_not_called()
+
+    def test_accepted_dashboard_arrow_travel_cancels_delayed_redirect(self):
+        w, worker, _, _, publish = self.pending_hub_startup('Guide')
+        self.assertEqual((w.view, w.getFocusId()), ('Dashboard', 200))
+        w.onAction(SimpleNamespace(getId=lambda: RIGHT))
+        w.process_pending()
+        self.assertEqual((w.view, w.getFocusId()), ('Dashboard', 201))
+        publish()
+        w.process_pending()
+        self.assertEqual((w.view, w.getFocusId()), ('Dashboard', 201))
+        worker.submit.assert_not_called()
+
+    def test_early_explicit_tabs_survive_the_read_only_for_their_incarnation(self):
+        scope = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
+        saved = HubBookmarks(scope, dvr_tab='scheduled', recordings_category='Recent')
+        w, worker, _, config, publish = self.pending_hub_startup('Dashboard', saved=saved)
+        for code in ('view.dvr', 'dvr.passes', 'view.recordings', 'recording.tab.movies'):
+            self.assertTrue(execute_command(w, self.gui, code))
+        worker.bind.assert_not_called()
+        read_result = worker.take.side_effect
+        worker.take.side_effect = lambda: None
+        publish()
+        w.process_pending()
+        self.assertEqual((w._dvr.tab, w.library.mode), ('dvr.passes', 'Movies'))
+        worker.take.side_effect = read_result
+        w.process_pending()
+        self.assertEqual((w._dvr.tab, w.library.mode), ('dvr.passes', 'Movies'))
+        worker.submit.assert_not_called()
+        old = w._live_session.incarnation
+        w._activate(config)
+        self.assertIsNot(w._live_session.incarnation, old)
+        publish()
+        w.process_pending()
+        self.assertEqual((w._dvr.tab, w.library.mode), ('dvr.scheduled', 'Recent'))
+
+    def test_guide_time_does_not_cross_a_deferred_source_switch_or_reconnect(self):
+        w = self.w
+        a = DevelopmentConfig.from_address('192.0.2.10')
+        b = DevelopmentConfig.from_address('192.0.2.11')
+        prefs = {'server_origin': a.origin}
+        w._addon.getSettingString = lambda name: prefs.get(name, '')
+        w._addon.getSettingBool = lambda name: name == 'development_metadata_enabled'
+        w.utc_now = lambda: 3660
+        w._dashboard_ui.poll = Mock(return_value=False)
+        loader = w._metadata_loader = Mock()
+        loader.offer_retirement.return_value = object()
+        loader.request.side_effect = range(1, 10)
+        loader.submitted.return_value = None
+        runtime = w._guide_runtime
+
+        w._activate(a)
+        w._request_live(w.utc_now())
+        future = 3600 + 2 * 86400
+        w._request_live(future)
+        self.assertEqual(w._intended_anchor, future)
+        self.assertEqual(loader.request.call_args.args, (a, future))
+        loader.offer_retirement.return_value = None
+        w._request_live(future + 3600)
+        abandoned = runtime._request
+        self.assertIsNotNone(abandoned)
+
+        prefs['server_origin'] = b.origin
+        execute_connection(w, self.gui, 'connection.refresh')
+        self.assertIsNone(w._intended_anchor)
+        self.assertEqual(loader.request.call_count, 2)
+        self.assertIsNot(runtime._request, abandoned)
+        self.assertEqual(runtime._request[1:], (b, w.utc_now()))
+        loader.offer_retirement.return_value = object()
+        self.assertTrue(runtime._change_mode())
+        runtime._start_request()
+        self.assertEqual(loader.request.call_args.args, (b, 3600))
+        self.assertEqual(w._intended_anchor, w.utc_now())
+
+        prefs['server_origin'] = a.origin
+        w._activate(a)
+        # Even a first request carrying an obsolete cursor must start the new
+        # incarnation at Now, including after A had a different prior horizon.
+        w._request_live(future)
+        self.assertEqual(loader.request.call_args.args, (a, 3600))
+        self.assertEqual(w._intended_anchor, w.utc_now())
+
+    def test_manual_navigation_keeps_unreadable_or_unsupported_bookmark_bytes(self):
+        scope = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
+        other = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.11'))
+        good = encode_bookmarks(HubBookmarks(scope, last_view='Guide'))
+        future = json.dumps(dict(json.loads(good), version=99)).encode()
+        for label, raw in (('unreadable', good), ('future', future), ('corrupt', b'{'),
+                           ('wrong source', encode_bookmarks(HubBookmarks(other))), ('missing', None)):
+            with self.subTest(slot=label), TemporaryDirectory() as profile:
+                path = Path(profile) / 'hub-bookmarks' / (scope.server_key + '.json')
+                if raw is not None:
+                    path.parent.mkdir()
+                    path.write_bytes(raw)
+                w, worker, _, _, publish = self.pending_hub_startup('Dashboard', profile=profile)
+                worker.take.side_effect = lambda: (w._hub_session._store, w._hub_session._store.read())
+                worker.submit.side_effect = lambda store, snapshot: store.save(snapshot)
+                publish()
+                if label == 'unreadable':
+                    with patch('channels_dvr.bookmark_storage.open', create=True, side_effect=PermissionError):
+                        w.process_pending()
+                else:
+                    w.process_pending()
+                worker.submit.assert_not_called()
+                w.onClick(202)
+                w.process_pending()
+                self.assertEqual(w.view, 'Recordings')
+                if raw is None:
+                    worker.submit.assert_called_once()
+                    self.assertEqual(decode_bookmarks(scope, path.read_bytes()).last_view, 'Recordings')
+                else:
+                    worker.submit.assert_not_called()
+                    self.assertEqual(path.read_bytes(), raw)
+
+    def test_last_startup_restores_only_current_source_and_safe_navigation_state(self):
+        scope = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
+        other = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.11'))
+        model = HubBookmarks(scope, guide_group='Favorites', guide_channel=ChannelKey(scope.namespace, 'device', '1'),
+                             recordings_category='Shows', recordings_filter='dvr', recordings_sort='oldest',
+                             recording_selection=(scope.namespace, 'dvr', 'record'), dvr_tab='passes', last_view='Guide')
+        w, worker, prefs, _, publish = self.pending_hub_startup('Last', saved=model)
+        publish()
+        w.process_pending()
+        self.assertEqual((w.view, w.guide.group, w.guide.selection.anchor), ('Guide', 'Favorites', w.utc_now()))
+        self.assertEqual(w.guide.selection.channel, model.guide_channel)
+        self.assertEqual((w.library.depth, w.library.sort_order, w.library.provenance_filter), (2, 'oldest', 'dvr'))
+        self.assertEqual(w.library.selected_recording().id, 'record')
+        self.assertEqual(w._dvr.tab, 'dvr.passes')
+        worker.submit.assert_not_called()
+        w.onAction(SimpleNamespace(getId=lambda: NAV_BACK))
+        w.process_pending()
+        self.assertEqual(worker.submit.call_args.args[1].last_view, 'Dashboard')
+        prefs['server_origin'] = '192.0.2.11'
+        w.process_pending()
+        worker.bind.assert_called_with(None)
+        self.assertIsNone(w._hub_session._binding)
+        w, worker, _, _, publish = self.pending_hub_startup('Last', saved=HubBookmarks(other, last_view='DVR'))
+        publish()
+        w.process_pending()
+        self.assertEqual(w.view, 'Dashboard')
+        worker.submit.assert_not_called()
+
+    def test_cold_recordings_restore_resolves_exact_leaf_without_visiting_recordings(self):
+        scope = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
+        identity = (scope.namespace, 'dvr', 'record')
+        bookmark = HubBookmarks(scope, recording_selection=identity)
+        decoy = Recording('record', 'Decoy', 'A decoy show', 1, 1, False, 999, 1800,
+                          namespace=scope.namespace, provenance='import', show_id='decoy')
+        season_one = Recording('early', 'Earlier episode', 'Show', 1, 1, False, 995, 1800,
+                               namespace=scope.namespace, provenance='dvr', show_id='show')
+        show_key = ('show', scope.namespace, 'dvr', 'id', 'show')
+        for explicit, view in ((None, 'Dashboard'), ('Guide', 'Guide')):
+            with self.subTest(initial_view=view):
+                w, worker, _, _, publish = self.pending_hub_startup('Dashboard', explicit=explicit, saved=bookmark)
+                self.assertEqual(w.view, view)
+                publish(prime_library=False, additional_recordings=(decoy, season_one))
+                self.assertEqual(w._live_session.recordings().state, DataState.READY)
+                self.assertEqual(w.library.rows(), ())
+                w.process_pending()
+                self.assertEqual(w.view, view)
+                self.assertEqual(w.library.depth, 2)
+                selected = w.library.selected_recording()
+                self.assertIsNotNone(selected)
+                self.assertEqual((selected.namespace, selected.provenance, selected.id), identity)
+                worker.submit.assert_not_called()
+                self.assertTrue(execute_command(w, self.gui, 'view.recordings'))
+                w.onAction(SimpleNamespace(getId=lambda: NAV_BACK))
+                w.process_pending()
+                self.assertEqual((w.view, w.library.depth, w.library.selected.id),
+                                 ('Recordings', 1, repr(('season', show_key, 2))))
+                w.onAction(SimpleNamespace(getId=lambda: NAV_BACK))
+                w.process_pending()
+                self.assertEqual((w.view, w.library.depth, w.library.selected.id),
+                                 ('Recordings', 0, repr(show_key)))
+
+    def test_guide_restore_uses_full_channel_key_in_all_when_favorite_is_lost(self):
+        scope = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
+        target = ChannelKey(scope.namespace, 'device', '1')
+        other = ChannelKey(scope.namespace, 'another-device', '1')
+        retired = ChannelKey(scope.namespace, 'retired-device', '1')
+        stations = (Channel(other, '1', 'Decoy'), Channel(target, '1', 'Original'))
+        for saved_key, expected in ((target, target), (retired, other)):
+            with self.subTest(saved_key=saved_key):
+                saved = HubBookmarks(scope, guide_group='Favorites', guide_channel=saved_key)
+                w, worker, _, _, publish = self.pending_hub_startup('Guide', saved=saved)
+                publish(channels=stations)
+                w.process_pending()
+                self.assertEqual((w.view, w.guide.group, w.guide.selection.channel, w.guide.selection.anchor),
+                                 ('Guide', 'All', expected, w.utc_now()))
+                worker.submit.assert_not_called()
+
+    def test_guide_ok_is_details_even_with_a_legacy_live_value_and_expired_listings(self):
+        w, _, prefs, _, publish = self.pending_hub_startup('Guide')
+        publish()
+        w.process_pending()
+        self.assertEqual(w.view, 'Guide')
+        w._guide_runtime.selected = lambda event=None: event or w.guide.selected_event()
+        event = w.selected_indexed_event()
+        assert event is not None and event.end is not None
+        w.utc_now = lambda: event.start
+        w._show_event_details = Mock()
+        w._playback_ui.selection = Mock(return_value=object())
+        self.assertTrue(execute_command(w, self.gui, 'selection.activate'))
+        w._show_event_details.assert_called_once_with(event)
+        w._playback_ui.request.assert_not_called()
+        prefs['hub_guide_ok'] = 'live'
+        w._playback_ui.request = Mock()
+        w.render()
+        w._playback_ui.request.assert_not_called()
+        self.assertTrue(execute_command(w, self.gui, 'selection.info'))
+        self.assertEqual(w._show_event_details.call_count, 2)
+        self.assertTrue(execute_command(w, self.gui, 'selection.activate'))
+        self.assertEqual(w._show_event_details.call_count, 3)
+        w._playback_ui.request.assert_not_called()
+        w.utc_now = w._live_session._clock = lambda: event.start + 301
+        self.assertLess(w.utc_now(), event.end)
+        self.assertTrue(w._live_session.guide().stale)
+        self.assertTrue(execute_command(w, self.gui, 'selection.activate'))
+        w._show_event_details.assert_called_with(event)
+        self.assertEqual(w._show_event_details.call_count, 4)
+        w._playback_ui.request.assert_not_called()
 
     def test_guide_hides_bar_and_back_is_not_a_focus_hop(self):
         self.seed()
@@ -935,8 +1467,7 @@ class NavigationTests(unittest.TestCase):
                 if reason == 'ended':
                     w._show_event_details.assert_called_once_with(event)
 
-    def test_guide_ok_current_ingress_reproduces_trailing_select_lease_revocation(self):
-        # Characterize both delivered orders, not the unknown order of native Enter.
+    def test_guide_ok_preserves_confirmation_in_both_select_callback_orders(self):
         for raw_first in (True, False):
             with self.subTest(raw_first=raw_first):
                 self.w = w = self.window()
@@ -952,13 +1483,9 @@ class NavigationTests(unittest.TestCase):
                 worker.submit.assert_called_once()
                 self.prepare_playback_result(worker)
                 w.process_pending()
-                if raw_first:
-                    self.dialog.yesno.assert_called_once()
-                    self.assertEqual(self.dialog.yesno.call_args.kwargs['defaultbutton'],
-                                     self.gui.DLG_YESNO_NO_BTN)
-                else:
-                    self.assertEqual(w._playback_ui.state, 'selection_changed')
-                    self.dialog.yesno.assert_not_called()
+                self.dialog.yesno.assert_called_once()
+                self.assertEqual(self.dialog.yesno.call_args.kwargs['defaultbutton'],
+                                 self.gui.DLG_YESNO_NO_BTN)
                 player.handoff.assert_not_called()
 
     def test_raw_select_cancels_synthetic_traversal_without_onclick(self):
@@ -2142,12 +2669,29 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(w._dvr.tab, 'dvr.passes')
         self.assertFalse(w._current_data().can_browse)
         self.enter('Settings')
+        self.assertEqual([row.id for row in w._rows()], [
+            'connection.configure', 'connection.connect', 'connection.refresh', 'connection.status',
+            'connection.disconnect', 'connection.settings', 'connection.storage', 'connection.diagnostics',
+        ])
+        self.assertEqual(w.controls[113].properties['setLabel'], (w.t('connection_prompt'),))
         for ident in (*DVR_TABS, *RECORDINGS_TABS):
             self.assertEqual(w.controls[ident].properties['setVisible'], (False,))
             self.assertEqual(w.controls[ident].properties['setEnabled'], (False,))
         w._addon.openSettings.assert_not_called()
+        w._hub_session.arm_startup(object())
+        w._series_ui = SimpleNamespace(close=Mock(), poll=Mock())
+
+        def native_preferences():
+            self.assertTrue(w._dispatcher.modal_active)
+            self.assertIsNone(w._hub_session._startup)
+            w._series_ui.close.assert_called_once_with()
+            self.post_action(NAV_BACK)  # Native modal input cannot replay in the parent.
+
+        w._addon.openSettings.side_effect = native_preferences
         self.click(self.hits('row')[('connection.settings',)])
         w._addon.openSettings.assert_called_once()
+        self.assertEqual((w.view, w.getFocusId()), ('Settings', CONTENT))
+        w._addon.setSettingString.assert_not_called()
         w._addon.setSettingBool.assert_not_called()
 
     def test_tabs_are_view_local_and_queued_clicks_do_not_cross_views(self):
@@ -2422,6 +2966,132 @@ class NavigationTests(unittest.TestCase):
                 self.assertNotIn(w.t('series_manager'), self.dialog.select.call_args.args[1])
                 self.assertFalse(execute_command(w, self.gui, 'series.manager'))
         w._series_manager_request.assert_not_called()
+
+
+class HubBookmarkTests(unittest.TestCase):
+    def setUp(self):
+        self.a = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.10'))
+        self.b = BookmarkScope.from_config(DevelopmentConfig.from_address('192.0.2.11'))
+        self.channel = ChannelKey(self.a.namespace, 'antenna', '001')
+        self.saved = HubBookmarks(
+            self.a, guide_group='Favorites', guide_channel=self.channel,
+            recordings_category='All', recordings_filter='dvr', recordings_sort='oldest',
+            recording_selection=(self.a.namespace, 'dvr', '001'),
+            dvr_tab='passes', recent_terms=('Café', 'Weather'), last_view='Recordings',
+        )
+        self.raw = encode_bookmarks(self.saved)
+
+    def test_round_trip_is_closed_and_does_not_include_server_address(self):
+        root = json.loads(self.raw)
+        self.assertEqual(set(root), {
+            'version', 'source', 'guide_group', 'guide_channel', 'recordings_category',
+            'recordings_filter', 'recordings_sort', 'recording_selection', 'dvr_tab',
+            'recent_terms', 'last_view',
+        })
+        self.assertEqual(decode_bookmarks(self.a, self.raw), self.saved)
+        self.assertNotIn(b'192.0.2.', self.raw)
+        root.update(guide_time=123, programme={'title': 'not navigation'},
+                    draft={'term': 'never keep'}, url='http://example.invalid/', password='not a bookmark')
+        projected = decode_bookmarks(self.a, json.dumps(root).encode())
+        assert projected is not None
+        self.assertEqual(encode_bookmarks(projected), self.raw)
+
+    def test_canonical_reconnect_and_distinct_servers_with_same_metadata_namespace(self):
+        self.assertEqual(self.a.namespace, self.b.namespace)
+        self.assertNotEqual(self.a.server_key, self.b.server_key)
+        alias = DevelopmentConfig.from_address(' HTTP://192.0.2.10:8089/ ')
+        self.assertEqual(BookmarkScope.from_config(alias), self.a)
+        self.assertEqual(BookmarkScope.from_config(replace(alias, expected_version='test-build')), self.a)
+        self.assertNotEqual(BookmarkScope.from_config(replace(alias, namespace='different')), self.a)
+        self.assertIsNone(decode_bookmarks(self.b, self.raw))
+        saved_b = HubBookmarks(self.b, last_view='DVR')
+        raw_b = encode_bookmarks(saved_b)
+        self.assertEqual(decode_bookmarks(self.b, raw_b), saved_b)
+        self.assertIsNone(decode_bookmarks(self.a, raw_b))
+        self.assertEqual(decode_bookmarks(BookmarkScope.from_config(alias), self.raw), self.saved)
+
+    def test_missing_corrupt_and_unsupported_envelopes_are_not_snapshots(self):
+        root = json.loads(self.raw)
+        invalid = [None, b'', self.raw[:-1], b'\xff', b'[]', b'{}',
+                   b'[' * 2000 + b']' * 2000, b' ' * (MAX_BOOKMARK_BYTES + 1),
+                   self.raw.replace(b'"version":1', b'"version":1,"version":1'),
+                   self.raw.replace(b'"version":1', b'"version":NaN')]
+        for version in (0, 2, True, '1', 1.0):
+            invalid.append(json.dumps(dict(root, version=version)).encode())
+        for raw in invalid:
+            with self.subTest(size=len(raw) if raw else 0):
+                self.assertIsNone(decode_bookmarks(self.a, raw))
+
+    def test_invalid_fields_drop_without_rebinding_selection_or_truncating_identity(self):
+        root = json.loads(self.raw)
+        root.update(guide_group={}, guide_channel=['antenna', '001' + 'x' * 128],
+                    recordings_category='unknown', recordings_filter='cable',
+                    recordings_sort=['title'], dvr_tab='https:example.invalid',
+                    recent_terms=[{}, 'https://example.invalid/', 'one\u0000two', 'data:text/plain,x'], last_view='Search')
+        self.assertEqual(decode_bookmarks(self.a, json.dumps(root).encode()), HubBookmarks(self.a))
+        self.assertIsNone(replace(self.saved, recordings_filter='import').recording_selection)
+        self.assertIsNone(replace(self.saved, recordings_category='Search').recording_selection)
+        self.assertIsNone(replace(self.saved, recording_selection=('other', 'dvr', '001')).recording_selection)
+        self.assertIsNone(replace(self.saved, guide_channel=ChannelKey('other', 'antenna', '001')).guide_channel)
+
+    def test_recent_terms_are_bounded_cleaned_and_deduplicated_newest_first(self):
+        candidate_terms = ('  Café  ', 'ＣＡＦÉ', '', 'x' * 129, 'file:///private',
+                           *(str(i) for i in range(100)))
+        model = replace(self.saved, recent_terms=candidate_terms)
+        self.assertEqual(model.recent_terms, ('Café', *(str(i) for i in range(MAX_RECENT_TERMS - 1))))
+        self.assertEqual(decode_bookmarks(self.a, encode_bookmarks(model)), model)
+        largest = replace(self.saved, recent_terms=tuple('😀' * 127 + str(i) for i in range(MAX_RECENT_TERMS)))
+        raw = encode_bookmarks(largest)
+        self.assertLessEqual(len(raw), MAX_BOOKMARK_BYTES)
+        self.assertEqual(decode_bookmarks(self.a, raw), largest)
+
+    def test_guide_restore_uses_full_channel_key_and_current_group_membership(self):
+        other = ChannelKey(self.a.namespace, 'cable', '001')
+        groups = {'All': (other, self.channel), 'Favorites': (other, self.channel)}
+        self.assertEqual(self.saved.guide_target(self.a, groups), ('Favorites', self.channel))
+        self.assertEqual(self.saved.guide_target(self.a, {'All': (other,)}), ('All', other))
+        self.assertEqual(self.saved.guide_target(self.a, {'Favorites': (other,)}), ('Favorites', other))
+        self.assertEqual(self.saved.guide_target(self.b, groups), ('All', other))
+        self.assertEqual(self.saved.guide_target(self.a, {}), (None, None))
+
+    def test_dvr_restore_uses_available_stable_tab_keys(self):
+        self.assertEqual(self.saved.dvr_target(self.a, ('scheduled', 'passes')), 'passes')
+        self.assertEqual(self.saved.dvr_target(self.a, ('scheduled',)), 'scheduled')
+        self.assertEqual(self.saved.dvr_target(self.b, ('scheduled', 'passes')), 'scheduled')
+        self.assertIsNone(self.saved.dvr_target(self.a, ()))
+
+    def test_recording_restore_matches_only_current_unambiguous_qualified_leaf(self):
+        recording = Recording('001', 'Example', None, None, None, False, 100, 1800,
+                              namespace=self.a.namespace, provenance='dvr')
+        browser = LibraryBrowser((replace(recording, provenance='import'), recording))
+        browser.set_mode('All')
+        browser.set_provenance_filter('dvr')
+        row_ids = tuple(row.id for row in browser.rows())
+        self.assertEqual(self.saved.matching_recording_row(self.a, row_ids), repr(self.saved.recording_selection))
+        self.assertIsNone(self.saved.matching_recording_row(self.b, row_ids))
+        self.assertIsNone(self.saved.matching_recording_row(self.a, row_ids * 2))
+        browser.set_provenance_filter('import')
+        self.assertIsNone(self.saved.matching_recording_row(self.a, (row.id for row in browser.rows())))
+
+    def test_startup_defaults_and_last_use_only_current_admitted_server(self):
+        choose = partial(startup_destination, admission=StartupAdmission.ADMITTED, intent_current=True)
+        for view in ('Dashboard', 'Guide', 'Recordings', 'DVR'):
+            self.assertEqual(choose(view), view)
+        for invalid in (None, '', 3, True, 'Scheduled', 'Search', 'Settings', 'guide', []):
+            self.assertEqual(choose(invalid), 'Dashboard')
+        self.assertEqual(choose(), 'Dashboard')
+        self.assertEqual(choose('Last', source=self.a, bookmarks=self.saved), 'Recordings')
+        self.assertEqual(choose('Last', source=self.b, bookmarks=self.saved), 'Dashboard')
+        self.assertEqual(choose('Last', source=self.a), 'Dashboard')
+        for preference in ('Guide', 'Last'):
+            self.assertEqual(startup_destination(preference, admission=StartupAdmission.UNAVAILABLE, intent_current=True,
+                                                 source=self.a, bookmarks=self.saved), 'Dashboard')
+
+    def test_pending_and_superseded_launch_intent_do_not_select_automatic_route(self):
+        self.assertIsNone(startup_destination('Guide', admission=StartupAdmission.PENDING, intent_current=True))
+        for admission in StartupAdmission:
+            self.assertIsNone(startup_destination('Guide', admission=admission, intent_current=False))
+            self.assertIsNone(startup_destination('Guide', admission=admission, intent_current=True, launch_override=True))
 
 
 if __name__ == '__main__':

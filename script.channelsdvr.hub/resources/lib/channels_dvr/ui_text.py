@@ -51,7 +51,7 @@ _ROWS = (
     ('refresh', 30123, 'Refresh listings'),
     ('connection_status', 30124, 'Connection status'),
     ('disconnect', 30125, 'Disconnect'),
-    ('connection_settings', 30126, 'Connection settings'),
+    ('connection_settings', 30126, 'Kodi add-on preferences'),
     ('connect_first', 30127, 'Connect to your DVR first.'),
     ('configure_first', 30128, 'In Settings or Connection > Configure DVR address, set a numeric IP, then Connect. Uses HTTP port 8089; no hostnames.'),
     ('not_connected', 30129, 'Not connected'),
@@ -66,7 +66,7 @@ _ROWS = (
     ('guide_unavailable', 30139, 'Guide unavailable'),
     ('empty_update', 30140, 'No listings in the last successful update'),
     ('empty_view', 30141, '{view}: {status}'),
-    ('refresh_hint', 30142, 'Menu: Connection → Refresh listings.'),
+    ('refresh_hint', 30142, 'Settings → Refresh listings.'),
     ('demo_hint', 30143, 'Developer tools → Demo data status → Recover. OK explains this Demo state.'),
     ('search', 30144, 'Search'),
     ('recent', 30145, 'Recent recordings'),
@@ -131,6 +131,9 @@ _ROWS = (
     ('search_capped', 30992, 'Input capped'),
     ('search_show_dvr', 30993, 'Show in DVR'),
     ('search_open_recording', 30994, 'Open recording'),
+    ('startup_view', 30996, 'Startup view'),
+    ('startup_last', 30997, 'Last primary view'),
+    ('guide_ok_action', 30998, 'Guide OK action'),
 ) + OPERATION_ROWS + FINAL_ROWS + BUILD_ROWS + ARTWORK_ROWS + STORAGE_ROWS + SERIES_ROWS + PLAYBACK_ROWS + DASHBOARD_ROWS + DVR_ROWS + RECORDINGS_ROWS
 IDS = MappingProxyType({key: number for key, number, _ in _ROWS})
 FALLBACK = MappingProxyType({key: value for key, _, value in _ROWS})

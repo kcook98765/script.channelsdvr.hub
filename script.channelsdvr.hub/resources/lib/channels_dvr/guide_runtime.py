@@ -68,7 +68,8 @@ class GuideRuntime:
         self._needs_prepare = True
         self._fixture: FixtureMode | None = None
         self._cancelled_fixture_ticket: object | None = None
-        self._request: int | None = None
+        self._request: tuple[object, DevelopmentConfig, int] | None = None
+        self._source_epoch = object()
         self._mode: tuple[str, DevelopmentConfig | None] | None = None
         self._attempted: tuple[int, int, int, int | None, tuple[int, int]] | None = None
         self.latest_status: tuple[StatusObservation, TicketContext] | None = None
@@ -158,8 +159,12 @@ class GuideRuntime:
         self._needs_prepare = True
 
     def request(self, anchor: int) -> None:
+        mode = self._mode
+        config = self.window._development_config if mode is None else mode[1] if mode[0] == 'live' else None
+        if config is None:
+            return
         self.latest_status = None  # at intent admission, including deferred submissions
-        self._request = max(0, anchor)
+        self._request = self._source_epoch, config, max(0, anchor)
         self.error = None
         self._needs_prepare = False
         self._start_request()
@@ -197,16 +202,23 @@ class GuideRuntime:
 
     def _start_request(self) -> None:
         w = self.window
-        if self._request is None or self.result is not None or self._mode is not None:
+        request = self._request
+        if request is None or self.result is not None or self._mode is not None:
             return
         session, config = w._live_session, w._development_config
-        if session is None or config is None or w._development_blocked is not None:
+        epoch, requested_config, anchor = request
+        if (epoch is not self._source_epoch or session is None or config is None
+                or config != requested_config or w._development_blocked is not None
+                or w._recording_ui._current_config() != config):
             self._request = None
             return
         token = self._hold_caches()
         if token is None:
             return
-        anchor = self._request
+        if session._generation is None:
+            # A new live incarnation has no qualified Guide time, even when an
+            # old controller was still displayed when the request was queued.
+            anchor = w.utc_now()
         start = anchor - anchor % 1800
         ticket = object()
         generation = w._metadata_loader.request(config, start, index_owner=session.incarnation,
@@ -495,6 +507,9 @@ class GuideRuntime:
             series.close()  # Revoke before the old session can be held for retirement.
         if kind in ('live', 'no_connection'):
             self.window.transient_demo_mode = False
+        self._source_epoch = object()
+        self._request = None
+        self.window._intended_anchor = None
         self._mode = (kind, config)
         # Invalidate only scalar return intent at the switch boundary. Large
         # search/index references still follow the worker retirement handoff.

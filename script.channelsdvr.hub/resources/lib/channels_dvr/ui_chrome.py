@@ -156,7 +156,7 @@ class WindowChrome:
     def _set_focus(self, target):
         self.w._dispatcher.assert_owner()
         if self.w._closed or (target != CONTENT and target not in self.presented):
-            return
+            return False
         try:
             current = self.w.getFocusId()
         except Exception:
@@ -164,8 +164,16 @@ class WindowChrome:
         try:
             if current != target:
                 self.w.setFocusId(target)
+                return True
         except Exception:
             pass  # Unknown native/child focus is not permission for retries.
+        return False
+
+    def _travel_focus(self, target):
+        if target is not None and self._set_focus(target):
+            hub = getattr(self.w, '_hub_session', None)
+            if hub is not None:
+                hub.cancel_startup()
 
     def entry_target(self, preferred=None):
         if preferred in self.presented:
@@ -317,7 +325,7 @@ class WindowChrome:
             # Explicit travel can recover native focus after a hovered hit was
             # retired; a passive repaint and a stale Select cannot.
             if action in (LEFT, RIGHT, UP, DOWN):
-                self.initialize_focus()
+                self._travel_focus(self.entry_target())
             return True
         if action in SHORTCUTS:
             if action in (INFO, CONTEXT):
@@ -330,7 +338,7 @@ class WindowChrome:
         if action not in (LEFT, RIGHT, UP, DOWN):
             return False
         if focus not in self.presented:
-            self.initialize_focus()
+            self._travel_focus(self.entry_target())
             return True
         nav = tuple(i for i in self.presented if i in NAV)
         tabs = tuple(i for i in self.presented if i in TABS)
@@ -365,5 +373,5 @@ class WindowChrome:
         else:
             return False
         self.w._playback_ui.cancel()
-        self._set_focus(target)
+        self._travel_focus(target)
         return True
