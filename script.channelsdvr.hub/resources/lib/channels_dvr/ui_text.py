@@ -17,6 +17,7 @@ from .storage_catalog import ROWS as STORAGE_ROWS
 from .series_manager_catalog import ROWS as SERIES_ROWS
 from .playback_catalog import ROWS as PLAYBACK_ROWS
 from .dashboard_catalog import ROWS as DASHBOARD_ROWS
+from .recordings_catalog import ROWS as RECORDINGS_ROWS
 
 _ROWS = (
     ('connection', 30000, 'Connection'),
@@ -117,7 +118,7 @@ _ROWS = (
     ('state_removed', 30192, 'Removal saved'),
     ('yes', 30193, 'Yes'),
     ('no', 30194, 'No'),
-) + OPERATION_ROWS + FINAL_ROWS + BUILD_ROWS + ARTWORK_ROWS + STORAGE_ROWS + SERIES_ROWS + PLAYBACK_ROWS + DASHBOARD_ROWS
+) + OPERATION_ROWS + FINAL_ROWS + BUILD_ROWS + ARTWORK_ROWS + STORAGE_ROWS + SERIES_ROWS + PLAYBACK_ROWS + DASHBOARD_ROWS + RECORDINGS_ROWS
 IDS = MappingProxyType({key: number for key, number, _ in _ROWS})
 FALLBACK = MappingProxyType({key: value for key, _, value in _ROWS})
 RESERVED_IDS = BUILD_RESERVED_IDS | ARTWORK_RESERVED_IDS | frozenset((30103, 30104, 30105, 30134, 30498, 30703, 30710))

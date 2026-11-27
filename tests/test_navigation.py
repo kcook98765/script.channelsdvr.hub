@@ -1,4 +1,5 @@
 """Phase 1 owner/route/pointer regressions using inert WindowXML controls only."""
+from dataclasses import replace
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 import runpy
@@ -9,11 +10,13 @@ from unittest.mock import Mock, patch
 
 from channels_dvr.guide import GuideController
 from channels_dvr.library import LibraryBrowser
+from channels_dvr.normalization import DataState
 from channels_dvr.repository import MockRepository
 from channels_dvr.search import airing_key
 from channels_dvr.session import OfflineDataSession
-from channels_dvr.ui_chrome import ACTIONS, CONTENT, CONTEXT, DOWN, INFO, NAV, NAV_BACK, PAGE_DOWN, UP
+from channels_dvr.ui_chrome import ACTIONS, CONTENT, CONTEXT, DOWN, INFO, LEFT, NAV, NAV_BACK, PAGE_DOWN, RIGHT, UP
 from channels_dvr.ui_navigation import execute_command
+from channels_dvr.ui_recordings import QUERY, SORT, SOURCE, TABS
 from channels_dvr.ui_routes import PRIMARY, Route, launch_view
 
 ADDON = Path(__file__).resolve().parents[1] / 'script.channelsdvr.hub'
@@ -37,7 +40,7 @@ class Control:
 
 class WindowXML:
     def __init__(self, *args, **kwargs):
-        ids = (100, 110, *range(112, 118), *range(120, 126), *range(140, 144), *NAV, *ACTIONS, *range(400, 406))
+        ids = (100, 110, *range(112, 118), *range(120, 126), *range(140, 144), *NAV, *TABS, *ACTIONS, *range(400, 406))
         self.controls = {ident: Control() for ident in ids}
         self.serial = 3000
         self.focus_id = 100
@@ -266,6 +269,176 @@ class NavigationTests(unittest.TestCase):
             self.assertEqual(w.library.provenance_filter, 'all')
         self.action(NAV_BACK)
         self.assertEqual(w.view, 'Dashboard')
+
+    def test_recordings_tabs_and_local_controls_have_reachable_distinct_native_ids(self):
+        self.seed()
+        self.enter('Recordings')
+        w = self.w
+        self.assertEqual([w.controls[i].properties['setLabel'][0] for i in TABS],
+                         ['Recent', w.t('recordings_active_tab', tab='TV Shows'), 'Movies', 'All', 'Search'])
+        self.assertEqual(w.getFocusId(), CONTENT)
+        self.action(LEFT)
+        self.assertEqual(w.getFocusId(), 221)  # Active TV Shows tab.
+        self.action(LEFT)
+        self.assertEqual(w.getFocusId(), 220)
+        w.onClick(w.getFocusId())  # Remote Select on the focused native tab.
+        w.process_pending()
+        self.assertEqual((w.library.mode, w.getFocusId()), ('Recent', 220))
+        self.action(DOWN)
+        self.action(RIGHT)
+        self.assertEqual(w.getFocusId(), SOURCE)  # No walk to the last row.
+        self.dialog.select.return_value = 2
+        w.onClick(w.getFocusId())
+        w.process_pending()
+        self.assertEqual((w.library.provenance_filter, len(w.library.rows())), ('import', 2))
+        self.action(RIGHT)
+        self.assertEqual(w.getFocusId(), SORT)
+        self.dialog.select.return_value = 0
+        w.onClick(w.getFocusId())
+        w.process_pending()
+        self.assertEqual(w.library.sort_order, 'title')
+        self.assertIn(w.t('recordings_title'), w.library.breadcrumb)
+        self.click(222)
+        self.assertEqual((w.library.mode, len(w.library.rows())), ('Movies', 1))
+        self.click(223)
+        self.assertEqual((w.library.mode, len(w.library.rows())), ('All', 2))
+        self.click(224)
+        self.assertEqual((w.library.mode, w.getFocusId()), ('Search', 224))
+        self.assertEqual(w.controls[113].properties['setLabel'], (w.t('recording_search_hint'),))
+        self.dialog.select.return_value = 2  # Synthetic "atlas" preset, not programme Search.
+        self.click(QUERY)
+        self.assertEqual((w.library.query, len(w.library.rows()), w.search_query), ('atlas', 1, ''))
+        self.dialog.select.return_value = 0  # Turn off the imported-only filter.
+        self.click(SOURCE)
+        self.assertEqual((w.library.provenance_filter, len(w.library.rows())), ('all', 4))
+        self.action(NAV_BACK)
+        self.assertEqual((w.library.mode, w.library.provenance_filter), ('All', 'import'))
+        self.enter('Guide')
+        for ident in (*TABS, SOURCE, SORT, QUERY):
+            self.assertIsNone(w._chrome.capture(ident))
+            self.assertEqual(w.controls[ident].properties['setEnabled'], (False,))
+            self.assertEqual(w.controls[ident].properties['setVisible'], (False,))
+        w._playback_ui.request.assert_not_called()
+        w._recording_ui.request.assert_not_called()
+        w._save_development.assert_not_called()
+        w._metadata_loader.request.assert_not_called()
+
+    def test_recordings_reject_queued_and_mid_transition_clicks_and_stale_chooser(self):
+        self.seed()
+        self.enter('Recordings')
+        w = self.w
+        old_hit = next(iter(self.hits('row').values()))
+        w.focus_id = 220
+        render = w.render
+
+        def render_with_input():
+            self.assertTrue(w._dispatcher.modal_active)
+            render()
+            self.post_action(NAV_BACK)
+            w.onClick(222)  # Callback during the repaint, even after native publication.
+
+        with patch.object(w, 'render', side_effect=render_with_input):
+            w.onClick(220)
+            w.onClick(old_hit)
+            self.post_action(NAV_BACK)
+            w.process_pending()
+        w.process_pending()
+        self.assertEqual((w.view, w.library.mode, w.library.depth), ('Recordings', 'Recent', 0))
+        self.assertNotIn(old_hit, w.controls)
+        self.dialog.textviewer.assert_not_called()
+
+        def moved_during_chooser(*args, **kwargs):
+            w.library.set_mode('Movies')
+            return 2  # Oldest; stale for the new tab.
+
+        self.dialog.select.side_effect = moved_during_chooser
+        self.click(SORT)
+        self.assertEqual((w.library.mode, w.library.sort_order), ('Movies', 'title'))
+        self.dialog.select.side_effect = None
+        w.render()
+        self.dialog.select.return_value = -1
+        self.click(SOURCE)
+        self.assertEqual((w.getFocusId(), w.library.provenance_filter), (SOURCE, 'all'))
+
+    def test_recordings_partial_and_removed_row_refresh_never_retarget_mouse(self):
+        repo = self.seed()
+        self.enter('Recordings')
+        w = self.w
+        self.click(223)  # All
+        self.action(DOWN)
+        self.action(PAGE_DOWN)
+        self.assertEqual((w.library.position, w.library.top), (6, 6))
+        row = w.library.rows()[8]
+        hit = self.hits('row')[(row.id,)]
+        self.assertEqual(w.controls[hit].args[:4], (80, 475, 1760, 72))
+        self.click(hit)
+        self.dialog.textviewer.assert_called_once_with(row.label, row.detail)
+        self.click(220)
+        self.click(223)
+        self.assertEqual((w.library.selected.id, w.library.top), (row.id, 6))
+
+        w.data_session.choose('partial')
+        w.render()
+        self.assertEqual(w.library.selected.id, row.id)  # Retained accepted snapshot, not the partial page.
+        self.assertIn(w.t('live_partial'), w.controls[114].properties['setLabel'][0])
+        stale = self.hits('row')[(row.id,)]
+        repo.recordings = tuple(r for r in repo.recordings if r != w.library.selected_recording())
+        w.data_session = OfflineDataSession(repo, strings=w.strings)
+        w.focus_id = CONTENT
+        w.focus_writes.clear()
+        w.onClick(stale)  # Current data changed but native targets have not been repainted.
+        w.process_pending()
+        self.dialog.textviewer.assert_called_once()
+        w.render()
+        self.assertEqual((w.library.position, w.library.top), (7, 5))
+        self.assertIsNone(w._chrome.capture(stale))
+        self.assertNotIn((row.id,), self.hits('row'))
+        self.assertEqual(w.focus_writes, [])
+        w.data_session.choose('empty')
+        w.render()
+        self.assertEqual((w.library.selected, w.library.position, w.library.top), (None, 0, 0))
+        self.assertFalse(self.hits('row'))
+        w._playback_ui.request.assert_not_called()
+
+    def test_recordings_play_is_explicit_and_stale_or_ineligible_intent_cannot_dispatch(self):
+        self.seed()
+        w = self.w
+        data = w.data_session.recordings()
+        w.transient_demo_mode = False
+        w._live_session = SimpleNamespace(loading=False, incarnation=object(), _generation=1,
+                                          _catalog_epoch=object(), recordings=lambda: data)
+        w._development_config = config = SimpleNamespace(namespace='synthetic')
+        w._saved_config = lambda: config
+        w._addon.getSettingBool = lambda _: True
+        w._playback_ui.request = Mock()  # Observation only; never submit to the real worker.
+        self.enter('Recordings')
+        self.assertIsNone(w._chrome.capture(301))  # A show folder is not playable.
+        self.click(220)
+        self.assertEqual(w.library.selected_recording().provenance, 'dvr')
+        stale = w._chrome.capture(301)
+        self.assertIsNotNone(stale)
+        self.click(301)
+        w._playback_ui.request.assert_called_once()
+        w._playback_ui.request.reset_mock()
+
+        w.focus_id = 223
+        w.onClick(223)
+        w.onClick(301)
+        w.process_pending()
+        self.assertEqual(w.library.mode, 'All')
+        self.assertFalse(w._chrome.click(stale, self.gui))
+        self.assertIsNotNone(w._chrome.capture(301))
+        data = replace(data, state=DataState.PARTIAL)
+        self.click(301)  # A partial refresh disqualifies Play before the repaint.
+        w.render()
+        self.assertIsNone(w._chrome.capture(301))
+        self.assertTrue(self.hits('row'))
+        data = replace(data, state=DataState.READY)
+        self.dialog.select.return_value = 2  # Imported media: details only.
+        self.click(SOURCE)
+        self.assertEqual(w.library.selected_recording().provenance, 'import')
+        self.assertIsNone(w._chrome.capture(301))
+        w._playback_ui.request.assert_not_called()
 
     def test_search_drill_in_returns_to_results_and_preserves_primary_guide(self):
         repo = self.seed()

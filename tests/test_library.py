@@ -64,6 +64,7 @@ class LibraryTests(unittest.TestCase):
         b = LibraryBrowser((record("unknown", season=None), record("s2", season=2),
                             record("s0b", season=0, episode=2),
                             record("s0a", season=0, episode=1)))
+        b.set_sort('oldest')  # Root ordering never changes season/episode order.
         b.open_selected()
         self.assertEqual([r.label for r in b.rows()], ["Season 0", "Season 2", "Season ?"])
         b.open_selected()
@@ -300,7 +301,7 @@ class LibraryTests(unittest.TestCase):
     def test_unknown_origin_is_explicit_and_filters_apply_to_every_mode(self):
         self.assertEqual([provenance_label(c) for c in ("dvr", "import", "unknown")],
                          ["DVR", "Imported", "Unknown"])
-        for mode in ("Shows", "Recent", "Movies", "Search"):
+        for mode in ("Shows", "Recent", "Movies", "All", "Search"):
             b = LibraryBrowser(self.records)
             b.set_mode(mode)
             if mode == "Search":
@@ -309,6 +310,108 @@ class LibraryTests(unittest.TestCase):
             self.assertEqual(len(b.rows()), 0 if mode == "Movies" else 1)
             self.assertTrue(all("Unknown" in row.label for row in b.rows()))
         self.assertEqual(recording_key(self.records[-1]), ("", "unknown", "unknown-1"))
+
+    def test_tab_source_and_sort_matrix_keeps_full_identity_and_unknown_fallback(self):
+        dvr = record('same', title='Same', created=10, is_movie=True)
+        imported = replace(dvr, title=' ＳＡＭＥ ', provenance='import')
+        blank = record('unknown', title=' ', created=0, is_movie=True, provenance='unknown')
+        episode = record('ep', title='Alpha', created=20, namespace='another')
+        items = (imported, blank, episode, dvr)
+        b = LibraryBrowser(items)
+        b.set_mode('All')
+        ids = lambda records: [repr(recording_key(item)) for item in records]
+
+        def order():
+            return [row.id for row in b.rows()]
+
+        self.assertEqual(order(), ids((episode, dvr, imported, blank)))
+        self.assertTrue(b.rows()[-1].label.startswith('Untitled recording'))
+        b.set_sort('oldest')
+        self.assertEqual(order(), ids((blank, dvr, imported, episode)))  # Epoch zero is valid.
+        b.update(tuple(reversed(items)))
+        self.assertEqual(order(), ids((blank, dvr, imported, episode)))
+        b.set_provenance_filter('import')
+        self.assertEqual(order(), ids((imported,)))
+        b.set_mode('Movies')
+        self.assertEqual((b.provenance_filter, b.sort_order), ('import', 'title'))
+        b.set_provenance_filter('all')
+        self.assertEqual(order(), ids((dvr, imported, blank)))
+        b.set_sort('newest')
+        self.assertEqual(order(), ids((dvr, imported, blank)))
+        b.set_mode('Recent')
+        self.assertEqual(order(), ids((episode, dvr, imported, blank)))
+        b.set_mode('All')
+        self.assertEqual(b.sort_order, 'oldest')
+        with self.assertRaises(ValueError):
+            b.set_sort('duration')
+        self.assertEqual(order(), ids((blank, dvr, imported, episode)))
+
+    def test_sort_keeps_selection_and_reports_search_cap_and_input_limit(self):
+        records = tuple(record(str(i), title=f'Episode {i:03}', created=i) for i in range(122))
+        b = LibraryBrowser(records, max_records=121)
+        b.set_query('episode')
+        self.assertEqual((len(b.rows()), b.truncated, b.coverage_limited), (100, True, True))
+        b.move(14)
+        chosen = b.selected.id
+        b.set_sort('title')  # The former row was outside the new sorted top 100.
+        self.assertNotEqual(b.selected.id, chosen)
+        self.assertEqual((b.position, b.top, len(b.rows()), b.truncated), (14, 12, 100, True))
+        b.move(30)
+        selected = b.selected.id
+        b.set_sort('newest')
+        self.assertEqual(b.selected.id, selected)
+        self.assertEqual(b.position - b.top, 2)
+        b.set_mode('All')
+        self.assertEqual((len(b.rows()), b.truncated, b.coverage_limited), (121, False, True))
+
+    def test_show_date_sort_uses_latest_member_with_deterministic_folder_ties(self):
+        first = record('earliest', show='A', show_id='a', created=1)
+        latest = replace(first, id='latest', created=10)
+        second = record('second', show='A Longer Title', show_id='b', created=5)
+        other = replace(latest, provenance='import')
+        b = LibraryBrowser((second, other, first, latest))
+        a, imported, longer = [row.id for row in b.rows()]
+        self.assertIn('A | DVR', b.rows()[0].label)
+        self.assertIn('A | Imported', b.rows()[1].label)
+        b.set_sort('oldest')
+        self.assertEqual([row.id for row in b.rows()], [longer, a, imported])
+        self.assertEqual(b.selected.id, a)
+        b.set_sort('newest')
+        self.assertEqual([row.id for row in b.rows()], [a, imported, longer])
+
+    def test_viewport_round_trip_tracks_parent_and_season_when_rows_move(self):
+        records = tuple(record(f'show{i}', show=f'Show {i:02}', show_id=f's{i}') for i in range(12))
+        episodes = tuple(record(f'episode-{i}', show='Show 08', show_id='s8', season=8, episode=i)
+                         for i in range(9))
+        seasons = tuple(record(f'season-{i}', show='Show 08', show_id='s8', season=i)
+                        for i in range(2, 8))
+        b = LibraryBrowser(records + seasons + episodes)
+        b.move(8)
+        show = b.selected.id
+        b.open_selected()
+        b.move(7)
+        season = b.selected.id
+        b.open_selected()
+        b.move(8)
+        episode = b.selected.id
+        self.assertEqual((b.position, b.top), (8, 6))
+        b.set_mode('All')
+        b.move(11)
+        all_row = b.selected.id
+        b.set_mode('Search')
+        b.set_query('episode')
+        b.set_provenance_filter('import')
+        self.assertTrue(b.leave_search())
+        self.assertEqual((b.mode, b.provenance_filter, b.position, b.top, b.selected.id), ('All', 'all', 11, 6, all_row))
+        b.set_mode('Shows')
+        self.assertEqual((b.depth, b.position, b.top, b.selected.id), (2, 8, 6, episode))
+        b.update(records + seasons + episodes[:-1] + (record('earlier', show='Aardvark', show_id='early'),))
+        self.assertEqual((b.depth, b.position, b.top), (2, 7, 5))
+        self.assertEqual(b.selected.id, repr(recording_key(episodes[7])))
+        b.back()
+        self.assertEqual((b.depth, b.position, b.top, b.selected.id), (1, 7, 6, season))
+        b.back()
+        self.assertEqual((b.depth, b.position, b.top, b.selected.id), (0, 9, 7, show))
 
     def test_malformed_models_rejected_and_coverage_disclosed(self):
         malformed = [None, {}, "record"]

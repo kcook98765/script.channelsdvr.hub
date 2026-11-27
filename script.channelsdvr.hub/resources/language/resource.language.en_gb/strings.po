@@ -1362,15 +1362,15 @@ msgid " | Some results are not shown"
 msgstr ""
 
 msgctxt "#30464"
-msgid "{position}/{count} | OK: browse / details | Menu: Recording tools"
+msgid "{position}/{count} | OK: browse / details | Info: details"
 msgstr ""
 
 msgctxt "#30465"
-msgid "No matching recordings | Menu: Recording tools"
+msgid "No matching recordings"
 msgstr ""
 
 msgctxt "#30466"
-msgid "Recording tools → Search recordings to enter text"
+msgid "Choose Search recordings to enter text"
 msgstr ""
 
 msgctxt "#30467"
@@ -1406,7 +1406,7 @@ msgid "No listing is available at this time. This does not mean the DVR returned
 msgstr ""
 
 msgctxt "#30475"
-msgid "No matching item in this view. Use Recording tools to search or change the recording source filter."
+msgid "No matching item in this view. Try another tab or recording source."
 msgstr ""
 
 msgctxt "#30476"
@@ -2139,4 +2139,44 @@ msgstr ""
 
 msgctxt "#30949"
 msgid "More"
+msgstr ""
+
+msgctxt "#30970"
+msgid "Recent"
+msgstr ""
+
+msgctxt "#30971"
+msgid "TV Shows"
+msgstr ""
+
+msgctxt "#30972"
+msgid "All"
+msgstr ""
+
+msgctxt "#30973"
+msgid "Sort"
+msgstr ""
+
+msgctxt "#30974"
+msgid "Title (A–Z)"
+msgstr ""
+
+msgctxt "#30975"
+msgid "Newest added"
+msgstr ""
+
+msgctxt "#30976"
+msgid "Oldest added"
+msgstr ""
+
+msgctxt "#30977"
+msgid "{breadcrumb} | Sort: {sort}"
+msgstr ""
+
+msgctxt "#30978"
+msgid "Untitled recording"
+msgstr ""
+
+msgctxt "#30979"
+msgid "● {tab}"
 msgstr ""

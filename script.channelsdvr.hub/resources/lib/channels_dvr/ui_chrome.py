@@ -6,6 +6,7 @@ from .guide_render import RenderMemo
 from .ui_activation import ButtonActivation, ShortcutActivation
 from .ui_hits import ContentHits
 from .ui_navigation import DESTINATIONS, SELECTION_COMMANDS, command_label, execute_command
+from .ui_recordings import ACTION_SLOTS as RECORDINGS_ACTIONS, SOURCE, TABS, TOOLS, active_tab, tab_label
 
 CONTENT = 100
 NAV = dict(zip(range(200, 206), DESTINATIONS))
@@ -15,8 +16,9 @@ ACTIONS = {
     304: ('window.actions',), 305: ('window.back',),
     306: ('search.programmes',), 307: ('search.clear',),
     308: ('connection.configure',), 309: ('connection.connect',), 310: ('dashboard.refresh',),
+    **TOOLS,
 }
-VIEW_ACTIONS = {('Guide', 306): ('guide.collection',), ('Recordings', 306): ('recording.tools',)}
+VIEW_ACTIONS = {('Guide', 306): ('guide.collection',)}
 # Kodi Omega ActionIDs; Select is delivered by native onClick (including mouse).
 LEFT, RIGHT, UP, DOWN, PAGE_UP, PAGE_DOWN = 1, 2, 3, 4, 5, 6
 BACK, INFO, NAV_BACK, CONTEXT = 10, 11, 92, 117
@@ -71,8 +73,7 @@ class WindowChrome:
                 session.incarnation if session is not None else w._guide_runtime.incarnation,
                 w._development_blocked, w._guide_runtime._mode)
         if w.view == 'Recordings':
-            context = w.library._context()
-            scope += (context, w.library._paths.get(context, ()),)
+            scope += (w.library.navigation_scope,)
         return scope
 
     def _activation(self, ident, code, label, target=None):
@@ -117,7 +118,7 @@ class WindowChrome:
             return None
         if type(ident) is not int:
             return None
-        return ident if ident in (CONTENT, *NAV, *ACTIONS) else CONTENT if ident in self.presented else None
+        return ident if ident in (CONTENT, *NAV, *TABS, *ACTIONS) else CONTENT if ident in self.presented else None
 
     def _set_focus(self, target):
         self.w._dispatcher.assert_owner()
@@ -156,10 +157,12 @@ class WindowChrome:
         w = self.w
         visible = {ident: (code, label) for ident, code in NAV.items() if w.view != 'Guide'
                    if (label := command_label(w, code)) is not None}
+        visible.update({ident: (code, label) for ident, code in TABS.items()
+                        if (label := command_label(w, code)) is not None})
         slots = {
             'Dashboard': (304, 305, 308, 309, 310),
             'Guide': (300, 301, 302, 303, 306, 304, 305),
-            'Recordings': (300, 301, 306, 304, 305),
+            'Recordings': RECORDINGS_ACTIONS,
             'DVR': (300, 303, 304, 305),
             'Search': (306, 307, 300, 302, 304, 305),
             'Settings': (300, 304, 305),
@@ -175,9 +178,9 @@ class WindowChrome:
     def render(self, gui=None, plan=()):
         w = self.w
         available = self.available()
-        rail = tuple(ident for ident in available if ident in ACTIONS)
+        rail = RECORDINGS_ACTIONS if w.view == 'Recordings' else tuple(ident for ident in available if ident in ACTIONS)
         spacing, width = (290, 280) if len(rail) <= 6 else (252, 242)
-        for ident in (*NAV, *ACTIONS):
+        for ident in (*NAV, *TABS, *ACTIONS):
             control = self.control(ident)
             if control is None:
                 self._withdraw(ident)
@@ -188,14 +191,16 @@ class WindowChrome:
             if shown:
                 if ident in ACTIONS:
                     required.extend((('setPosition', (80 + rail.index(ident)*spacing, 1000)), ('setWidth', (width,))))
-                required.append(('setLabel', (w.t(available[ident][1]),)))
+                label = w.t(available[ident][1])
+                required.append(('setLabel', (tab_label(w, ident, label) if ident in TABS else label,)))
             if not shown or any(self.memo.values.get((control, method)) != args for method, args in required):
                 self._withdraw(ident)
             committed = True
             for method, args in required:
                 committed = self.memo.best_effort(control, method, *args) and committed
             if shown and committed:
-                active = NAV.get(ident) == 'view.' + w.view.lower()
+                active = (NAV.get(ident) == 'view.' + w.view.lower()
+                          or (ident in TABS and ident == active_tab(w)))
                 self.memo.best_effort(control, 'setTextColor', 'FFDEB560' if active else 'FFFFFFFF')
             else:
                 available.pop(ident, None)
@@ -266,17 +271,29 @@ class WindowChrome:
         nav = tuple(i for i in self.presented if i in NAV)
         rail = tuple(i for i in self.presented if i in ACTIONS)
         active = next((i for i in nav if DESTINATIONS[NAV[i]] == self.w.view), CONTENT)
-        if focus in nav or focus in rail:
-            siblings = nav if focus in nav else rail
+        tabs = tuple(i for i in self.presented if i in TABS)
+        category = active_tab(self.w) if tabs else active
+        if category not in self.presented:
+            category = tabs[0] if tabs else active
+        if focus in nav or focus in tabs or focus in rail:
+            siblings = nav if focus in nav else tabs if focus in tabs else rail
             if action in (LEFT, RIGHT):
                 target = siblings[(siblings.index(focus) + (-1 if action == LEFT else 1)) % len(siblings)]
             else:
-                if focus in nav:
+                if focus in nav and tabs and action == DOWN:
+                    target = category
+                elif focus in nav:
                     target = CONTENT if CONTENT in self.presented else rail[0] if rail and action == DOWN else focus
+                elif focus in tabs:
+                    target = active if action == UP else CONTENT if CONTENT in self.presented else rail[0] if rail else focus
                 else:
-                    target = CONTENT if action == UP and CONTENT in self.presented else active if nav else focus
+                    target = CONTENT if action == UP and CONTENT in self.presented else category if nav else focus
+        elif tabs and action in (LEFT, RIGHT):
+            # Reach tabs and local selectors from any page without traversing
+            # a large catalogue or changing the content cursor behind focus.
+            target = SOURCE if action == RIGHT and SOURCE in rail else category
         elif action == UP and nav and self.w._content_edge(UP):
-            target = active
+            target = category
         elif action == DOWN and rail and self.w._content_edge(DOWN):
             target = rail[0]
         else:
