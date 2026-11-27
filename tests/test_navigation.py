@@ -20,6 +20,7 @@ from channels_dvr.models import Event
 from channels_dvr.normalization import DataState
 from channels_dvr.repository import MockRepository
 from channels_dvr.search import airing_key
+from channels_dvr.search_projection import PassId, ProgrammeId, RecordingId, ScheduledId, SearchCategory
 from channels_dvr.series_manager_models import GeneralSeriesPlan, ManagerView, rule_rows
 from channels_dvr.session import OfflineDataSession
 from channels_dvr.ui_chrome import (ACTIONS, CONTENT, CONTEXT, DOWN, INFO, LEFT, NAV, NAV_BACK,
@@ -723,7 +724,8 @@ class NavigationTests(unittest.TestCase):
         self.enter('Search')
         w._set_search_query('synthetic')
         w.render()
-        self.action(DOWN)  # from the empty Search fallback into the newly available results
+        self.action(DOWN)  # destination → category
+        self.action(DOWN)  # category → results
         self.action(PAGE_DOWN)
         result = w._selected_search_event()
         self.assertEqual(w.positions['Search'], 6)
@@ -749,7 +751,9 @@ class NavigationTests(unittest.TestCase):
         w.search_selection = None
         self.action(NAV_BACK)
         self.assertEqual(w.view, 'Search')
-        self.assertEqual(w.search_selection, airing_key(result))
+        self.assertIsInstance(w.search_selection, ProgrammeId)
+        ident = w.search_selection
+        self.assertEqual((ident.channel, ident.event_id, ident.start), airing_key(result))
         self.assertEqual(w.positions['Search'], 6)
         self.assertEqual(set(self.hits('row')), page_ids)
         self.assertEqual(w.getFocusId(), 302)
@@ -770,6 +774,167 @@ class NavigationTests(unittest.TestCase):
         self.action(NAV_BACK)
         self.assertEqual(w._selected_search_event(), event)
         self.assertEqual(w.getFocusId(), 300)
+
+    def search_fixture(self):
+        repo = self.seed()
+        w = self.w
+        repo.events = (replace(repo.events[0], title='Sample Café'),)
+        repo.recordings = (replace(repo.recordings[0], title='Sample Café'),)
+        repo.jobs = (replace(repo.jobs[0], title='Sample Café'),)
+        w.data_session = OfflineDataSession(repo, strings=w.strings)
+        w.library = LibraryBrowser(repo.recordings, strings=w.strings)
+        w.guide = GuideController(repo, strings=w.strings)
+        w._dvr._factory = self.forbidden('pass request from Search')
+        return repo
+
+    def test_unified_search_disconnected_keeps_all_categories_and_honest_empty(self):
+        w = self.w
+        self.enter('Search')
+        self.assertEqual(tuple(w._chrome.capture(i).command for i in range(220, 225)),
+                         tuple('search.tab.' + c.value for c in SearchCategory))
+        self.assertEqual(w.controls[113].properties['setLabel'], (w.t('search_query_prompt'),))
+        self.click(224)
+        self.assertEqual((w._search_ui.category, w.getFocusId()), (SearchCategory.PASSES, 224))
+        self.dialog.select.return_value = 0
+        self.dialog.input.return_value = 'sample'
+        self.click(306)
+        group, = w._search_ui.page().groups
+        self.assertFalse(group.has_snapshot)
+        self.assertTrue(group.coverage.unavailable)
+        self.assertNotIn(w.t('search_no_matches'), w.controls[113].properties['setLabel'][0])
+        self.click(304)
+        body = self.dialog.textviewer.call_args.args[1]
+        self.assertIn(w.t('search_local'), body)
+        self.assertIn(w.t('cache_none'), body)
+        self.assertIn(w.t('unavailable'), body)
+        w._metadata_loader.request.assert_not_called()
+        w._playback_ui.request.assert_not_called()
+
+    def test_all_search_mixed_scope_and_status_then_exact_recording_open(self):
+        self.search_fixture()
+        w = self.w
+        recordings = w.data_session.recordings()
+        with patch.object(w.data_session, 'recordings', return_value=replace(
+                recordings, stale=True, state=DataState.PARTIAL)):
+            self.enter('Search')
+            w._set_search_query('sample')
+            w.render()
+            guide, recordings_group, jobs, passes = w._search_ui.page().groups
+            self.assertEqual(tuple(type(g.hits[0].id) for g in (guide, recordings_group, jobs, passes)),
+                             (ProgrammeId, RecordingId, ScheduledId, PassId))
+            self.assertTrue(recordings_group.coverage.stale and recordings_group.coverage.partial)
+            self.assertIn(w.t('search_partial'), w.controls[114].properties['setLabel'][0])
+            self.assertEqual(w._search_ui.page().guide_scope.horizon, w.repository.horizon)
+            self.click(self.hits('row')[(recordings_group.hits[0].id,)])
+            self.dialog.textviewer.assert_not_called()
+            self.assertEqual(w.search_selection, recordings_group.hits[0].id)
+            self.assertFalse(w._search_ui.actionable())
+        w.render()
+        self.assertEqual(w._chrome.capture(300).label_key, 'search_open_recording')
+        self.click(300)
+        self.assertIn('Sample Café', self.dialog.textviewer.call_args.args[0])
+        self.assertEqual(w.view, 'Search')
+        w._dvr._factory.assert_not_called()
+        w._metadata_loader.request.assert_not_called()
+        w._playback_ui.request.assert_not_called()
+
+    def test_contextual_dvr_search_uses_local_reveal_and_two_back_levels(self):
+        self.search_fixture()
+        w = self.w
+        self.enter('DVR')
+        self.click(231)
+        origin = w._dvr.bookmark()
+        self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('search'))
+        self.click(304)
+        self.assertEqual(w._route, Route('Search', 'DVR'))
+        self.assertIs(w._search_ui.category, SearchCategory.PASSES)
+        w._set_search_query('sample')
+        w.render()
+        target = next(key[0] for key in self.hits('row') if key[0].pass_id == 'demo-pass-2')
+        self.assertTrue(w._search_ui.select_hit(target))
+        w.render()
+        self.click(302)
+        self.assertEqual(w._route, Route('DVR', 'Search'))
+        self.assertEqual(w._dvr.selected().key, target.pass_id)
+        self.assertIsNone(command_label(w, 'dvr.refresh'))
+        self.assertIsNone(command_label(w, 'dvr.manage'))
+        self.action(NAV_BACK)
+        self.assertEqual(w._route, Route('Search', 'DVR'))
+        self.assertEqual((w._search_ui.category, w.search_query, w.search_selection, w.getFocusId()),
+                         (SearchCategory.PASSES, 'sample', target, 302))
+        self.action(NAV_BACK)
+        self.assertEqual((w._route, w._dvr.bookmark(), w.getFocusId()), (Route('DVR'), origin, 304))
+        w._dvr._factory.assert_not_called()
+        w._recording_ui.request.assert_not_called()
+
+    def test_guide_and_recordings_context_keep_origin_focus(self):
+        self.search_fixture()
+        w = self.w
+        for view, key, category in (('Guide', 'search_programmes', SearchCategory.GUIDE),
+                                    ('Recordings', 'search', SearchCategory.RECORDINGS)):
+            with self.subTest(view=view):
+                self.enter(view)
+                self.dialog.select.side_effect = lambda _, labels: labels.index(w.t(key))
+                with self.subTest(control=304):
+                    self.click(304)
+                    self.assertEqual(w._route, Route('Search', view))
+                    self.assertIs(w._search_ui.category, category)
+                    self.action(NAV_BACK)
+                    self.assertEqual((w._route, w.getFocusId()), (Route(view), 304))
+        w._dvr._factory.assert_not_called()
+        w._metadata_loader.request.assert_not_called()
+
+    def test_live_pass_search_reads_only_accepted_browse_and_fences_generation(self):
+        workers, rows = self.connected_pass_fixture()
+        w = self.w
+        w._live_session.guide = w.data_session.guide
+        w._live_session.recordings = w.data_session.recordings
+        self.pass_result(workers[0], rows)
+        self.assertEqual(len(workers), 1)
+        self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('search'))
+        self.click(304)
+        w._set_search_query('fake')
+        w.render()
+        self.assertEqual({identity[0].pass_id for identity in self.hits('row')}, {row.key for row in rows})
+        self.click(302)
+        self.assertEqual(w._route, Route('DVR', 'Search'))
+        self.action(NAV_BACK)
+        old = w._chrome.capture(302)
+        w._live_session._generation += 1
+        w._dispatcher.post(('chrome', old))
+        w.process_pending()
+        self.assertEqual(w._route, Route('Search', 'DVR'))
+        self.assertFalse(w._search_ui.page().groups[0].has_snapshot)
+        self.assertEqual(len(workers), 1)
+        workers[0].submit.assert_called_once_with('browse')
+        w._metadata_loader.request.assert_not_called()
+
+    def test_search_rejects_old_pointer_and_does_not_retarget_modal(self):
+        self.search_fixture()
+        w = self.w
+        self.enter('Search')
+        w._set_search_query('sample')
+        w.render()
+        self.click(223)  # Scheduled category
+        old = next(w._chrome.capture(i) for i in self.hits('row').values())
+        self.assertIsInstance(old.target[1], ScheduledId)
+
+        def stale_after_modal(*args):
+            w.data_session.choose('empty')
+            return 1
+
+        self.dialog.select.side_effect = stale_after_modal
+        self.click(300)
+        self.assertEqual(w._route, Route('Search'))
+        self.dialog.textviewer.assert_not_called()
+        self.dialog.select.reset_mock(side_effect=True)
+        w._dispatcher.post(('chrome', old))
+        w.process_pending()
+        self.dialog.select.assert_not_called()
+        self.assertFalse(w._rows())
+        self.assertTrue(w._search_ui.page().groups[0].has_snapshot)
+        w._metadata_loader.request.assert_not_called()
+        w._recording_ui.request.assert_not_called()
 
     def test_list_mouse_hit_is_identity_bound_and_data_never_steals_focus(self):
         repo = self.seed()

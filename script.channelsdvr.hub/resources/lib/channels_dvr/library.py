@@ -169,6 +169,10 @@ class LibraryBrowser:
         """Accepted leaves, independent of library mode/filter; not listing health."""
         return self._records or ()
 
+    def search_records_for(self, items: tuple[Recording, ...]) -> tuple[Recording, ...] | None:
+        """Borrow leaves only from the exact listing used to build this library."""
+        return self.search_records if items is self._source else None
+
     @property
     def depth(self) -> int:
         return len(self._paths.get(self._context(), ()))

@@ -90,9 +90,8 @@ _ROWS = (
     ('connection_counts', 30163, 'Channels: {channels}; programmes: {events}\nRecordings: {recordings}; scheduled items: {jobs}'),
     ('partial_read', 30164, 'Listings were read in parts and may have changed during loading.'),
     ('search_enter', 30165, 'Enter search text…'),
-    ('search_previous', 30166, 'Previous results'),
     ('search_clear', 30167, 'Clear search'),
-    ('search_input', 30168, 'Search programmes (up to 128 characters)'),
+    ('search_input', 30168, 'Search (up to 128 characters)'),
     ('search_limit', 30169, 'Use up to 128 characters for your search.'),
     ('choose_date', 30170, 'Choose date and hour'),
     ('earliest', 30171, 'Earliest listing time'),
@@ -124,10 +123,19 @@ _ROWS = (
     ('guide_controls', 30982, 'Guide controls'),
     ('guide_keys', 30983, 'OK/Info: details | PgUp/PgDn: channels | Blue line: Now | {footer}'),
     ('guide_dense_notice', 30984, 'Some listings hidden. Use arrows or change time.'),
+    ('search_category_guide', 30987, 'Guide programmes'),
+    ('search_category_scheduled', 30988, 'Scheduled recordings'),
+    ('search_coverage', 30989, 'Coverage'),
+    ('search_local', 30990, 'Local listings only'),
+    ('search_partial', 30991, 'Partial'),
+    ('search_capped', 30992, 'Input capped'),
+    ('search_show_dvr', 30993, 'Show in DVR'),
+    ('search_open_recording', 30994, 'Open recording'),
 ) + OPERATION_ROWS + FINAL_ROWS + BUILD_ROWS + ARTWORK_ROWS + STORAGE_ROWS + SERIES_ROWS + PLAYBACK_ROWS + DASHBOARD_ROWS + DVR_ROWS + RECORDINGS_ROWS
 IDS = MappingProxyType({key: number for key, number, _ in _ROWS})
 FALLBACK = MappingProxyType({key: value for key, _, value in _ROWS})
-RESERVED_IDS = BUILD_RESERVED_IDS | ARTWORK_RESERVED_IDS | frozenset((30103, 30104, 30105, 30134, 30498, 30703, 30710))
+RESERVED_IDS = BUILD_RESERVED_IDS | ARTWORK_RESERVED_IDS | frozenset((
+    30103, 30104, 30105, 30134, 30166, 30461, 30473, 30498, 30527, 30703, 30710))
 if set(IDS.values()) & RESERVED_IDS:
     raise ValueError('Retired localization IDs must never be reused')
 

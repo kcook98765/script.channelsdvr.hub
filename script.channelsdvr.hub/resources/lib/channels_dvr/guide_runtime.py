@@ -497,6 +497,7 @@ class GuideRuntime:
         # search/index references still follow the worker retirement handoff.
         self.window._guide_return = None
         self.window._search_return = None
+        self.window._dvr_return = None
         # Paint admission changes even when the swap finishes synchronously or
         # awaits retirement. Existing controller/repository/display pins stay
         # until _change_mode obtains its worker hold; painting does not detach.
