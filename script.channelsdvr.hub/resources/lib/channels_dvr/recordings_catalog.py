@@ -10,5 +10,5 @@ ROWS = (
     ('recordings_oldest', 30976, 'Oldest added'),
     ('recordings_sorted', 30977, '{breadcrumb} | Sort: {sort}'),
     ('recordings_untitled', 30978, 'Untitled recording'),
-    ('recordings_active_tab', 30979, '● {tab}'),
+    ('recordings_active_tab', 30979, '> {tab}'),
 )

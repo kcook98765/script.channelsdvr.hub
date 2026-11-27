@@ -2178,5 +2178,5 @@ msgid "Untitled recording"
 msgstr ""
 
 msgctxt "#30979"
-msgid "● {tab}"
+msgid "> {tab}"
 msgstr ""
