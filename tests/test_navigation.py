@@ -97,7 +97,8 @@ class NavigationTests(unittest.TestCase):
         self.gui = SimpleNamespace(WindowXML=WindowXML, ControlLabel=Control, ControlImage=Control, ControlButton=Control,
                                    getCurrentWindowId=lambda: self.front, Dialog=lambda: self.dialog, INPUT_ALPHANUM=0,
                                    getCurrentWindowDialogId=lambda: self.native_dialog,
-                                   ACTION_MOUSE_LEFT_CLICK=100, ACTION_STOP=13, DLG_YESNO_NO_BTN=10)
+                                   ACTION_MOUSE_LEFT_CLICK=100, ACTION_SELECT_ITEM=7, ACTION_STOP=13,
+                                   DLG_YESNO_NO_BTN=10)
         fakes = patch.dict(sys.modules, {'xbmc': SimpleNamespace(), 'xbmcgui': self.gui, 'xbmcvfs': SimpleNamespace()})
         fakes.start()
         self.addCleanup(fakes.stop)
@@ -925,9 +926,96 @@ class NavigationTests(unittest.TestCase):
                 if reason == 'not-painted':
                     w._chrome.presented = {i: a for i, a in w._chrome.presented.items()
                                            if a.target != ('cell', event.channel, event.id, event.start)}
-                self.click(CONTENT)
+                w.focus_id = CONTENT
+                w.onClick(CONTENT)
+                self.post_action(self.gui.ACTION_SELECT_ITEM)
+                w.process_pending()
                 worker.submit.assert_not_called()
                 self.dialog.yesno.assert_not_called()
+                if reason == 'ended':
+                    w._show_event_details.assert_called_once_with(event)
+
+    def test_guide_ok_current_ingress_reproduces_trailing_select_lease_revocation(self):
+        # Characterize both delivered orders, not the unknown order of native Enter.
+        for raw_first in (True, False):
+            with self.subTest(raw_first=raw_first):
+                self.w = w = self.window()
+                worker, player, _ = self.guide_ok_fixture()
+                self.dialog.yesno.reset_mock()
+                w.focus_id = CONTENT
+                if raw_first:
+                    self.post_action(self.gui.ACTION_SELECT_ITEM)
+                w.onClick(CONTENT)
+                if not raw_first:
+                    self.post_action(self.gui.ACTION_SELECT_ITEM)
+                w.process_pending()
+                worker.submit.assert_called_once()
+                self.prepare_playback_result(worker)
+                w.process_pending()
+                if raw_first:
+                    self.dialog.yesno.assert_called_once()
+                    self.assertEqual(self.dialog.yesno.call_args.kwargs['defaultbutton'],
+                                     self.gui.DLG_YESNO_NO_BTN)
+                else:
+                    self.assertEqual(w._playback_ui.state, 'selection_changed')
+                    self.dialog.yesno.assert_not_called()
+                player.handoff.assert_not_called()
+
+    def test_raw_select_cancels_synthetic_traversal_without_onclick(self):
+        self.seed()
+        self.enter('Guide')
+        w = self.w
+        w.focus_id = CONTENT
+        w._large_exercise = SimpleNamespace(completed=3)
+        # Isolate the input cancellation from any independent tick/fixture checks.
+        with patch.object(self.adapter, 'tick_large'):
+            self.action(self.gui.ACTION_SELECT_ITEM)
+        self.assertIsNone(w._large_exercise)
+        self.assertEqual(w.exercise_summary, w.t('traversal_stopped', completed=3, reason='input'))
+        w._playback_ui.request.assert_not_called()
+
+    def test_guide_ok_raw_select_cannot_replace_missing_or_stale_onclick(self):
+        for captured in (False, True):
+            with self.subTest(captured=captured):
+                self.w = w = self.window()
+                worker, player, _ = self.guide_ok_fixture()
+                w.focus_id = CONTENT
+                self.post_action(self.gui.ACTION_SELECT_ITEM)
+                if captured:
+                    w.onClick(CONTENT)
+                    w._live_session._catalog_epoch = object()  # captured activation is now stale
+                w.process_pending()
+                worker.submit.assert_not_called()
+                w._show_event_details.assert_not_called()
+                self.dialog.yesno.assert_not_called()
+                player.handoff.assert_not_called()
+
+    def test_guide_ok_new_navigation_unknown_click_and_source_still_invalidate(self):
+        for reason in ('navigation', 'unknown click', 'prior source'):
+            with self.subTest(reason=reason):
+                self.w = w = self.window()
+                worker, player, _ = self.guide_ok_fixture()
+                w.focus_id = CONTENT
+                before = w.guide.selection
+                self.post_action(self.gui.ACTION_SELECT_ITEM)
+                w.onClick(CONTENT)
+                if reason == 'navigation':
+                    self.post_action(DOWN)
+                elif reason == 'unknown click':
+                    w.onClick(9999)  # still an actual click callback, even without an activation
+                w.process_pending()
+                worker.submit.assert_called_once()
+                self.prepare_playback_result(worker)
+                if reason == 'prior source':
+                    w._live_session._catalog_epoch = object()
+                w.process_pending()
+                if reason == 'navigation':
+                    self.assertNotEqual(w.guide.selection, before)
+                elif reason == 'prior source':
+                    worker.close.assert_called_once()
+                self.assertIsNone(w._playback_ui._pending)
+                self.dialog.yesno.assert_not_called()
+                player.handoff.assert_not_called()
 
     def test_guide_ok_only_exact_live_yes_requalifies_and_sends_once(self):
         worker, player, start = self.guide_ok_fixture()
