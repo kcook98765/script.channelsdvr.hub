@@ -1,7 +1,8 @@
 """Owner-only menu orchestration, extracted from the bounded WindowXML adapter."""
 from types import MappingProxyType
 
-from .ui_menu import CONNECTION, DEVELOPER, command, group_label, select
+from .guide_screen import choose_group, choose_time
+from .ui_menu import CONNECTION, DEVELOPER, command, select
 from .ui_modal import ModalGui, dialog_for, modal_call
 from .ui_routes import VIEW_KEYS, back, enter, route_fence
 
@@ -12,6 +13,7 @@ LABELS = MappingProxyType({
     'selection.page-up': 'previous_page', 'selection.page-down': 'next_page',
     'search.programmes': 'search_programmes', 'search.clear': 'search_clear', 'search.guide': 'show_in_guide',
     'recording.tools': 'recording_tools', 'guide.collection': 'collection',
+    'guide.controls': 'guide_controls',
     'guide.now': 'now', 'guide.time': 'date_time', 'guide.previous': 'previous_hour', 'guide.next': 'next_hour',
     'playback.play': 'play_short', 'recording.schedule': 'schedule', 'recording.status': 'recording_status',
     'programme.tools': 'programme_tools', 'series.manager': 'series_manager',
@@ -22,8 +24,9 @@ LABELS = MappingProxyType({
 CONNECTION_ACTIONS = frozenset(code for code, _ in CONNECTION)
 MORE_COMMANDS = {
     'Dashboard': ('connection.status', 'developer.menu'),
-    'Guide': ('search.programmes', 'view.search', 'view.settings', 'guide.now', 'guide.time',
-              'guide.previous', 'guide.next', 'recording.status', 'programme.tools', 'developer.menu'),
+    'Guide': ('guide.controls', 'search.programmes', 'view.search', 'view.settings',
+              'guide.previous', 'guide.next', 'playback.play', 'recording.schedule',
+              'recording.status', 'programme.tools', 'series.manager', 'developer.menu'),
     'Recordings': (),
     'DVR': ('connection.refresh',),
     'Search': ('playback.play',),
@@ -85,6 +88,12 @@ def command_label(w, code):
     if code.startswith('guide.'):
         if view != 'Guide' or w._development_blocked is not None or (w._live_session is None and not w.demo_allowed()):
             return None
+        if code in ('guide.time', 'guide.collection', 'guide.controls') and not w._guide_runtime.ready:
+            return None
+        if code == 'guide.now' and w._route.parent == 'Search' and w._live_session is not None:
+            start, end = w.guide.repository.horizon
+            if not start <= w.utc_now() < end:
+                return None
     if code in ('selection.page-up', 'selection.page-down'):
         return label if view != 'Dashboard' else None
     if code == 'selection.activate':
@@ -148,6 +157,9 @@ def execute_command(w, gui, selected, *, origin=100):
     if selected == 'window.actions':
         main_menu(w, gui, origin)
         return True
+    if selected == 'guide.controls':
+        w._chrome.initialize_focus(306)
+        return True
     if selected in ('selection.page-up', 'selection.page-down'):
         w._navigate(3 if selected == 'selection.page-up' else 4, page=True)
         return True
@@ -203,17 +215,11 @@ def _execute_workflow(w, gui, selected, origin):
     elif selected == 'recording.tools':
         w._recording_tools()
     elif selected == 'guide.collection':
-        groups = tuple(w.repository.groups)
-        # Captured immutable keys: provider group names are data, not translated.
-        answer = dialog_for(w, gui).select(w.t('collection'), [group_label(w.strings, group) for group in groups])
-        chosen = command(tuple((group, '') for group in groups), answer)
-        if chosen is not None and not w._closed and chosen in w.repository.groups:
-            w.guide.set_group(chosen)
-            route_fence(w)
+        choose_group(w, gui)
     elif selected == 'guide.now':
         w._jump_time(w.utc_now() if w._live_session is not None else w.repository.now)
     elif selected == 'guide.time':
-        w._time_navigation()
+        choose_time(w, gui)
     elif selected in ('guide.previous', 'guide.next'):
         anchor = w._intended_anchor if w._intended_anchor is not None else w.guide.selection.anchor
         w._jump_time(anchor + (-3600 if selected == 'guide.previous' else 3600))

@@ -1,10 +1,15 @@
-"""Owner-only memo for properties this window owns; SDK supplied by the caller.
+"""Owner-only drawing primitives; SDK supplied by the caller.
 
 No focus, external properties or SDK getters are memoized. A new XML lifecycle
 must reset the memo, even if the logical view is unchanged. Only successful writes
 enter the memo; a failing setter discards its previous proof and is retried.
 Labels are coalesced per frame so clear/rebind produces only the final value.
 """
+
+# Dedicated Guide rectangles in the Hub WindowXML's 1080i coordinates.
+# Shared by cell, hit and artwork presenters, never physical screen pixels.
+GRID_LEFT, GRID_WIDTH = 400, 1440
+ROW_TOP, ROW_PITCH = 338, 80
 
 
 class RenderMemo:
@@ -58,11 +63,11 @@ class RenderMemo:
             self.label(window, sdk, control_id, text)
 
 
-def draw(window, index, x, y, width, height, text, selected, gap=False):
+def draw(window, index, x, y, width, height, text, selected, gap=False, *, gutter=3):
     image, label = window.pool[index]
     apply = window._render_memo.apply
     apply(image, "setPosition", x, y)
-    apply(image, "setWidth", max(1, width - 3))
+    apply(image, "setWidth", max(1, width - gutter))
     apply(image, "setHeight", height - 3)
     texture = "selected.png" if selected else "gap.png" if gap else "cell.png"
     apply(image, "setImage", window._texture(texture))

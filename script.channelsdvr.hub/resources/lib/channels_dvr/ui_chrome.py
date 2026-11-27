@@ -16,7 +16,8 @@ ACTIONS = {
     306: ('search.programmes',), 307: ('search.clear',),
     308: ('connection.configure',), 309: ('connection.connect',), 310: ('dashboard.refresh',),
 }
-VIEW_ACTIONS = {('Guide', 306): ('guide.collection',), ('Recordings', 306): ('recording.tools',)}
+VIEW_ACTIONS = {('Guide', 306): ('guide.collection',), ('Guide', 307): ('guide.time',),
+                ('Guide', 308): ('guide.now',), ('Recordings', 306): ('recording.tools',)}
 # Kodi Omega ActionIDs; Select is delivered by native onClick (including mouse).
 LEFT, RIGHT, UP, DOWN, PAGE_UP, PAGE_DOWN = 1, 2, 3, 4, 5, 6
 BACK, INFO, NAV_BACK, CONTEXT = 10, 11, 92, 117
@@ -77,7 +78,7 @@ class WindowChrome:
 
     def _activation(self, ident, code, label, target=None):
         w = self.w
-        scope = self._scope()
+        scope = self._hit_scope() if target is not None else self._scope()
         session = w._live_session
         if w.view in ('Dashboard', 'Settings') or (code not in SELECTION_COMMANDS and target is None
                                                    and code != 'selection.anchor'):
@@ -101,6 +102,13 @@ class WindowChrome:
                     session._generation if session is not None else None,
                     session._catalog_epoch if session is not None else w._guide_runtime.synthetic_owner)
         return ButtonActivation(ident, code, label, scope, snapshot, id(w.repository.channels), target)
+
+    def _hit_scope(self):
+        w = self.w
+        scope = self._scope()
+        if w.view == 'Guide':
+            scope += (w.guide.group, w.guide.top, w.guide.viewport)
+        return scope
 
     def command_activation(self, code, label):
         return self._activation(0, code, label)
@@ -158,7 +166,7 @@ class WindowChrome:
                    if (label := command_label(w, code)) is not None}
         slots = {
             'Dashboard': (304, 305, 308, 309, 310),
-            'Guide': (300, 301, 302, 303, 306, 304, 305),
+            'Guide': (306, 307, 308, 300, 304, 305),
             'Recordings': (300, 301, 306, 304, 305),
             'DVR': (300, 303, 304, 305),
             'Search': (306, 307, 300, 302, 304, 305),
@@ -213,7 +221,7 @@ class WindowChrome:
         # Withdraw before SDK removals; do not let an old ID resolve to a new row.
         self.presented = MappingProxyType(dict(state))
         if gui is not None:
-            scope = self._scope()
+            scope = self._hit_scope() if plan else self._scope()
             for ident, hit in self.hits.sync(gui, (*scope, anchor.snapshot, anchor.channels), plan):
                 state[ident] = ButtonActivation(ident, 'selection.hit', '', scope, anchor.snapshot, anchor.channels, hit.key)
         self.presented = MappingProxyType(state)
@@ -230,6 +238,8 @@ class WindowChrome:
                     not activation.matches(self._activation(ident, code, '', activation.target))
                     or not self.w._select_hit(activation.target)):
                 return False
+            if self.w.view == 'Guide':
+                self.w.render()  # Rebind preview to the clicked airing before opening details.
             self._set_focus(CONTENT)
             # This is intentionally a new selection. Only normal read/open is
             # dispatched, never the former selection's toolbar intent.

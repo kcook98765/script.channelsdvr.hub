@@ -8,11 +8,13 @@ import unittest
 from unittest.mock import Mock, patch
 
 from channels_dvr.guide import GuideController
+from channels_dvr.guide_fixtures import stress_repository
+from channels_dvr.guide_screen import DESCRIPTION, NOW, TITLE, day_choices, paint_clock, timeline_x
 from channels_dvr.library import LibraryBrowser
 from channels_dvr.repository import MockRepository
 from channels_dvr.search import airing_key
 from channels_dvr.session import OfflineDataSession
-from channels_dvr.ui_chrome import ACTIONS, CONTENT, CONTEXT, DOWN, INFO, NAV, NAV_BACK, PAGE_DOWN, UP
+from channels_dvr.ui_chrome import ACTIONS, CONTENT, CONTEXT, DOWN, INFO, NAV, NAV_BACK, PAGE_DOWN, RIGHT, UP
 from channels_dvr.ui_navigation import execute_command
 from channels_dvr.ui_routes import PRIMARY, Route, launch_view
 
@@ -37,7 +39,8 @@ class Control:
 
 class WindowXML:
     def __init__(self, *args, **kwargs):
-        ids = (100, 110, *range(112, 118), *range(120, 126), *range(140, 144), *NAV, *ACTIONS, *range(400, 406))
+        ids = (100, 110, *range(112, 118), *range(120, 132), *range(140, 144),
+               *range(150, 156), *NAV, *ACTIONS, *range(400, 406))
         self.controls = {ident: Control() for ident in ids}
         self.serial = 3000
         self.focus_id = 100
@@ -195,6 +198,113 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(w.view, 'Dashboard')
         self.assertEqual(w.getFocusId(), 200)
 
+    def test_guide_group_day_now_controls_and_primary_bookmark(self):
+        repo = self.seed()
+        self.enter('Guide')
+        w = self.w
+        self.assertEqual([w._chrome.capture(i).command for i in (306, 307, 308)],
+                         ['guide.collection', 'guide.time', 'guide.now'])
+        self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('guide_controls'))
+        self.action(CONTEXT)
+        self.assertEqual(w.getFocusId(), 306)
+        self.dialog.select.side_effect = None
+        self.dialog.select.return_value = 1  # Favorites
+        self.click(306)
+        self.assertEqual(w.guide.group, 'Favorites')
+
+        days = day_choices(*repo.horizon)
+        self.dialog.select.side_effect = [0, 0]
+        self.click(307)
+        self.assertEqual(w.guide.selection.anchor, days[0][2][0])
+        self.assertEqual(w.controls[NOW].properties['setVisible'], (False,))
+        self.assertEqual(w.getFocusId(), 307)
+        self.click(308)
+        self.assertEqual(w.guide.selection.anchor, repo.now)
+        self.assertEqual(w.controls[NOW].properties['setPosition'],
+                         (timeline_x(repo.now, w.guide.viewport, w.guide.span), 332))
+        self.assertEqual(w.controls[NOW].properties['setVisible'], (True,))
+        self.assertEqual(w.getFocusId(), 308)
+        self.action(UP)  # rail to content
+        self.action(RIGHT)
+        saved = w.guide.bookmark()
+        self.action(NAV_BACK)
+        self.assertEqual(w.controls[TITLE].properties['setVisible'], (False,))
+        self.assertEqual(w.controls[NOW].properties['setVisible'], (False,))
+        self.enter('Guide')
+        self.assertEqual(w.guide.bookmark(), saved)
+        w._metadata_loader.request.assert_not_called()
+        w._playback_ui.request.assert_not_called()
+
+    def test_date_rejects_post_modal_viewport_change_and_cancel_keeps_focus(self):
+        repo = self.seed()
+        self.enter('Guide')
+        w = self.w
+        original = w.guide.bookmark()
+        self.dialog.select.side_effect = [0, -1]
+        self.click(307)
+        self.assertEqual(w.guide.bookmark(), original)
+        self.assertEqual(w.getFocusId(), 307)
+
+        def alter_selection(_heading, _labels, **_kwargs):
+            w.guide.jump(repo.horizon[1] - 1)
+            return 0
+
+        self.dialog.select.side_effect = alter_selection
+        self.dialog.select.reset_mock()
+        self.click(307)
+        self.dialog.select.assert_called_once()  # Reject before asking for a time.
+        self.assertEqual(w.guide.selection.anchor, repo.horizon[1] - 1)
+        self.assertEqual(w.getFocusId(), 307)
+
+    def test_retained_guide_drops_hits_and_current_details_without_moving_focus(self):
+        self.seed()
+        self.enter('Guide')
+        w = self.w
+        w.focus_writes.clear()
+        w._show_event_details = Mock()
+        with patch.object(GuideController, 'prepared_ready', True), patch.object(type(w._guide_runtime), 'ready', False):
+            w.render()
+            self.assertTrue(w.pool)
+            self.assertFalse(self.hits('cell'))
+            self.assertIsNone(w._chrome.capture(307))
+            self.assertIn(w.t('preparing_guide'), w.controls[TITLE].properties['setLabel'][0])
+            self.assertEqual(w.controls[DESCRIPTION].properties['setText'], ('',))
+            self.assertFalse(w.focus_writes)
+            w.onClick(CONTENT)
+            w.process_pending()
+            w._show_event_details.assert_not_called()
+
+    def test_clock_update_does_not_rebuild_hits_or_move_focus(self):
+        repo = self.seed()
+        self.enter('Guide')
+        w = self.w
+        active = w._chrome.presented
+        w.focus_writes.clear()
+        with patch.object(w, '_live_session', object()), patch.object(w, 'utc_now', return_value=repo.now + 300) as now:
+            paint_clock(w)
+            self.assertEqual(w.controls[NOW].properties['setPosition'],
+                             (timeline_x(repo.now + 300, w.guide.viewport, w.guide.span), 332))
+            now.return_value = w.guide.viewport + w.guide.span
+            paint_clock(w)
+            self.assertEqual(w.controls[NOW].properties['setVisible'], (False,))
+        self.assertIs(w._chrome.presented, active)
+        self.assertFalse(w.focus_writes)
+
+    def test_stress_guide_keeps_mouse_and_draw_budgets_and_skips_overflow_targets(self):
+        self.seed()
+        w = self.w
+        w.repository = repo = stress_repository()
+        w.data_session = OfflineDataSession(repo, 'stress', strings=w.strings)
+        w.guide = GuideController(repo, strings=w.strings)
+        self.enter('Guide')
+        self.assertLessEqual(len(w.pool), GuideController.max_cells)
+        hits = self.hits('cell')
+        self.assertLessEqual(len(hits), GuideController.max_cells)
+        overflow = [cell for cell in w.guide.cells(0) if cell.overflow]
+        self.assertTrue(overflow)
+        self.assertTrue(all((cell.channel, None, cell.start) not in hits for cell in overflow))
+        self.assertIn(w.t('guide_dense_notice'), w.controls[113].properties['setLabel'][0])
+
     def test_modal_back_and_queued_select_are_not_parent_actions(self):
         self.seed()
         self.enter('Guide')
@@ -288,6 +398,10 @@ class NavigationTests(unittest.TestCase):
         # source switch. The bookmark must not depend on keeping it alive.
         w.guide = GuideController(repo, strings=w.strings)
         self.assertTrue(w.guide.focus_event(result))
+        with patch.object(w, '_live_session', object()), patch.object(type(w._guide_runtime), 'ready', True):
+            w._jump_time(repo.horizon[1] + 3600)
+        self.assertEqual(w.guide.selection.anchor, repo.horizon[1] - 1)
+        w._metadata_loader.request.assert_not_called()
         w.positions['Search'] = 0
         w.search_selection = None
         self.action(NAV_BACK)
@@ -365,6 +479,34 @@ class NavigationTests(unittest.TestCase):
         self.click(ident)
         self.assertEqual(airing_key(w.guide.selected_event()), (key[0], key[1], key[2]))
         w._show_event_details.assert_called_once_with(w.guide.selected_event())
+
+    def test_guide_hit_matches_painted_clip_and_cannot_survive_an_unpainted_jump(self):
+        self.seed()
+        self.enter('Guide')
+        w = self.w
+        w._show_event_details = Mock()
+        key, ident = next((key, ident) for key, ident in self.hits('cell').items() if key[1] is not None)
+        x, y, width, height = w.controls[ident].args[:4]
+        self.assertTrue(any(image.properties.get('setPosition') == (x, y)
+                            and image.properties.get('setWidth') == (width,)
+                            and image.properties.get('setHeight') == (height,) for image, _ in w.pool))
+        old = w._chrome.capture(ident)
+        w.guide.jump(w.repository.horizon[0])
+        w._dispatcher.post(('chrome', old))
+        w.process_pending()
+        w._show_event_details.assert_not_called()
+        w.render()
+        self.assertNotIn(ident, self.hits('cell').values())
+        key, ident = next((key, ident) for key, ident in self.hits('cell').items() if key[1] is not None)
+
+        def details(event):
+            self.assertEqual(airing_key(event), key)
+            self.assertEqual(w.controls[TITLE].properties['setLabel'], (event.title,))
+
+        w._show_event_details.side_effect = details
+        self.click(ident)
+        w._show_event_details.assert_called_once()
+        w._playback_ui.request.assert_not_called()
 
     def test_shortcut_intent_and_read_only_navigation(self):
         self.seed()
