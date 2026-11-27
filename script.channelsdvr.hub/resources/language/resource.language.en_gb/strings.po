@@ -1888,7 +1888,7 @@ msgid "Play selected recording from beginning"
 msgstr ""
 
 msgctxt "#30704"
-msgid "Playback could not be prepared or handed to Kodi. No automatic retry. A file may be missing, incomplete or unsupported, the DVR may be busy, or metadata may be unavailable. See Connection status for the playback state."
+msgid "Could not prepare playback or send it to Kodi. No automatic retry. See Connection status."
 msgstr ""
 
 msgctxt "#30705"
@@ -1916,11 +1916,19 @@ msgid "Live confirmation expired. Choose Watch selected channel LIVE NOW again t
 msgstr ""
 
 msgctxt "#30712"
-msgid "Channel: {channel}\nYes checks this same channel again before tuning. No does not tune. Confirmation is one use and expires five minutes after Yes. Shared tuner availability remains UNKNOWN."
+msgid "Channel: {channel}\nYes checks this same channel again before tuning. No does not tune. Confirmation is one use and lasts up to five minutes. Shared tuner availability remains UNKNOWN."
 msgstr ""
 
 msgctxt "#30713"
-msgid "Select a recording file or channel in accepted, connected DVR listings. Selections are identity hints only; Play must read current DVR metadata. Folders, scheduled jobs, imports, demo and failed or incomplete listings cannot play."
+msgid "Select a recording file or channel from connected DVR listings. Play rechecks the DVR. Folders, jobs, imports, demo and failed or incomplete listings cannot play."
+msgstr ""
+
+msgctxt "#30714"
+msgid "Start video in background"
+msgstr ""
+
+msgctxt "#30715"
+msgid "Guide OK: Watch live (on now)"
 msgstr ""
 
 msgctxt "#30900"

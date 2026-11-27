@@ -77,7 +77,7 @@ unauthenticated DVR server to the public internet.
 - **Guide and recordings:** Browse programme details, shows, seasons, episodes,
   recent recordings and movies; locally search loaded data. DVR, Imported
   and Unknown recording provenance are distinguished.
-- **Deliberate playback:** **OK opens details**, not playback. An explicit
+- **Deliberate playback:** **OK opens details by default.** An explicit
   **Play** action can hand an eligible completed recording or advertised live
   channel to Kodi's native player. Live tuning may need an additional
   confirmation; available tuner capacity is not assumed.

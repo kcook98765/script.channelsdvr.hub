@@ -6,7 +6,7 @@ from urllib.request import Request, ProxyHandler, build_opener
 
 from .metadata_http import _NoRedirect, _origin, _unique_object, _finite_float, _reject_constant
 from .newbuild_compatibility import supported_build
-from .playback_descriptors import (PlaybackError, PlaybackDescriptor, LibraryRecording,
+from .playback_descriptors import (PlaybackError, PlaybackDescriptor, LibraryRecording, LiveProviderScope,
     component, require, recording_url, live_url, live_label, admit_activity)
 
 
@@ -149,6 +149,7 @@ class PlaybackMetadataClient:
         require(selection.identity.namespace == self.config.namespace)
         version = self.status()
         resolved_label = None
+        live_scope = None
         if selection.kind == 'recording':
             require(type(selection.identity) is LibraryRecording)
             file = self._get('/dvr/files/' + component(selection.identity.file_id) + '?raw=false')
@@ -163,10 +164,12 @@ class PlaybackMetadataClient:
             admit_activity(self._get('/dvr/activity'))
             url, pinned = live_url(self.origin, selection.identity, channels, devices, playlist)
             resolved_label = live_label(selection.identity, channels)
+            # live_url allows exactly this source or ANY, with no other device aliases.
+            live_scope = LiveProviderScope(version, selection.identity.source_id if pinned else 'ANY')
             mime = 'video/mp2t'
         require(self.status() == version)
         self.check()
         qualified = (LibraryRecording(self.config.namespace, 'dvr', selection.identity.file_id)
                      if type(selection.identity) is LibraryRecording else None)
         return PlaybackDescriptor(selection, url, mime, attempt, self.clock(), source_pinned=pinned,
-                                  recording=qualified, resolved_label=resolved_label)
+                                  recording=qualified, resolved_label=resolved_label, live_scope=live_scope)

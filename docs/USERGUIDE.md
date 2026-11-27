@@ -83,13 +83,20 @@ return to Dashboard and stale statistics with automatic refresh disabled still w
   not imply that a programme is available to record or play.
 - Browse recordings by show, season and episode, Recent or Movies, or search
   loaded data locally. DVR, Imported and Unknown provenance stay distinct.
-- **OK opens details; it does not start playback.** An explicit Play action can
+- **OK opens details by default.** An explicit Play action can
   hand an eligible completed DVR recording or advertised live channel to Kodi's
   native player after fresh checks. Imported or unknown-provenance entries are
   not automatically eligible for DVR playback.
 - Live tuning requires separate consent when shared tuner availability is unknown.
   Channels DVR may use another available source; a guide selection does not prove
   a particular tuner is free or will be used.
+- In Kodi's add-on settings under **Playback**, **Start video in background**
+  requests windowed playback on the next admitted start. It is off by default
+  (fullscreen requested). Kodi still handles playback and Stop.
+- **Guide OK: Watch live (on now)** is also off by default. If enabled, OK on a
+  visible, currently airing programme from fresh eligible primary Guide listings
+  opens the same default-No Watch Live flow after a metadata check. Other OK
+  presses keep Details or Gap. Info, pointer hits, and Search are unchanged.
 - There is no autoplay. Closing the Guide or changing the connected source does
   not automatically stop playback. Use Kodi's playback controls to stop it.
 

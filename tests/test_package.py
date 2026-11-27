@@ -153,6 +153,7 @@ class PackageTests(unittest.TestCase):
                 self.assertIsNotNone(node)
                 self.assertEqual(node.get('type'), 'string')
                 self.assertEqual(node.findtext('default'), default)
+                self.assertEqual(node.findtext('level'), '4' if key == 'hub_guide_ok' else '0')
                 self.assertEqual([(n.get('label'), n.text) for n in node.findall('constraints/options/option')],
                                  [(str(IDS[label]), value) for label, value in values])
 
@@ -165,6 +166,20 @@ class PackageTests(unittest.TestCase):
         version = root.find(".//setting[@id='server_expected_version']")
         self.assertEqual(version.findtext("default"), "2026.08.07.0346")
         self.assertEqual(root.findtext(".//setting[@id='development_metadata_enabled']/default"), "false")
+
+    def test_playback_preferences_are_separate_visible_boolean_opt_ins(self):
+        from channels_dvr.ui_text import IDS
+        root = ET.parse(ADDON / 'resources/settings.xml').getroot()
+        category = root.find(".//category[@id='playback']")
+        self.assertEqual(category.get('label'), str(IDS['playback']))
+        settings = category.findall('./group/setting')
+        self.assertEqual({s.get('id') for s in settings}, {'playback_start_windowed', 'guide_ok_watch_live'})
+        for setting in settings:
+            self.assertEqual(setting.get('label'), str(IDS[setting.get('id')]))
+            self.assertEqual(setting.get('type'), 'boolean')
+            self.assertEqual(setting.findtext('default'), 'false')
+            self.assertEqual(setting.findtext('level'), '0')
+            self.assertEqual(setting.find('control').get('type'), 'toggle')
 
     def test_combined_english_catalog_matches_all_active_localization_ids(self):
         from channels_dvr.ui_text import FALLBACK, IDS
@@ -300,10 +315,23 @@ class PackageTests(unittest.TestCase):
                       and node.name == "ChannelsWindow")
         for method in window.body:
             if isinstance(method, ast.FunctionDef) and method.name in ("onInit", "onAction", "onClick"):
-                self.assertEqual(len(method.body), 1)
+                if method.name == 'onAction':
+                    read_id, raw_activation, enqueue = method.body
+                    self.assertEqual(ast.unparse(read_id), 'ident = action.getId()')
+                    self.assertEqual(ast.unparse(raw_activation.test),
+                                     'ident in (xbmcgui.ACTION_MOUSE_LEFT_CLICK, xbmcgui.ACTION_SELECT_ITEM) '
+                                     'and self._large_exercise is None')
+                    self.assertEqual([ast.unparse(node) for node in raw_activation.body],
+                                     ['self._dispatcher.note_raw_activation()', 'return'])
+                    self.assertEqual(raw_activation.orelse, [])
+                    self.assertEqual(ast.unparse(enqueue),
+                                     "self._dispatcher.post(('action', self._chrome.capture_action(ident)))")
+                else:
+                    self.assertEqual(len(method.body), 1)
                 calls = {dotted(node.func) for node in ast.walk(method) if isinstance(node, ast.Call)}
                 self.assertLessEqual(calls, {"self._dispatcher.post", "action.getId", "self._chrome.capture",
-                                             "self._chrome.capture_action"})
+                                             "self._chrome.capture_action",
+                                             "self._dispatcher.note_raw_activation"})
                 self.assertIn("self._dispatcher.post", calls)
         self.assertLess((LIB / "kodi_ui.py").stat().st_size, 48 * 1024)
         for file in ADDON.rglob('*'):
@@ -352,9 +380,13 @@ class PackageTests(unittest.TestCase):
                     elif path == LIB / 'playback_native.py' and qualified == 'player.play':
                         # Exactly the reviewed direct script adapter, not a global
                         # exemption for Player/play/resolvers/builtins elsewhere.
-                        self.assertEqual(ast.unparse(node),'player.play(descriptor.url, item)')
+                        self.assertEqual(ast.unparse(node), 'player.play(descriptor.url, item, windowed=windowed is True)')
                         self.assertEqual(sum(isinstance(n,ast.Call) and dotted(n.func) == 'player.play'
                                              for n in ast.walk(tree)),1)
+                    elif path == LIB / 'playback_native.py' and qualified.startswith(('player.', 'self._player.')):
+                        self.assertIn(qualified, {'player.isPlaying', 'player.isPlayingVideo',
+                                                  'player.isPlayingAudio', 'player.isExternalPlayer',
+                                                  'player.getPlayingFile', 'self._player.getPlayingFile'})
                     elif path == LIB / "operation_storage.py" and qualified in {"os.makedirs", "sqlite3.connect"}:
                         if qualified == "os.makedirs":
                             self.assertEqual(ast.unparse(node), "os.makedirs(self._profile, exist_ok=True)")

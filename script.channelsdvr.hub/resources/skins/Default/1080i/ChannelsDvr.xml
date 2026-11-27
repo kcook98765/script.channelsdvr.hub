@@ -6,7 +6,8 @@
     <!-- All native buttons self-link. Owner routes directions without moving
          the content selection behind a focused toolbar. -->
     <control type="button" id="100">
-      <left>0</left><top>0</top><width>1</width><height>1</height><label></label>
+      <!-- The synthetic content-focus target accepts keyboard and remote Select. -->
+      <left>-8</left><top>-8</top><width>1</width><height>1</height><label></label>
       <texturefocus>background.png</texturefocus><texturenofocus>background.png</texturenofocus>
       <onleft>100</onleft><onright>100</onright><onup>100</onup><ondown>100</ondown>
     </control>

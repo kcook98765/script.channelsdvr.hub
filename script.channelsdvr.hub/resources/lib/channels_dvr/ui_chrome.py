@@ -134,6 +134,15 @@ class WindowChrome:
         label = command_label(self.w, activation.command)
         return label is not None and activation.matches(self.command_activation(activation.command, label))
 
+    def guide_airing_visible(self, event):
+        """Require the exact hit published for the current viewport and snapshot."""
+        if self.focus() != CONTENT:
+            return False
+        target = ('cell', event.channel, event.id, event.start)
+        return any(a.command == 'selection.hit' and a.target == target
+                   and a.matches(self._activation(a.control_id, a.command, '', target))
+                   for a in self.presented.values())
+
     def focus(self):
         self.w._dispatcher.assert_owner()
         try:
@@ -276,7 +285,10 @@ class WindowChrome:
         # Passive paint never sets focus (even if a control just disappeared).
 
     def click(self, activation, gui):
-        if (self.w._closed or self.focus() is None or type(activation) is not ButtonActivation
+        if self.w._closed:
+            return False
+        focus = self.focus()
+        if (focus is None or type(activation) is not ButtonActivation
                 or not activation.matches(self.presented.get(activation.control_id))):
             return False
         ident, code = activation.control_id, activation.command
@@ -294,7 +306,9 @@ class WindowChrome:
         label = command_label(self.w, code)
         if label is None or not activation.matches(self._activation(ident, code, label)):
             return False
-        return execute_command(self.w, gui, code, origin=ident)
+        return execute_command(self.w, gui, code, origin=ident,
+                               guide_ok=(self.w.view == 'Guide' and code == 'selection.activate'
+                                         and ident == focus == CONTENT))
 
     def action(self, activation, gui=None):
         action = activation.action if type(activation) is ShortcutActivation else activation

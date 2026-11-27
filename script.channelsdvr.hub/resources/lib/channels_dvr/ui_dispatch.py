@@ -26,6 +26,7 @@ class UiDispatcher:
         self._active_revision: int | None = None
         self._dispatch_pending = 0
         self._playback_input: PlaybackInput | None = None
+        self._live_review_input: PlaybackInput | None = None
         self._input_epoch = 0
         self._modal_depth = 0
 
@@ -63,6 +64,12 @@ class UiDispatcher:
                 return False
             self._commands.append((self._revision, self._input_epoch, command))
             return True
+
+    def note_raw_activation(self) -> None:
+        """Ignore a raw companion as a command but revoke an armed live review."""
+        with self._lock:
+            if self._live_review_input is not None and self._playback_input is self._live_review_input:
+                self._revision += 1
 
     def fence_input(self):
         self.assert_owner()
@@ -160,6 +167,7 @@ class UiDispatcher:
             revision = self._active_revision if self._active_revision is not None else self._revision
             lease = PlaybackInput(revision)
             self._playback_input = lease
+            self._live_review_input = None
             return lease
 
     def _playback_current(self, lease: PlaybackInput | None):
@@ -172,6 +180,15 @@ class UiDispatcher:
         with self._lock:
             return self._playback_current(lease)
 
+    def arm_live_review(self, lease: PlaybackInput) -> bool:
+        """Require ordinary and raw activation callbacks to invalidate this live lease."""
+        self.assert_owner()
+        with self._lock:
+            if not self._playback_current(lease):
+                return False
+            self._live_review_input = lease
+            return True
+
     def commit_playback(self, lease: PlaybackInput) -> bool:
         """One-shot linearization point immediately before native Player.play.
 
@@ -183,6 +200,7 @@ class UiDispatcher:
             if not self._playback_current(lease):
                 return False
             self._playback_input = None
+            self._live_review_input = None
             return True
 
     def cancel_playback_input(self, lease: PlaybackInput) -> None:
@@ -190,10 +208,12 @@ class UiDispatcher:
         with self._lock:
             if self._playback_input is lease:
                 self._playback_input = None
+                self._live_review_input = None
 
     def close(self) -> None:
         self.assert_owner()
         with self._lock:
             self._closed = True
             self._playback_input = None
+            self._live_review_input = None
             self._commands.clear()

@@ -165,7 +165,7 @@ def main_menu(w, gui, origin):
             execute_command(w, gui, selected, origin=origin)
 
 
-def execute_command(w, gui, selected, *, origin=100):
+def execute_command(w, gui, selected, *, origin=100, guide_ok=False):
     """Owner rechecks eligibility even after a matched immutable activation."""
     w._dispatcher.assert_owner()
     if selected == 'view.scheduled':
@@ -214,7 +214,7 @@ def execute_command(w, gui, selected, *, origin=100):
     if selected == 'dashboard.refresh':
         w._dashboard_ui.refresh()
     else:
-        _execute_workflow(w, gui, selected, origin)
+        _execute_workflow(w, gui, selected, origin, guide_ok=guide_ok)
     if not w._closed and layout is w._chrome.layout:
         w.render()
         w._chrome.restore(origin)
@@ -225,8 +225,10 @@ def execute_command(w, gui, selected, *, origin=100):
     return True
 
 
-def _execute_workflow(w, gui, selected, origin):
+def _execute_workflow(w, gui, selected, origin, *, guide_ok=False):
     if selected in ('selection.activate', 'selection.open', 'selection.info'):
+        if guide_ok and selected == 'selection.activate' and w._playback_ui.request_guide_ok():
+            return
         w._details(allow_search_action=selected != 'selection.info', origin=origin)
     elif selected == 'connection.diagnostics':
         from .build_status_ui import status_text

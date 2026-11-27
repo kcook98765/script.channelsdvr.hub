@@ -54,6 +54,9 @@ from .dashboard_ui import DashboardUI, format_timestamp
 from .ui_chrome import BACK, CONTEXT, DOWN, LEFT, NAV_BACK, RIGHT, UP, WindowChrome
 
 
+# Kodi 21.3 GetTopmostModalDialog returns WINDOW_INVALID when no modal is active.
+_OMEGA_NO_MODAL = 9999
+
 
 class SettingsProtocol(Protocol):
     def getAddonInfo(self, key: str, /) -> str: ...
@@ -131,7 +134,14 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._dispatcher.post(("initialize", None))
 
     def onAction(self, action):
-        self._dispatcher.post(("action", self._chrome.capture_action(action.getId())))
+        ident = action.getId()
+        if (ident in (xbmcgui.ACTION_MOUSE_LEFT_CLICK, xbmcgui.ACTION_SELECT_ITEM)
+                and self._large_exercise is None):
+            # onClick owns activation. Raw companions can still revoke live
+            # review authority, which begins after the activation is dispatched.
+            self._dispatcher.note_raw_activation()
+            return
+        self._dispatcher.post(("action", self._chrome.capture_action(ident)))
 
     def onClick(self, control_id):
         self._dispatcher.post(('chrome', self._chrome.capture(control_id)))
@@ -141,9 +151,23 @@ class ChannelsWindow(xbmcgui.WindowXML):
         return self._route.view
 
     def _owns_input(self):
-        if not self.initialized or self._dispatcher.modal_active:
+        if not self.initialized or self._native_window is None or self._dispatcher.modal_active:
             return False
-        return self._native_window is None or xbmcgui.getCurrentWindowId() == self._native_window
+        try:
+            return xbmcgui.getCurrentWindowId() == self._native_window
+        except (RuntimeError, TypeError, ValueError):
+            return False
+
+    def _owns_playback_foreground(self) -> bool:
+        """An unrelated native modal can cover Hub without changing its base ID."""
+        self._dispatcher.assert_owner()
+        try:
+            if self._closed or not self._owns_input():
+                return False
+            dialog_id = xbmcgui.getCurrentWindowDialogId()
+        except Exception:
+            return False
+        return type(dialog_id) is int and dialog_id == _OMEGA_NO_MODAL
 
     def process_pending(self) -> None:
         self._dispatcher.assert_owner()
@@ -281,12 +305,14 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._chrome.initialize_focus()
 
     def get_setting(self, key: str) -> str | bool:
-        if key not in ("server_origin", "server_expected_version", "development_metadata_enabled",
-                       "ShowDeveloperTools", "dashboard_refresh_minutes", "hub_startup_view", "hub_guide_ok"):
+        toggles = ('development_metadata_enabled', 'ShowDeveloperTools',
+                   'playback_start_windowed', 'guide_ok_watch_live')
+        if key not in (*toggles, 'server_origin', 'server_expected_version',
+                       'dashboard_refresh_minutes', 'hub_startup_view', 'hub_guide_ok'):
             raise ValueError("Unknown owned setting")
         if self._addon is None:
-            return False if key in ("development_metadata_enabled", "ShowDeveloperTools") else ""
-        if key in ("development_metadata_enabled", "ShowDeveloperTools"):
+            return False if key in toggles else ""
+        if key in toggles:
             return self._addon.getSettingBool(key)
         return self._addon.getSettingString(key)
 

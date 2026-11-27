@@ -32,7 +32,8 @@ activity lists do not prove future free capacity or exclusive use of a source.
   advanced conditions are read-only and existing Series require explicit adoption.
 - DVR watched/resume synchronization is not provided.
 - Playback requires an explicit action and fresh eligibility checks. OK opens
-  details, there is no autoplay, and Guide exit does not automatically stop playback.
+  details by default; the primary Guide opt-in still requires live confirmation.
+  There is no autoplay, and Guide exit does not automatically stop playback.
 - Native Kodi handles artwork and media. The client does not guarantee artwork
   delivery, formats, cache behavior, audio, seeking or playback on every platform.
 
