@@ -1,5 +1,6 @@
 """General Series plans and private frozen projections. No I/O or Kodi imports."""
 from dataclasses import dataclass, field
+from typing import Literal
 import hashlib
 import json
 
@@ -17,7 +18,7 @@ TTL = 60
 class ManagerError(Exception):
     def __init__(self, code='schema'):
         self.code = code if code in {'schema', 'source', 'stale', 'consent', 'capacity',
-            'activity', 'storage', 'pending', 'unsupported', 'network', 'closed', 'expired'} else 'schema'
+            'activity', 'storage', 'pending', 'unsupported', 'network', 'closed', 'expired', 'unchanged'} else 'schema'
         super().__init__(self.code)
 
 
@@ -222,6 +223,9 @@ class ManagerView:
     matches: tuple[EpisodePreview, ...] = field(default=(), repr=False)
     observed_at: int = 0
     provenances: tuple[tuple[str, str], ...] = field(default=(), repr=False)
+    control_blocked: bool = False
+    activity_blocked: bool = False
+    status_outcome: Literal['verified', 'unsent'] | None = None
 
     def __repr__(self):
         return 'ManagerView(operation=' + self.operation + ', private=True)'

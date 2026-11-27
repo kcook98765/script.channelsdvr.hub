@@ -26,9 +26,11 @@ class Review:
 
 
 class SeriesManagerCommands:
-    def __init__(self, config, store, client_factory, *, clock=time.time):
+    def __init__(self, config, store, client_factory, *, clock=time.time, admit_dispatch=None):
         self.config, self.store, self._factory, self._clock = config, store, client_factory, clock
         self._review: Review | None = None
+        self._admit_dispatch = admit_dispatch
+        self.dispatch_possible = False  # Ephemeral per execute; the durable gate stays in the store.
 
     def _client(self):
         client = self._factory(self.config)
@@ -53,8 +55,15 @@ class SeriesManagerCommands:
 
     def status(self):
         self._review = None
+        pending = self.store.root.get('pending')
+        entry = self.store.root['history'][pending] if pending is not None else None
         disposition = self.store.reconcile(self.config, self._factory)
-        return ManagerView('status', error=None if disposition == 'clear' else 'pending')
+        if disposition != 'clear':
+            return ManagerView('status', error='pending')
+        # Only this exact read-only successor can clear the captured entry.
+        if entry is not None and self.store.root['pending'] is None and entry['operation'] != 'adopt':
+            return ManagerView('status', status_outcome='verified' if entry['dispatched'] else 'unsent')
+        return ManagerView('status')
 
     def _fresh(self, client, key):
         rows = rule_rows(client.rules())
@@ -74,24 +83,40 @@ class SeriesManagerCommands:
 
     def details(self, key):
         self._review = None
+        need(not self.store.failed, 'storage')
         client, actual = self._client()
         row = self._fresh(client, key)
         need(self._status(client) == actual, 'source')
         record = self.store.record(key)
         actions: tuple[str, ...] = ()
         token = None
-        if (row.supported and self.store.root['pending'] is None and not self.store.root['blocked']
-                and not self.store.store.pending_reconciliation):
+        activity_blocked = False
+        blocked = (self.store.root['pending'] is not None or self.store.root['blocked']
+                   or self.store.store.pending_reconciliation)
+        if row.supported and not blocked:
             snap = RuleSnapshot.parse(row.payload())
-            token = secrets.token_hex(32)
             drift = record is not None and canonical(record['last']) != row.raw
-            self._review = Review(token, self._clock(), actual, 'details', snapshot=snap, drift=drift)
             if record is None:
                 actions = ('adopt',)
             elif not record['removed']:
-                actions = ('refresh_consent',) if drift else ('rename', 'resume' if row.payload()['Paused'] else 'pause', 'remove')
+                if drift:
+                    actions = ('refresh_consent',)
+                else:
+                    try:
+                        associated_inactive(client.jobs(), client.public_jobs(), row.key, self._clock())
+                    except ManagerError as error:
+                        if error.code != 'activity':
+                            raise
+                        activity_blocked = True
+                    need(self._status(client) == actual, 'source')
+                    if not activity_blocked:
+                        actions = ('rename', 'resume' if snap.payload()['Paused'] else 'pause', 'remove')
+            if actions:
+                token = secrets.token_hex(32)
+                self._review = Review(token, self._clock(), actual, 'details', snapshot=snap, drift=drift)
         return ManagerView('details', row=row, token=token, actions=actions,
-                           provenance=record['provenance'] if record else None)
+                           provenance=record['provenance'] if record else None,
+                           control_blocked=blocked, activity_blocked=activity_blocked)
 
     def prepare(self, event):
         self._review = None
@@ -121,6 +146,7 @@ class SeriesManagerCommands:
         return ManagerView('abort')
 
     def execute(self, operation, *, token=None, confirmed=False, name=None):
+        self.dispatch_possible = False
         try:
             return self._execute(operation, token=token, confirmed=confirmed, name=name)
         except SeriesContractError:
@@ -139,6 +165,8 @@ class SeriesManagerCommands:
         now = self._clock()
         need(0 <= now - review.at <= TTL, 'expired')
         self._mutable()
+        if operation == 'rename' and review.snapshot is not None:
+            need(name != review.snapshot.payload()['Name'], 'unchanged')
         client, actual = self._client()
         need(actual == review.actual, 'source')
         before = None
@@ -197,9 +225,15 @@ class SeriesManagerCommands:
             need(series == review.plan.series_id, 'stale')
         need(self._status(client) == actual, 'source')
         need(0 <= self._clock() - review.at <= TTL, 'expired')
-        proof = self.store.dispatch()
-        need(0 <= self._clock() - review.at <= TTL, 'expired')
-        reply = client.mutate(proof, capture=self.store.capture)
+        self.dispatch_possible = True
+        proof = self.store.dispatch(admit=self._admit_dispatch)
+        try:
+            need(0 <= self._clock() - review.at <= TTL, 'expired')
+            reply = client.mutate(proof, capture=self.store.capture)
+        except Exception:
+            if self.store.mark_undispatched(proof):
+                self.dispatch_possible = False
+            raise
         if operation == 'create':
             need(type(reply) is dict, 'schema')
             key = reply.get('ID')

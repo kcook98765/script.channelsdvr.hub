@@ -1336,6 +1336,7 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         w._storage_ui = SimpleNamespace(poll=Mock())
         w._playback_ui.poll = Mock()
         w._series_ui = None
+        w._dvr = SimpleNamespace(poll=lambda: False, passes=False)
         w._large_exercise = None
         w._dispatcher = UiDispatcher()
         w.initialized = True
@@ -1559,6 +1560,7 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         w._storage_ui = SimpleNamespace(poll=Mock())
         w._playback_ui.poll = Mock()
         w._series_ui = SimpleNamespace(poll=Mock())
+        w._dvr = SimpleNamespace(poll=Mock(return_value=False))
         w._large_exercise = None
         w.initialized = True
         w._paint_pending = False
@@ -1582,7 +1584,7 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         self.assertIs(w.selection, selection)
         self.assertTrue(activation.matches(w._chrome.capture(201)))
         for coordinator in (w._guide_runtime, w._artwork_ui, w._recording_ui, w._storage_ui,
-                            w._playback_ui, w._series_ui):
+                            w._playback_ui, w._series_ui, w._dvr):
             self.assertEqual(coordinator.poll.call_count, 3)
 
 

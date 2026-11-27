@@ -78,10 +78,29 @@ class PackageTests(unittest.TestCase):
         ids = [int(n.get("id")) for n in controls]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual(set(ids), {100, 110, 112, 113, 114, 115, 116, 117, *range(120, 132), *range(140, 144),
-                                    *range(150, 156), *range(200, 206), *range(220, 225), *range(300, 311),
-                                    *range(320, 323), *range(400, 406)})
+                                    *range(150, 156), *range(200, 206), *range(220, 225), 230, 231,
+                                    *range(300, 311), *range(320, 323), *range(400, 406)})
         self.assertTrue(all(n.get('type') == 'button' for n in controls if 200 <= int(n.get('id')) < 400))
         self.assertTrue(all(n.get('type') == 'textbox' for n in controls if int(n.get('id')) >= 400))
+
+    def test_dvr_tab_visibility_is_owner_managed_and_geometry_scales(self):
+        root = ET.parse(SKIN / '1080i/ChannelsDvr.xml').getroot()
+        def bounds(ident):
+            node = root.find(f'.//control[@id="{ident}"]')
+            return node, tuple(int(node.findtext(key)) / 3 for key in ('left', 'top', 'width', 'height'))
+
+        nav, (_, nav_y, _, nav_h) = bounds(203)
+        previous_right = 0
+        for ident in (230, 231):
+            node, (x, y, width, height) = bounds(ident)
+            self.assertIsNone(node.find('visible'))
+            self.assertIsNone(nav.find('visible'))
+            self.assertTrue(all(node.findtext(key) == str(ident) for key in ('onleft', 'onright', 'onup', 'ondown')))
+            self.assertLess(previous_right, x)
+            self.assertLessEqual(nav_y + nav_h, y)
+            self.assertLess(y + height, 250/3)  # row hits start at y=250 in the source grid
+            self.assertLess(x + width, 640)
+            previous_right = x + width
 
     def test_guide_skin_positions_share_the_presenter_coordinates(self):
         from channels_dvr.guide_render import GRID_LEFT, GRID_WIDTH, ROW_PITCH, ROW_TOP

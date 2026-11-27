@@ -1,6 +1,7 @@
 """Owner-only menu orchestration, extracted from the bounded WindowXML adapter."""
 from types import MappingProxyType
 
+from .dvr_ui import DVR_LABELS, DVR_MORE
 from .guide_screen import choose_group, choose_time
 from .ui_menu import CONNECTION, DEVELOPER, command, select
 from .ui_modal import ModalGui, dialog_for, modal_call
@@ -21,6 +22,7 @@ LABELS = MappingProxyType({
     'connection.menu': 'connection', 'addon.settings': 'connection_settings', **dict(CONNECTION),
     'dashboard.refresh': 'dashboard_refresh', 'developer.menu': 'developer',
     'window.actions': 'more', 'window.back': 'back', 'window.exit': 'exit',
+    **DVR_LABELS,
 })
 CONNECTION_ACTIONS = frozenset(code for code, _ in CONNECTION)
 MORE_COMMANDS = {
@@ -29,14 +31,14 @@ MORE_COMMANDS = {
               'guide.previous', 'guide.next', 'playback.play', 'recording.schedule',
               'recording.status', 'programme.tools', 'series.manager', 'developer.menu'),
     'Recordings': (),
-    'DVR': ('connection.refresh',),
+    'DVR': DVR_MORE,
     'Search': ('playback.play',),
     'Settings': ('connection.menu', 'developer.menu'),
 }
 
 SELECTION_COMMANDS = frozenset(('selection.activate', 'selection.open', 'selection.info', 'window.actions',
-                               'playback.play', 'recording.schedule', 'recording.status', 'programme.tools',
-                               'search.guide', 'series.manager'))
+                                'playback.play', 'recording.schedule', 'recording.status', 'programme.tools',
+                                'search.guide', 'series.manager', 'dvr.manage', 'dvr.advanced', 'dvr.status'))
 
 
 def more_entries(w):
@@ -60,6 +62,20 @@ def command_label(w, code):
     if label is None or w._closed:
         return None
     view = w.view
+    if code in ('dvr.scheduled', 'dvr.passes'):
+        return label if view == 'DVR' else None
+    if code in ('dvr.manage', 'dvr.advanced', 'dvr.refresh', 'dvr.status'):
+        if view != 'DVR' or not w._dvr.passes:
+            return None
+        if code == 'dvr.advanced':
+            return label if w._dvr.selected() is not None else None
+        if code == 'dvr.manage':
+            return label if w._dvr.manageable() is not None else None
+        return label if w._dvr.config() is not None else None
+    if code == 'connection.refresh' and view == 'DVR' and w._dvr.passes:
+        return None
+    if code == 'series.manager' and view != 'Guide':
+        return None
     if code == 'window.actions':
         return label if next(more_entries(w), None) is not None else None
     if code == 'developer.menu':
@@ -67,7 +83,7 @@ def command_label(w, code):
     if code == 'connection.menu' and view != 'Settings':
         return None
     if code == 'series.manager':
-        return label if w._recording_ui._current_config() is not None else None
+        return label if w._guide_runtime._mode is None and w._recording_ui._current_config() is not None else None
     if code in ('recording.status', 'programme.tools'):
         session = w._live_session
         if (view != 'Guide' or session is None or w._recording_ui._current_config() is None):
@@ -153,6 +169,9 @@ def execute_command(w, gui, selected, *, origin=100):
     if selected in DESTINATIONS:
         enter(w, DESTINATIONS[selected])
         return True
+    if selected in ('dvr.scheduled', 'dvr.passes'):
+        w._dvr.switch(selected, origin)
+        return True
     if selected == 'window.back':
         back(w)
         return True
@@ -209,6 +228,12 @@ def _execute_workflow(w, gui, selected, origin):
         developer_menu(w, gui)
     elif selected == 'series.manager':
         w._series_manager_request(gui)
+    elif selected == 'dvr.refresh':
+        w._dvr.request_refresh()
+    elif selected == 'dvr.advanced':
+        w._dvr.show(dialog_for(w, gui), advanced=True)
+    elif selected in ('dvr.manage', 'dvr.status'):
+        w._dvr.request(w._series_manager(gui), status=selected == 'dvr.status')
     elif selected == 'playback.play':
         w._playback_ui.request(ModalGui(w, gui))
     elif selected in ('recording.status', 'programme.tools'):
@@ -240,6 +265,9 @@ def _execute_workflow(w, gui, selected, origin):
 def settings(w):
     if w._addon is None:
         return
+    series = getattr(w, '_series_ui', None)
+    if series is not None:
+        series.close()  # Native Settings can revoke the source before it returns.
     w._guide_runtime.latest_status = None
     modal_call(w, w._addon.openSettings)
     w._revoke_demo()

@@ -35,10 +35,6 @@ def active_tab(w):
     return next(ident for ident, code in TABS.items() if TAB_MODES[code] == w.library.mode)
 
 
-def tab_label(w, ident, label):
-    return w.t('recordings_active_tab', tab=label) if ident == active_tab(w) else label
-
-
 def _transition(w, change, origin):
     # Cover the native repaint as well as the logical change: a click arriving
     # mid-rebind must not become Select or Back in the new frame.

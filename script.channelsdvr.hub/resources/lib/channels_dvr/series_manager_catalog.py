@@ -11,8 +11,8 @@ ROWS = (
     ('series_scope', 30648, 'Persistent Series pass: all seasons, no end date. The DVR chooses channels and may use another source. Preview is a current sample, not complete future coverage. Future jobs may be created indefinitely.\n\n{title}\n{details}'),
     ('series_consent', 30649, 'Confirm this exact pass and displayed scope? Managing an existing pass saves local consent, not proof that Kodi created it. Pause does not stop active recordings. Remove deletes only the pass, not recordings. Unknown or active linked jobs block changes. No automatic retries.'),
     ('series_readonly', 30650, 'Read only: unsupported rule, pending operation, or management consent required. Only Name, Pause, Resume and Remove are supported; advanced conditions and options cannot be edited.'),
-    ('series_stopped', 30651, 'Series operation stopped. Refresh details and reconfirm external changes. Unknown outcomes stay read only. Storage or history capacity failures require review; history is never evicted.'),
-    ('series_activity', 30652, 'Linked job activity is active or unknown. No change was sent. Fresh inactivity is only a current observation, not a guarantee against future jobs.'),
+    ('series_stopped', 30651, 'Series stopped. Refresh details and reconfirm external changes. Unknown outcomes stay read only. Review storage/capacity failures; history is never evicted.'),
+    ('series_activity', 30652, 'Linked jobs active or unknown. No change sent. Current inactivity does not rule out future jobs.'),
     ('series_next', 30653, 'Next page'),
     ('series_previous', 30654, 'Previous page'),
     ('series_created', 30655, 'Created by this profile'),
@@ -21,4 +21,5 @@ ROWS = (
     ('series_recover', 30658, 'Recover Series storage claim'),
     ('series_raw', 30659, 'Complete raw data (read only)'),
     ('series_capacity', 30660, 'Series storage is full (64 passes, 256 operations or status entries, 8 MiB). Changes are blocked; nothing is removed or reset.'),
+    ('series_name_unchanged', 30661, 'Name unchanged. No change was sent.'),
 )

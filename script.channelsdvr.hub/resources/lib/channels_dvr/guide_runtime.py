@@ -466,6 +466,7 @@ class GuideRuntime:
             w.stress_fixture = False
             w.library = LibraryBrowser((), strings=w.strings)
             w._reset_search()
+            w._reset_dvr()
         w.guide = controller
         if self.context is not None:
             # _consume's local context must not keep the old controller/maps
@@ -489,6 +490,9 @@ class GuideRuntime:
         if kind in ('normal', 'stress') and not (self.window.transient_demo_mode is True
                 and self.window.developer_enabled() and not self.window._closed):
             return
+        series = getattr(self.window, '_series_ui', None)
+        if series is not None:
+            series.close()  # Revoke before the old session can be held for retirement.
         if kind in ('live', 'no_connection'):
             self.window.transient_demo_mode = False
         self._mode = (kind, config)
@@ -545,8 +549,7 @@ class GuideRuntime:
         w.library = LibraryBrowser(w.repository.recordings, strings=w.strings)
         w.positions.clear()
         w._guide_return = None
-        w._dvr_selected = w._dvr_rows_key = None
-        w._dvr_rows = ()
+        w._reset_dvr()
         w._reset_search()
         w.stress_fixture = kind == "stress"
         w._large_fixture = False
