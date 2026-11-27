@@ -1313,6 +1313,7 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         w.t = lambda key, **values: text(w.strings, key, **values)
         w._render_memo = RenderMemo()
         w.pool = [(Control(), Control())]  # previously displayed listing row
+        w._guide_line = None
         w.path = ''
         w.guide = SimpleNamespace(prepared_ready=False, selection=object(), group='All')
         w.repository = SimpleNamespace(channels=())
@@ -1335,6 +1336,7 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         w._storage_ui = SimpleNamespace(poll=Mock())
         w._playback_ui.poll = Mock()
         w._series_ui = None
+        w._dvr = SimpleNamespace(poll=lambda: False, passes=False)
         w._large_exercise = None
         w._dispatcher = UiDispatcher()
         w.initialized = True
@@ -1558,6 +1560,7 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         w._storage_ui = SimpleNamespace(poll=Mock())
         w._playback_ui.poll = Mock()
         w._series_ui = SimpleNamespace(poll=Mock())
+        w._dvr = SimpleNamespace(poll=Mock(return_value=False))
         w._large_exercise = None
         w.initialized = True
         w._paint_pending = False
@@ -1581,7 +1584,7 @@ class DashboardOwnerIntegrationTests(DashboardFixture):
         self.assertIs(w.selection, selection)
         self.assertTrue(activation.matches(w._chrome.capture(201)))
         for coordinator in (w._guide_runtime, w._artwork_ui, w._recording_ui, w._storage_ui,
-                            w._playback_ui, w._series_ui):
+                            w._playback_ui, w._series_ui, w._dvr):
             self.assertEqual(coordinator.poll.call_count, 3)
 
 

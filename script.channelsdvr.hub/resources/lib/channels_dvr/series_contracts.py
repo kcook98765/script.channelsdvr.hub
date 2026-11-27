@@ -71,6 +71,7 @@ def validate_mutation(before, reply, after, operation, *, planned_name=None):
 def rename_payload(ref, before, binding, planned_name):
     assert_fresh(ref, before, binding); text(planned_name, 4096)
     result = before.payload()
+    require(planned_name != result['Name'])
     result['Name'] = planned_name  # Preserve even server/unknown fields in the PUT.
     return result
 

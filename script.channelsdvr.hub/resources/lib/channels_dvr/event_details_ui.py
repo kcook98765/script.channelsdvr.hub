@@ -9,11 +9,13 @@ from .programme_pass_ui import SourceScope
 from .ui_text import FALLBACK, text
 from .artwork import event_key
 
+MAX_EVENT_TIME = 253402300799
+
 
 def event_start(event: Event) -> str:
     # Public Event DTO seconds are nonnegative integers. Bound datetime's range
     # explicitly (including on Windows); never guess units or format bad values.
-    if type(event.start) is not int or not 0 <= event.start <= 253402300799:
+    if type(event.start) is not int or not 0 <= event.start <= MAX_EVENT_TIME:
         raise ValueError('invalid_event_time')
     return utc(event.start)
 
@@ -23,7 +25,7 @@ def event_text(event: Event, channel: Channel | None, source: str, strings=FALLB
     if event.end is None:
         end, duration = text(strings, 'unknown_end'), text(strings, 'unknown')
     else:
-        if (type(event.end) is not int or not event.start < event.end <= 253402300799):
+        if (type(event.end) is not int or not event.start < event.end <= MAX_EVENT_TIME):
             raise ValueError('invalid_event_time')
         end, duration = utc(event.end), text(strings, 'seconds', count=event.end - event.start)
     joined = channel is not None and channel.key == event.channel

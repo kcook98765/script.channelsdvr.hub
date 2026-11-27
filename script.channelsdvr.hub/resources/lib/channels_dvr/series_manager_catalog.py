@@ -21,4 +21,5 @@ ROWS = (
     ('series_recover', 30658, 'Recover Series storage claim'),
     ('series_raw', 30659, 'Complete raw data (read only)'),
     ('series_capacity', 30660, 'Series storage is full (64 passes, 256 operations or status entries, 8 MiB). Changes are blocked; nothing is removed or reset.'),
+    ('series_name_unchanged', 30661, 'Name unchanged. No change was sent.'),
 )

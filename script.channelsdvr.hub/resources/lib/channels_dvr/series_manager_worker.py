@@ -1,9 +1,10 @@
 """One FIFO slot and one review, worker-confined HTTP/SQLite, signal-only close."""
 import threading
+import time
 
 from .newbuild_compatibility import profile_binding
 from .series_http import SeriesHTTP
-from .series_manager_models import ManagerView, ManagerError
+from .series_manager_models import ManagerView, ManagerError, need, rule_rows
 from .series_manager_store import SeriesManagerStore
 from .series_manager_commands import SeriesManagerCommands
 from .control_lifetime import ControlWorkerTicket
@@ -25,7 +26,10 @@ class SeriesManagerWorker:
         return 'SeriesManagerWorker(private=True)'
 
     def submit(self, operation, **values):
-        if operation not in {'list', 'status', 'details', 'prepare', 'abort', 'create', 'adopt',
+        if self._profile is None:
+            if operation != 'browse' or values:
+                return False
+        elif operation not in {'list', 'status', 'details', 'prepare', 'abort', 'create', 'adopt',
                              'refresh_consent', 'rename', 'pause', 'resume', 'remove'}:
             return False
         with self._condition:
@@ -51,17 +55,23 @@ class SeriesManagerWorker:
                 self._ticket.finish()
             self._condition.notify_all()  # No join, SQL or HTTP on owner.
 
+    @property
+    def finished(self):
+        """Owner observation after close; never wait for the thread."""
+        return self._thread is None or not self._thread.is_alive()
+
     def _run(self):
         store = None
         commands = None
         failed = False
-        try:
-            binding = profile_binding(self.config.origin, self.config.namespace, self.config.expected_version)
-            store = self._store_factory(self._profile, binding)
-            store.open()
-            commands = SeriesManagerCommands(self.config, store, self._client_factory)
-        except Exception:
-            failed = True
+        if self._profile is not None:
+            try:
+                binding = profile_binding(self.config.origin, self.config.namespace, self.config.expected_version)
+                store = self._store_factory(self._profile, binding)
+                store.open()
+                commands = SeriesManagerCommands(self.config, store, self._client_factory)
+            except Exception:
+                failed = True
         try:
             while True:
                 with self._condition:
@@ -71,22 +81,28 @@ class SeriesManagerWorker:
                     intent, self._intent = self._intent, None
                 assert intent is not None
                 operation, values = intent
+                executing = False
                 try:
-                    if failed or commands is None:
+                    if operation == 'browse':
+                        result = self._browse()
+                    elif failed or commands is None:
                         raise ManagerError('storage')
-                    if operation in {'list', 'status', 'details', 'prepare', 'abort'}:
+                    elif operation in {'list', 'status', 'details', 'prepare', 'abort'}:
                         result = getattr(commands, operation)(**values)
                     else:
+                        executing = True
                         result = commands.execute(operation, **values)
-                except ManagerError as error:
-                    code = error.code
-                    if store is not None and store.root.get('pending') is not None:
+                except Exception as error:
+                    code = error.code if isinstance(error, ManagerError) else 'schema'
+                    # finish() changes the in-memory root before saving, so the
+                    # durable burn may still exist even if root['pending'] is None.
+                    if executing and commands is not None and commands.dispatch_possible:
+                        code = 'pending'
+                    elif store is not None and store.root.get('pending') is not None and code != 'storage':
                         pending = store.root['history'][store.root['pending']]
-                        if pending['dispatched'] and code != 'storage':
+                        if pending['dispatched']:
                             code = 'pending'  # Never claim "no change sent" after dispatch.
                     result = ManagerView(operation, error=code)
-                except Exception:
-                    result = ManagerView(operation, error='schema')
                 # Mutations have fully persisted BEFORE generation/close is considered.
                 with self._condition:
                     self._busy = False
@@ -98,3 +114,16 @@ class SeriesManagerWorker:
                     store.close()  # Leaves unknown intent intact; no backend Exit cleanup.
             finally:
                 self._ticket.finish()
+
+    def _browse(self):
+        # A separate no-profile lane: no operation store, status challenge,
+        # reconciliation, review token or mutation authority from browsing.
+        client = self._client_factory(self.config)
+        actual = client.verify_status()
+        with self._condition:
+            need(not self._closed, 'closed')
+        rows = rule_rows(client.rules())
+        with self._condition:
+            need(not self._closed, 'closed')
+        need(client.verify_status() == actual, 'source')
+        return ManagerView('browse', rows=rows, observed_at=int(time.time()))

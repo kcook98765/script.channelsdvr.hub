@@ -1,7 +1,9 @@
 """Owner-only menu orchestration, extracted from the bounded WindowXML adapter."""
 from types import MappingProxyType
 
-from .ui_menu import CONNECTION, DEVELOPER, command, group_label, select
+from .dvr_ui import DVR_LABELS, DVR_MORE
+from .guide_screen import choose_group, choose_time
+from .ui_menu import CONNECTION, DEVELOPER, command, select
 from .ui_modal import ModalGui, dialog_for, modal_call
 from . import ui_recordings
 from .ui_routes import VIEW_KEYS, back, enter, route_fence
@@ -13,27 +15,30 @@ LABELS = MappingProxyType({
     'selection.page-up': 'previous_page', 'selection.page-down': 'next_page',
     'search.programmes': 'search_programmes', 'search.clear': 'search_clear', 'search.guide': 'show_in_guide',
     **ui_recordings.LABELS, 'guide.collection': 'collection',
+    'guide.controls': 'guide_controls',
     'guide.now': 'now', 'guide.time': 'date_time', 'guide.previous': 'previous_hour', 'guide.next': 'next_hour',
     'playback.play': 'play_short', 'recording.schedule': 'schedule', 'recording.status': 'recording_status',
     'programme.tools': 'programme_tools', 'series.manager': 'series_manager',
     'connection.menu': 'connection', 'addon.settings': 'connection_settings', **dict(CONNECTION),
     'dashboard.refresh': 'dashboard_refresh', 'developer.menu': 'developer',
     'window.actions': 'more', 'window.back': 'back', 'window.exit': 'exit',
+    **DVR_LABELS,
 })
 CONNECTION_ACTIONS = frozenset(code for code, _ in CONNECTION)
 MORE_COMMANDS = {
     'Dashboard': ('connection.status', 'developer.menu'),
-    'Guide': ('search.programmes', 'view.search', 'view.settings', 'guide.now', 'guide.time',
-              'guide.previous', 'guide.next', 'recording.status', 'programme.tools', 'developer.menu'),
+    'Guide': ('guide.controls', 'search.programmes', 'view.search', 'view.settings',
+              'guide.previous', 'guide.next', 'playback.play', 'recording.schedule',
+              'recording.status', 'programme.tools', 'series.manager', 'developer.menu'),
     'Recordings': (),
-    'DVR': ('connection.refresh',),
+    'DVR': DVR_MORE,
     'Search': ('playback.play',),
     'Settings': ('connection.menu', 'developer.menu'),
 }
 
 SELECTION_COMMANDS = frozenset(('selection.activate', 'selection.open', 'selection.info', 'window.actions',
-                               'playback.play', 'recording.schedule', 'recording.status', 'programme.tools',
-                               'search.guide', 'series.manager'))
+                                'playback.play', 'recording.schedule', 'recording.status', 'programme.tools',
+                                'search.guide', 'series.manager', 'dvr.manage', 'dvr.advanced', 'dvr.status'))
 
 
 def more_entries(w):
@@ -57,12 +62,28 @@ def command_label(w, code):
     if label is None or w._closed:
         return None
     view = w.view
+    if code in ('dvr.scheduled', 'dvr.passes'):
+        return label if view == 'DVR' else None
+    if code in ('dvr.manage', 'dvr.advanced', 'dvr.refresh', 'dvr.status'):
+        if view != 'DVR' or not w._dvr.passes:
+            return None
+        if code == 'dvr.advanced':
+            return label if w._dvr.selected() is not None else None
+        if code == 'dvr.manage':
+            return label if w._dvr.manageable() is not None else None
+        return label if w._dvr.config() is not None else None
+    if code == 'connection.refresh' and view == 'DVR' and w._dvr.passes:
+        return None
+    if code == 'series.manager' and view != 'Guide':
+        return None
     if code == 'window.actions':
         return label if next(more_entries(w), None) is not None else None
     if code == 'developer.menu':
         return label if view in ('Dashboard', 'Guide', 'Settings') and w.developer_enabled() else None
     if code == 'connection.menu' and view != 'Settings':
         return None
+    if code == 'series.manager':
+        return label if w._recording_ui._current_config() is not None else None
     if code in ('recording.status', 'programme.tools'):
         session = w._live_session
         if (view != 'Guide' or session is None or w._recording_ui._current_config() is None):
@@ -86,6 +107,15 @@ def command_label(w, code):
     if code.startswith('guide.'):
         if view != 'Guide' or w._development_blocked is not None or (w._live_session is None and not w.demo_allowed()):
             return None
+        if code in ('guide.time', 'guide.collection', 'guide.controls') and not w._guide_runtime.ready:
+            return None
+        if code == 'guide.now' and w._route.parent == 'Search':
+            if not w._guide_runtime.ready:
+                return None
+            start, end = w.guide.repository.horizon
+            now = w.utc_now() if w._live_session is not None else w.repository.now
+            if not start <= now < end:
+                return None
     if code in ('selection.page-up', 'selection.page-down'):
         return label if view != 'Dashboard' else None
     if code == 'selection.activate':
@@ -139,6 +169,9 @@ def execute_command(w, gui, selected, *, origin=100):
     if selected in DESTINATIONS:
         enter(w, DESTINATIONS[selected])
         return True
+    if selected in ('dvr.scheduled', 'dvr.passes'):
+        w._dvr.switch(selected, origin)
+        return True
     if selected == 'window.back':
         back(w)
         return True
@@ -154,6 +187,9 @@ def execute_command(w, gui, selected, *, origin=100):
     w._playback_ui.cancel()
     if selected == 'window.actions':
         main_menu(w, gui, origin)
+        return True
+    if selected == 'guide.controls':
+        w._chrome.initialize_focus(306)
         return True
     if selected in ('selection.page-up', 'selection.page-down'):
         w._navigate(3 if selected == 'selection.page-up' else 4, page=True)
@@ -192,6 +228,12 @@ def _execute_workflow(w, gui, selected, origin):
         developer_menu(w, gui)
     elif selected == 'series.manager':
         w._series_manager_request(gui)
+    elif selected == 'dvr.refresh':
+        w._dvr.request_refresh()
+    elif selected == 'dvr.advanced':
+        w._dvr.show(dialog_for(w, gui), advanced=True)
+    elif selected in ('dvr.manage', 'dvr.status'):
+        w._dvr.request(w._series_manager(gui), status=selected == 'dvr.status')
     elif selected == 'playback.play':
         w._playback_ui.request(ModalGui(w, gui))
     elif selected in ('recording.status', 'programme.tools'):
@@ -208,17 +250,11 @@ def _execute_workflow(w, gui, selected, origin):
     elif selected == 'search.programmes':
         w._search_menu()
     elif selected == 'guide.collection':
-        groups = tuple(w.repository.groups)
-        # Captured immutable keys: provider group names are data, not translated.
-        answer = dialog_for(w, gui).select(w.t('collection'), [group_label(w.strings, group) for group in groups])
-        chosen = command(tuple((group, '') for group in groups), answer)
-        if chosen is not None and not w._closed and chosen in w.repository.groups:
-            w.guide.set_group(chosen)
-            route_fence(w)
+        choose_group(w, gui)
     elif selected == 'guide.now':
         w._jump_time(w.utc_now() if w._live_session is not None else w.repository.now)
     elif selected == 'guide.time':
-        w._time_navigation()
+        choose_time(w, gui)
     elif selected in ('guide.previous', 'guide.next'):
         anchor = w._intended_anchor if w._intended_anchor is not None else w.guide.selection.anchor
         w._jump_time(anchor + (-3600 if selected == 'guide.previous' else 3600))

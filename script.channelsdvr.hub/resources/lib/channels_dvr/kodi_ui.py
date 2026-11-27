@@ -5,6 +5,7 @@ The pool grows to the high-water visible cell count, never the guide horizon.
 """
 
 import os
+from collections.abc import Sequence
 from time import monotonic, perf_counter, time
 from typing import Protocol
 
@@ -12,12 +13,14 @@ import xbmc
 import xbmcgui
 
 from .browser import Row, scheduled_rows
+from .dvr_ui import DvrUI, PassRows
 from .event_details_ui import show_event_details
 from .guide import GuideController, Selection, time_label
 from .guide_runtime import GuideRuntime, display_repository
 from .guide_fixture_data import FixtureMode as FixtureMode
-from .guide_gap import show_station_gap, station_label
+from .guide_gap import show_station_gap
 from .guide_render import RenderMemo, draw
+from .guide_screen import hide_guide, paint_clock, paint_guide, station_rows
 from .guide_fixtures import cancel_large, install_fixture, tick_large
 from .library import LibraryBrowser, PAGE_ROWS
 from .metrics import GuiMetrics
@@ -32,14 +35,15 @@ from .recording_ui import RecordingUI
 from .storage_ui import StorageUI
 from .search import ProgrammeSearchIndex, SearchPage, airing_key, normalize_query
 from .session import OfflineDataSession, Presentation
+from .series_manager_models import RuleRow
 from .ui_dispatch import UiDispatcher
 from .ui_text import capture, text
 from .ui_menu import CONNECTION, group_label, select
 from .ui_navigation import execute_command
-from .ui_routes import Route, SearchReturn, VIEW_KEYS, enter, launch_view, presentation_scope, route_fence
+from .ui_routes import Route, SearchReturn, VIEW_KEYS, enter, launch_view, presentation_scope
 from .ui_hits import Hit
 from .ui_modal import ModalGui, dialog_for, modal_input
-from .ui_browse_navigation import search_menu, time_navigation
+from .ui_browse_navigation import search_menu
 from .ui_recordings import rows_status
 from .ui_status import STATUS_KEYS
 from .artwork_ui import ArtworkUI, show_media_details
@@ -88,6 +92,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._dvr_rows: tuple[Row, ...] = ()
         self._hit_plan: list[Hit] = []
         self.pool: list[tuple[xbmcgui.ControlImage, xbmcgui.ControlLabel]] = []
+        self._guide_line: xbmcgui.ControlImage | None = None
         self.initialized = False
         self.path = ""
         self.metrics = GuiMetrics()
@@ -110,6 +115,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._recording_ui = RecordingUI(self)
         self._storage_ui = StorageUI(self)
         self._series_ui = None
+        self._dvr = DvrUI(self)
         self._guide_runtime = GuideRuntime(self)
         self._artwork_ui = ArtworkUI(self)
         self._playback_ui = PlaybackUI(self)
@@ -154,6 +160,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
                 self._chrome.click(value, xbmcgui)
         if not self._closed:
             changed = self._guide_runtime.poll()
+            changed = self._dvr.poll() or changed
             changed = self._artwork_ui.poll() or changed
             changed = self._dashboard_ui.poll() or changed
             if not self._closed and (changed or self._paint_pending):
@@ -162,6 +169,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
             now = monotonic()
             if self._status_tick is None or now - self._status_tick >= 1:
                 self._label(114, self._current_data().banner)
+                if self.view == 'Guide':
+                    paint_clock(self)
                 self._status_tick = now
         if not self._closed:
             self._recording_ui.poll()
@@ -182,6 +191,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
         cancel_large(self, "window closed")
         self._recording_ui.close()
         self._storage_ui.close()
+        self._dvr.refresh()
         if self._series_ui is not None:
             self._series_ui.close()
         self._guide_runtime.close()
@@ -193,7 +203,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
     def close(self):
         self.shutdown()
 
-    def _series_manager_request(self, gui):
+    def _series_manager(self, gui):
         from .series_manager_ui import SeriesManagerUI
         from .pass_ui import _programme_scope
         self._dispatcher.assert_owner()
@@ -206,7 +216,10 @@ class ChannelsWindow(xbmcgui.WindowXML):
                 source_scope=lambda: self._recording_ui.preview._control_context()[0],
                 strings=self.strings, default_no=gui.DLG_YESNO_NO_BTN,
                 presentation_scope=lambda: presentation_scope(self))
-        self._series_ui.request()
+        return self._series_ui
+
+    def _series_manager_request(self, gui):
+        self._series_manager(gui).request()
 
     def _series_selection(self):
         self._dispatcher.assert_owner()
@@ -391,6 +404,12 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self.search_selection = None
         self._clear_search_cache()
 
+    def _reset_dvr(self) -> None:
+        self.positions.pop('DVR', None)
+        self._dvr_selected = self._dvr_rows_key = None
+        self._dvr_rows = ()
+        self._dvr.reset()
+
     def _clear_search_cache(self) -> None:
         # Runtime holds immutable source/records on worker until commit. Normal
         # metadata refresh preserves query, airing bookmark and cursor.
@@ -424,11 +443,21 @@ class ChannelsWindow(xbmcgui.WindowXML):
     def _jump_time(self, anchor: int) -> None:
         if self._development_blocked is not None:
             return
+        if self._route.parent == 'Search':
+            # A drill-in browses the shared accepted horizon without replacing
+            # the product behind Search or the primary Guide bookmark.
+            if self._guide_runtime.ready:
+                self.guide.jump(anchor)
+            return
         start, end = self.repository.horizon
         if self._live_session is not None and (self._live_session.loading or not start <= anchor < end):
             if not self._guide_runtime.reenter(anchor):
                 self._request_live(anchor)
         else:
+            if self._live_session is not None and not self._guide_runtime.ready:
+                # Metadata already names this horizon, but adoption still owns
+                # the final cursor. Replace the previous request's anchor.
+                self._intended_anchor = anchor
             self.guide.jump(anchor)
 
     def _source_label(self, key: ChannelKey) -> str:
@@ -441,15 +470,27 @@ class ChannelsWindow(xbmcgui.WindowXML):
     def _texture(self, name: str) -> str:
         return os.path.join(self.path, "resources", "skins", "Default", "media", name)
 
+    def _ensure_guide_line(self) -> "xbmcgui.ControlImage":
+        if self._guide_line is None:
+            line = xbmcgui.ControlImage(0, 0, 1, 1, self._texture("selected.png"))
+            self.addControls([line])
+            self._guide_line = line
+        return self._guide_line
+
     def _ensure_pool(self, count: int) -> None:
         self._visible_count = count
         added: list[xbmcgui.Control] = []
         while len(self.pool) < count:
-            image = xbmcgui.ControlImage(0, 0, 1, 1, self._texture("cell.png"))
+            # Reuse the old top image as a cell on growth. The next line is
+            # appended after the new cells, with only one extra image total.
+            image, self._guide_line = self._guide_line, None
+            if image is None:
+                image = xbmcgui.ControlImage(0, 0, 1, 1, self._texture("cell.png"))
+                added.append(image)
             label = xbmcgui.ControlLabel(0, 0, 1, 1, "", font="font13",
                                         textColor="FFFFFFFF")
             self.pool.append((image, label))
-            added.extend((image, label))
+            added.append(label)
         if added:
             self.addControls(added)
         for image, label in self.pool[count:]:
@@ -460,11 +501,13 @@ class ChannelsWindow(xbmcgui.WindowXML):
               text: str, selected: bool, gap: bool = False) -> None:
         draw(self, index, x, y, width, height, text, selected, gap)
 
-    def _rows(self) -> tuple[Row, ...]:
+    def _rows(self) -> Sequence[Row]:
         if self.view in ('Dashboard', 'Guide'):
             return ()
         if self.view == 'Settings':
             return tuple(Row(code, self.t(label), '') for code, label in CONNECTION)
+        if self._dvr.passes:
+            return self._dvr.rows()
         if self._development_blocked is not None or (self._live_session is None and not self.demo_allowed()):
             return ()
         if self.view == "Search":
@@ -493,6 +536,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
         return self.view
 
     def _selected_position(self, rows):
+        if isinstance(rows, PassRows):
+            return self._dvr.position
         return self.library.position if self.view == 'Recordings' else min(
             self.positions.get(self._position_key(), 0), max(0, len(rows) - 1))
 
@@ -500,6 +545,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
         index = max(0, min(index, len(rows) - 1))
         if self.view == 'Recordings':
             self.library.move(index - self.library.position)
+        elif isinstance(rows, PassRows):
+            self._dvr.select(rows.items, index)
         else:
             self.positions[self._position_key()] = index
             if rows and self.view == 'Search':
@@ -514,6 +561,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
             return self.view == 'Guide' and self._guide_runtime.ready and self.guide.focus_cell(channel, event_id, start)
         if kind != 'row' or self.view not in ('Recordings', 'DVR', 'Search', 'Settings'):
             return False
+        if self._dvr.passes:
+            data = self._dvr.data()
+            return data.can_browse and self._dvr.hit(data.items, key[0])
         if self.view != 'Settings' and not self._current_data().can_browse:
             return False
         rows = self._rows()
@@ -523,9 +573,11 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._select_list(rows, matches[0])
         return True
 
-    def _current_data(self) -> Presentation[Event] | Presentation[Recording] | Presentation[Job]:
+    def _current_data(self) -> Presentation[Event] | Presentation[Recording] | Presentation[Job] | Presentation[RuleRow]:
         if self.view in ('Dashboard', 'Settings'):
             return Presentation((), DataState.EMPTY, False, False, None, None, '', '', False)
+        if self.view == 'DVR' and self._dvr.passes:
+            return self._dvr.data()
         if self._development_blocked is not None or (self._live_session is None and not self.demo_allowed()):
             return Presentation((), DataState.OUTAGE, False, False, None, None,
                                 self.t('not_connected'), self.t('connection_prompt'),
@@ -574,6 +626,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
                                   len(self.pool), self._visible_count)
 
     def _render(self) -> None:
+        if self.view != 'Guide':
+            hide_guide(self)
         if self.view == 'Dashboard':
             self._dashboard_ui.render()
             return
@@ -598,16 +652,18 @@ class ChannelsWindow(xbmcgui.WindowXML):
             self._label(115, '')
             self._render_rows(self._rows())
             return
-        station_rows = (self._live_session is not None and self.view == "Guide" and self.guide.prepared_ready
-                        and self._guide_runtime.ready and bool(self.guide.channels)
-                        and data.updated_at is not None)
+        if self.view == 'DVR':
+            self._dvr.render(data)
+            return
         retained = ((self._live_session is not None or self.demo_allowed())
                     and self.view == "Guide" and self.guide.prepared_ready
                     and not self._guide_runtime.ready
                     and (data.updated_at is not None or (self._live_session is not None
                                                          and self._live_session.loading))
                     and not self._development_blocked)
-        if not data.can_browse and not station_rows and not retained:
+        if not data.can_browse and not (self.view == 'Guide' and station_rows(self, data)) and not retained:
+            if self.view == 'Guide':
+                hide_guide(self)
             self._ensure_pool(0)
             if self._development_blocked is not None or (self._live_session is None and not self.demo_allowed()):
                 state = 'not_connected'
@@ -631,7 +687,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
             self._label(113, self.t('refresh_hint') if self._live_session is not None else
                         self.t('demo_hint') if self.demo_allowed() else self.t('connection_prompt'))
             return
-        if self.view != "Guide":
+        if self.view == 'Guide':
+            paint_guide(self, retained)
+        else:
             rows = self._rows()
             selected = self._render_rows(rows)
             if self.view == "Search":
@@ -647,45 +705,6 @@ class ChannelsWindow(xbmcgui.WindowXML):
             elif self.view == "Recordings":
                 self._label(112, self.library.breadcrumb)
                 self._label(113, rows_status(self, rows, selected))
-            else:
-                self._label(112, self.t('demo_scheduled_readonly' if self.demo_allowed() else 'scheduled_readonly'))
-                self._label(113, self.t('details_rows_status', position=selected + 1 if rows else 0, count=len(rows)))
-            return
-        guide = self.guide
-        cells = [cell for cell in guide.cells() if 0 <= cell.row < guide.rows]
-        hittable = not retained and self._guide_runtime.ready
-        self._ensure_pool(len(cells))
-        self._label(112, self.t('guide_range', group=group_label(self.strings, guide.group),
-                               start=time_label(guide.viewport), end=time_label(guide.viewport + guide.span)))
-        for tick in range(4):
-            self._label(140 + tick, time_label(guide.viewport + tick * 1800).split(" ")[-2])
-        for index, channel in enumerate(guide.channels[guide.top:guide.top + guide.rows]):
-            self._label(120 + index, self.t('channel_row', number=channel.number, name=channel.name,
-                                          source=self._source_label(channel.key)))
-        for index, cell in enumerate(cells):
-            # Alternating overlap lanes expose overlapping metadata without
-            # interpreting it as a recording or silently merging the sources.
-            text = ("< " if cell.continues_left else "") + cell.title
-            if self._live_session is not None and cell.event_id is None:
-                cell_channel = guide.channel(cell.channel)
-                if cell_channel is not None:
-                    text = station_label(cell_channel, text, self.strings)
-            text += " >" if cell.continues_right else ""
-            self._draw(index, 390 + round(cell.x * 1450),
-                       250 + cell.row * 95 + cell.lane * 39,
-                       max(1, round(cell.width * 1450)), 43, text,
-                       cell.selected, cell.event_id is None)
-            if hittable and not cell.overflow:
-                self._hit_plan.append(Hit((390 + round(cell.x * 1450), 250 + cell.row * 95 + cell.lane * 39,
-                    max(1, round(cell.width * 1450) - 3), 39), ('cell', cell.channel, cell.event_id, cell.start)))
-        event = guide.selected_event()
-        if retained:
-            self._label(113, self.t('guide_retained_status', status=self.t('guide_unavailable' if self._guide_runtime.error else 'preparing_guide')))
-            return
-        self._label(113, self.t('guide_selection', title=(event.title if event else
-                          (station_label(guide.channel(guide.selection.channel), strings=self.strings) if self._live_session is not None else "")
-                          or self.t('no_listing_selected')), time=time_label(guide.selection.anchor))
-                      + (self.t('some_listings_hidden') if guide.truncated else ''))
 
     def _render_rows(self, rows):
         selected = self._selected_position(rows)
@@ -706,6 +725,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
         if self.view == 'Settings':
             rows = self._rows()
             execute_command(self, xbmcgui, rows[self._selected_position(rows)].id)
+            return
+        if self._dvr.passes:
+            self._dvr.show(dialog_for(self, xbmcgui))
             return
         data = self._current_data()
         if (self._live_session is not None and self._development_blocked is None
@@ -827,9 +849,6 @@ class ChannelsWindow(xbmcgui.WindowXML):
             self.t('diagnostic_summary', metrics=self.metrics.compact_report(self.strings),
                    exercise=self.exercise_summary or self.t('exercise_none'), stress=self.stress_fixture))
 
-    def _time_navigation(self) -> None:
-        time_navigation(self, xbmcgui)
-
     def _toggle_stress_fixture(self) -> None:
         if not self.demo_allowed():
             return
@@ -842,7 +861,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
             # Down at the last channel reaches the action rail. Page moves a
             # viewport at a time without stealing ordinary Guide directions.
             last = self.guide.channels[-1].key if self.guide.channels else None
-            return action_id == DOWN and (not self._current_data().can_browse or self.guide.selection.channel == last)
+            data = self._current_data()
+            return action_id == DOWN and (self.guide.selection.channel == last or
+                                          not (data.can_browse or station_rows(self, data)))
         rows = self._rows()
         index = self._selected_position(rows)
         return index == 0 if action_id == UP else index >= len(rows) - 1
@@ -861,8 +882,9 @@ class ChannelsWindow(xbmcgui.WindowXML):
             if self._development_blocked is not None:
                 self.render()
                 return
-            live_guide = self._live_session is not None and self.view == "Guide"
-            if not data.can_browse:
+            live_guide = (self._live_session is not None and self.view == 'Guide'
+                          and self._route.parent is None and data.can_browse)
+            if not data.can_browse and not (self.view == 'Guide' and station_rows(self, data)):
                 self.render()
                 return
             if self.view == "Guide":
@@ -879,9 +901,11 @@ class ChannelsWindow(xbmcgui.WindowXML):
                             start, end = self.repository.horizon
                             target = start - 1800 if action_id == 1 else end
                             self._request_live(max(0, target))
+                elif page:
+                    self.guide.page(-1 if action_id == UP else 1)
                 else:
-                    self.guide.vertical((self.guide.rows if page else 1) * (-1 if action_id == UP else 1))
-            elif action_id in (3, 4):
+                    self.guide.vertical(-1 if action_id == UP else 1)
+            elif action_id in (UP, DOWN):
                 rows = self._rows()
                 self._select_list(rows, self._selected_position(rows) + (PAGE_ROWS if page else 1) * (-1 if action_id == UP else 1))
             self.render()

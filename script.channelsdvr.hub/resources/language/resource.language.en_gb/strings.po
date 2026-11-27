@@ -1893,6 +1893,10 @@ msgctxt "#30660"
 msgid "Series storage is full (64 passes, 256 operations or status entries, 8 MiB). Changes are blocked; nothing is removed or reset."
 msgstr ""
 
+msgctxt "#30661"
+msgid "Name unchanged. No change was sent."
+msgstr ""
+
 msgctxt "#30700"
 msgid "Playback"
 msgstr ""
@@ -2141,6 +2145,46 @@ msgctxt "#30949"
 msgid "More"
 msgstr ""
 
+msgctxt "#30960"
+msgid "Passes"
+msgstr ""
+
+msgctxt "#30961"
+msgid "Series actions"
+msgstr ""
+
+msgctxt "#30962"
+msgid "Series status"
+msgstr ""
+
+msgctxt "#30963"
+msgid "Paused: {paused}; jobs reported: {jobs}"
+msgstr ""
+
+msgctxt "#30964"
+msgid "Snapshot grants no control."
+msgstr ""
+
+msgctxt "#30965"
+msgid "Stale: refresh before Series actions."
+msgstr ""
+
+msgctxt "#30966"
+msgid "Last good read: no saved passes."
+msgstr ""
+
+msgctxt "#30967"
+msgid "Read-only rule"
+msgstr ""
+
+msgctxt "#30968"
+msgid "Series rule: recheck to manage."
+msgstr ""
+
+msgctxt "#30969"
+msgid "Outcome unknown. Check Series status; do not retry."
+msgstr ""
+
 msgctxt "#30970"
 msgid "Recent"
 msgstr ""
@@ -2179,4 +2223,32 @@ msgstr ""
 
 msgctxt "#30979"
 msgid "> {tab}"
+msgstr ""
+
+msgctxt "#30980"
+msgid "Listing day"
+msgstr ""
+
+msgctxt "#30981"
+msgid "No channels here"
+msgstr ""
+
+msgctxt "#30982"
+msgid "Guide controls"
+msgstr ""
+
+msgctxt "#30983"
+msgid "OK/Info: details | PgUp/PgDn: channels | Blue line: Now | {footer}"
+msgstr ""
+
+msgctxt "#30984"
+msgid "Some listings hidden. Use arrows or change time."
+msgstr ""
+
+msgctxt "#30985"
+msgid "Series result verified."
+msgstr ""
+
+msgctxt "#30986"
+msgid "Pass changed. Review refreshed list first."
 msgstr ""

@@ -13,7 +13,7 @@ checkpoints. #11 lays the foundation for all later routes. #12–#14 can proceed
 independently after #11. Review each phase against its dependencies and the
 umbrella constraints; dependency order does not authorize combining phases. If the owner issue
 record narrows a direction or changes its order/acceptance criteria, resolve that
-before implementation. Only #11 is implemented here. **#6 and #9 stay separate**:
+before implementation. See the phase entries for source and qualification status. **#6 and #9 stay separate**:
 do not incorporate their changes, outcomes or qualification into these phases by
 implication.
 
@@ -22,7 +22,7 @@ implication.
 | 1 · **#11**, after #10 scope approval | Dashboard root and six destinations. Exclusive existing Hub Guide; adapt Scheduled and Pass list under DVR, Connection under Settings. Establish Back, focus, pointer, contextual commands and in-memory bookmarks without new features. | Source and focused fakes in this change; **independent static, fake and native review pending**. Start with the #11 matrix below and verify legacy program launch and workflows. |
 | 2 · **#12**, depends on #11 | Recordings tabs: Recent, TV Shows, Movies, All, Search; hierarchy, source and sort over existing library models. | Handover tab/hierarchy, source/sort and removed-item fallback evidence; explicit Play stays separate. |
 | 3 · **#13**, depends on #11 | Integrated Scheduled and Passes, keeping read-only presentation distinct from the existing explicitly admitted control and reconciliation paths. | Handover read scopes, scheduled/pass distinctions and empty/partial/outage behavior; no production mutation evidence under read-only approval. |
-| 4 · **#14**, depends on #11 | Enhanced full-screen Guide: TV Guide as a behavioral reference only, bounded Hub data, logos, details, Now, group and day navigation. No GPL copying or assets without a separate decision. | Handover native geometry, navigation and the bounded data/rights review, including gaps, overlaps and fallback. |
+| 4 · **#14**, depends on #11 | Enhanced full-screen Guide: TV Guide as a behavioral reference only, bounded Hub data, logos, details, Now, group and day navigation. No GPL copying or assets without a separate decision. | [Source handoff and planned Omega matrix](GUIDE-PHASE-4.md); independent validation and native review pending. |
 | 5 · **#15**, depends on #11–#14 | Unified Search categories and honest coverage; preserve logical result return and distinguish incomplete coverage from no matches. | Handover per-category coverage, stable result IDs, stale/missing results and cancellation/Back evidence. |
 | 6 · **#16**, depends on #11–#15 | Hybrid Settings; Dashboard, Guide, Recordings, DVR or last-primary startup; permitted per-server bookmarks, default Dashboard and disconnected fallback. | Handover permitted fields, separate server identities, fallback, and reset-to-now behavior. Never persist drafts. |
 | 7 · **#17**, depends on #11/#14/#16 and media/provider gates | Full-screen default, optional background browsing/Now Playing and opt-in live-select guard. | Bind exact media/provider qualification and opt-in/Play separation to the candidate; no playback approval inferred from earlier read-only review. |

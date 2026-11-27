@@ -2,12 +2,15 @@
 import ast
 from dataclasses import asdict, replace
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from channels_dvr.artwork import ArtBuilder, channel_key, event_key, recording_key, job_key
 from channels_dvr.artwork_refs import resolve_reference, first_reference
+from channels_dvr.artwork_ui import ArtworkUI
 from channels_dvr import metadata_models as dto
+from channels_dvr.guide_render import ROW_PITCH, ROW_TOP
 from channels_dvr.models import ChannelKey, Event
 from channels_dvr.normalization import DataState
 
@@ -208,6 +211,96 @@ class MetadataIdentityTests(unittest.TestCase):
         art = ArtBuilder()
         dto.public_channels([dict(source_id='s', id='c', logo_url=PUBLIC)], 'synthetic', art=art)
         self.assertFalse(art.freeze().references)
+
+
+class GuideArtworkOwnerTests(unittest.TestCase):
+    def test_guide_uses_one_preview_and_six_logos_and_revokes_late_art(self):
+        class Control:
+            def __init__(self, *args, **kwargs):
+                self.values = {}
+
+            def __getattr__(self, name):
+                if name.startswith('set'):
+                    return lambda *values: self.values.update({name: values})
+                raise AttributeError(name)
+
+        other = replace(EVENT, channel=replace(KEY, source_id='source2'))
+        first = ArtBuilder()
+        first.add(channel_key(KEY), 'special://unusable')
+        first.add(channel_key(KEY), '/logo')
+        first.add(event_key(EVENT), '/programme-one')
+        first.add(('recording', 'test'), '/recording-art', ('Recordings', 'leaf'))
+        session = SimpleNamespace(artwork=first.freeze(), loading=False)
+        controls = {i: Control() for i in (113, *range(120, 132))}
+        images = []
+        chosen = EVENT
+        guide = SimpleNamespace(top=0, channels=(SimpleNamespace(key=KEY), SimpleNamespace(key=other.channel)),
+                                selected_event=lambda: chosen)
+        runtime = SimpleNamespace(ready=True, _mode=None)
+        window = SimpleNamespace(_live_session=session, _development_config=SimpleNamespace(origin=ORIGIN),
+                                  _development_blocked=None, _closed=False, _guide_runtime=runtime,
+                                  view='Guide', guide=guide, addControls=images.extend, getControl=controls.__getitem__,
+                                  _rows=lambda: (SimpleNamespace(id='leaf', children=()),),
+                                  library=SimpleNamespace(position=0))
+        gui = SimpleNamespace(ControlImage=Control)
+        art = ArtworkUI(window)
+        art.update()
+        art.draw(gui)
+        self.assertEqual(len(images), 7)
+        logo, preview = images[0], images[-1]
+        self.assertEqual(logo.values['setImage'], ('http://192.0.2.10:8089/logo',))
+        self.assertEqual(controls[120].values['setPosition'], (155, ROW_TOP + 9))
+        self.assertEqual(controls[121].values['setPosition'], (88, ROW_TOP + ROW_PITCH + 9))
+        self.assertEqual(preview.values['setPosition'], (1520, 125))
+        self.assertEqual(preview.values['setImage'], ('http://192.0.2.10:8089/programme-one',))
+
+        art.reset()  # The existing controls need fresh geometry proof after reinitialization.
+        fail = Mock(side_effect=RuntimeError('native height setter'))
+        with patch.object(preview, 'setHeight', fail):
+            art.draw(gui)
+        fail.assert_called_once_with(132)
+        self.assertEqual(preview.values['setVisible'], (False,))
+        self.assertEqual(preview.values['setImage'], ('',))
+        self.assertEqual(logo.values['setVisible'], (True,))
+        self.assertEqual(logo.values['setImage'], ('http://192.0.2.10:8089/logo',))
+        self.assertEqual(art.ready(), 'http://192.0.2.10:8089/programme-one')
+
+        art.draw(gui)  # Retry in the same view, with the same seven controls.
+        self.assertEqual(preview.values['setVisible'], (True,))
+        self.assertEqual(preview.values['setImage'], ('http://192.0.2.10:8089/programme-one',))
+        window.view = 'Recordings'
+        art.update()
+        art.draw(gui)
+        self.assertEqual(preview.values['setPosition'], (1600, 870))
+        self.assertEqual(preview.values['setImage'], ('http://192.0.2.10:8089/recording-art',))
+        self.assertEqual(controls[113].values['setWidth'], (1500,))
+        window.view = 'Guide'
+        art.update()
+        art.draw(gui)
+        self.assertEqual(len(images), 7)
+
+        chosen = other
+        self.assertIsNone(art.ready(event_key(EVENT)))
+        art.update()
+        art.draw(gui)
+        self.assertEqual(preview.values['setVisible'], (False,))
+        self.assertEqual(preview.values['setImage'], ('',))
+
+        second = ArtBuilder()
+        second.add(event_key(other), '/programme-two')
+        session.artwork = second.freeze()  # New immutable result; first source's art is revoked.
+        self.assertTrue(art.poll())
+        art.update()
+        art.draw(gui)
+        self.assertEqual(len(images), 7)
+        self.assertEqual(logo.values['setVisible'], (False,))
+        self.assertEqual(controls[120].values['setPosition'], (88, ROW_TOP + 9))
+        self.assertEqual(preview.values['setImage'], ('http://192.0.2.10:8089/programme-two',))
+        runtime.ready = False
+        self.assertTrue(art.poll())
+        self.assertIsNone(art.ready(event_key(other)))
+        self.assertEqual(preview.values['setImage'], ('',))
+        self.assertEqual(preview.values['setVisible'], (False,))
 
 
 class ArchitectureTests(unittest.TestCase):

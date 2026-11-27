@@ -100,9 +100,15 @@ def successor(raw, binding, actual, reads):
                     record['removed'] = True
                 else:
                     need(before is not None and after is not None)
+                    assert before is not None
                     planned = entry['body']['Name'] if entry['operation'] == 'rename' else None
+                    complete_wire = entry['wire'] is not None and entry['wire']['complete']
+                    if entry['operation'] == 'rename' and not complete_wire:
+                        # A legacy no-op burn can predate HTTP entirely. Matching
+                        # the original Name supplies no evidence of that PUT.
+                        need(planned != before.payload()['Name'], 'stale')
                     contracts.validate_readback(before, after, entry['operation'], planned_name=planned)
-                    if entry['wire'] is not None and entry['wire']['complete']:
+                    if complete_wire:
                         contracts.validate_mutation(before, SparseMutationReply.parse(wire_payload(entry['wire'])),
                                                     after, entry['operation'], planned_name=planned)
                     _accept(result, entry, after, None)
