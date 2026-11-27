@@ -306,6 +306,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
         self._dispatcher.assert_owner()
         if not self.developer_enabled() or self._closed:
             return
+        if self._series_ui is not None:
+            self._series_ui.close()  # Revoke before the flag invalidates the live source.
         self.transient_demo_mode = True
         self._development_blocked = None
         cancel_large(self, 'demo opened')

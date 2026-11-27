@@ -1,10 +1,12 @@
 """Closed pure manager verifier and monotonic successors. No I/O or callbacks."""
+import base64
 from copy import deepcopy
 import hashlib
 import json
 import time
 
-from .series_models import RuleSnapshot, SparseMutationReply, canonical
+from .metadata_http import _finite_float, _reject_constant, _unique_object
+from .series_models import RuleSnapshot, SeriesContractError, SparseMutationReply, canonical, identity
 from . import series_contracts as contracts
 from .series_manager_models import (need, ManagerError, rule_rows, associated_inactive,
                                     MAX_HISTORY, digest)
@@ -13,6 +15,19 @@ from .series_manager_store import decode, encode, wire_payload, candidate_key
 
 def _fingerprint(value):
     return hashlib.sha256(encode(value)).hexdigest()
+
+
+def _captured_reply_id(wire):
+    """Negative evidence only; never qualify a receipt or choose a readback target."""
+    if wire is None:
+        return None
+    try:
+        raw = base64.b64decode(wire['raw_base64'], validate=True)
+        payload = json.loads(raw.decode('utf-8'), object_pairs_hook=_unique_object,
+                             parse_constant=_reject_constant, parse_float=_finite_float)
+        return identity(payload.get('ID')) if type(payload) is dict else None
+    except (ValueError, RecursionError, SeriesContractError):
+        return None  # No decodable identity; retain the existing receipt/readback rules.
 
 
 def successor(raw, binding, actual, reads):
@@ -56,9 +71,12 @@ def successor(raw, binding, actual, reads):
             if pending is not None:
                 entry = root['history'][pending]
                 need(actual == entry['actual'], 'source')
-                # Positive readback of the intended rule cannot explain a receipt
-                # naming another rule, including an otherwise unqualified prefix.
-                need(entry['id'] is None or entry['returned_id'] in (None, entry['id']), 'stale')
+                if entry['id'] is not None:
+                    # The raw checkpoint can survive without its ID annotation.
+                    # Neither a matching annotation nor positive readback excuses a conflict.
+                    allowed_ids = (None, entry['id'])
+                    need(entry['returned_id'] in allowed_ids and
+                         _captured_reply_id(entry['wire']) in allowed_ids, 'stale')
                 key = candidate_key(entry)
                 if entry['operation'] == 'create' and entry['dispatched'] and key is None:
                     # Honest unknown, no proof of failure or permission to create again.

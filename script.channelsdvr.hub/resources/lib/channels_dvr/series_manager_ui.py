@@ -330,6 +330,12 @@ class SeriesManagerUI:
                 'unchanged': 'series_name_unchanged'}.get(error, 'series_stopped')
 
     def _dvr_result(self, generation, result, review):
+        status = review.row is None and result.operation == 'status'
+        if status:
+            if not review.source_current():
+                self.close()
+                return
+            review.finished(result)  # Same-source status survives leaving Passes.
         if self._presentation is not self._presentation_scope() or not review.current():
             self.close()  # Already-completed transport outcomes remain journaled.
             return
@@ -354,7 +360,7 @@ class SeriesManagerUI:
                 self._show(generation, self.t(key))
         elif result.operation != 'abort':
             self._show(generation, self.t('dvr_series_verified'))
-        if result.operation != 'abort' and review.current():
+        if not status and result.operation != 'abort' and review.current():
             review.finished(result)
         self._dvr = None
 

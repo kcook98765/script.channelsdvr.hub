@@ -676,6 +676,29 @@ class NavigationTests(unittest.TestCase):
         self.dialog.textviewer.assert_not_called()
         w._playback_ui.request.assert_not_called()
 
+    def test_entering_demo_revokes_series_before_live_eligibility_changes(self):
+        w = self.w
+        config = object()
+        w._saved_config = lambda: config
+        w._development_config = config
+        w._live_session = object()
+        w._addon.getSettingBool = lambda _: True
+        config_at_close = []
+        close = Mock(side_effect=lambda: config_at_close.append(w._recording_ui._current_config()))
+        w._series_ui = SimpleNamespace(close=close)
+
+        def enter_demo_mode(kind):
+            self.assertEqual(kind, 'normal')
+            close.assert_called_once_with()
+            self.assertTrue(w.transient_demo_mode)
+            self.assertIsNone(w._recording_ui._current_config())
+
+        with patch.object(w._guide_runtime, 'mode', side_effect=enter_demo_mode) as mode, patch.object(self.adapter, 'enter'):
+            w._open_demo()
+        mode.assert_called_once_with('normal')
+        self.assertEqual(config_at_close, [config])
+        w._save_development.assert_not_called()
+
     def test_deferred_live_source_switch_withdraws_old_recordings_and_scheduled_rows(self):
         self.seed()
         w = self.w
@@ -1645,6 +1668,46 @@ class NavigationTests(unittest.TestCase):
         self.assertFalse(current())
         self.assertFalse(status_current())
         self.assertIsNone(command_label(w, 'recording.status'))
+
+    def test_passes_status_finishes_on_scheduled_only_for_the_same_source(self):
+        for same_source in (True, False):
+            with self.subTest(same_source=same_source):
+                if not same_source:
+                    self.w = self.window()
+                workers, rows = self.connected_pass_fixture()
+                w = self.w
+                self.pass_result(workers[0], rows)
+                w._dvr.notice = 'dvr_series_pending'
+                w.render()
+                self.assertIsNone(w._chrome.capture(303))
+
+                self.gui.DLG_YESNO_NO_BTN = 10  # Inert SDK stub; no confirmation is expected.
+                manager = w._series_manager(self.gui)
+                worker = SimpleNamespace(submit=Mock(return_value=True), poll=Mock(return_value=None), close=Mock())
+                manager._profile = lambda: '/unused-test-profile'
+                manager._factory = Mock(return_value=worker)
+                manager._viewer = self.forbidden('cross-route Series result dialog')
+                self.dialog.select.side_effect = lambda _, labels: labels.index(w.t('dvr_series_status'))
+                self.click(304)
+                worker.submit.assert_called_once_with('status')
+
+                self.click(230)
+                self.assertEqual(w._dvr.tab, 'dvr.scheduled')
+                if not same_source:
+                    w._live_session.incarnation = object()
+                worker.poll.return_value = ManagerView('status', status_outcome='verified')
+                w.process_pending()
+                self.assertEqual(w._dvr.notice, 'dvr_series_verified' if same_source else 'dvr_series_pending')
+                self.assertEqual(w._dvr.tab, 'dvr.scheduled')
+                manager._viewer.assert_not_called()
+                worker.submit.assert_called_once_with('status')
+
+                w.render()  # Publish fresh tab input after the simulated incarnation change.
+                self.click(231)
+                self.assertEqual(w._dvr.tab, 'dvr.passes')
+                self.assertEqual(len(workers), 2)
+                self.pass_result(workers[-1], rows)
+                self.assertEqual(w._chrome.capture(303) is not None, same_source)
 
     def test_confirmed_series_success_refreshes_without_moving_the_other_selection(self):
         workers, rows = self.connected_pass_fixture()
