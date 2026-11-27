@@ -51,3 +51,31 @@ class UiDispatcherTests(unittest.TestCase):
         for budget in (0, 17, True):
             with self.assertRaises(ValueError):
                 queue.drain(budget)
+
+    def test_transition_skips_already_popped_and_not_yet_popped_input(self):
+        queue = UiDispatcher()
+        for _ in range(20):
+            queue.post(('action', 92))
+        current = queue.dispatch()
+        self.assertEqual(next(current), ('action', 92))
+        queue.fence_input()
+        self.assertEqual(list(current), [])
+        queue.post(('action', 3))
+        self.assertEqual(list(queue.dispatch()), [('action', 3)])
+
+    def test_modal_and_reinitialization_do_not_replay_parent_input(self):
+        queue = UiDispatcher()
+        queue.post(('action', 92))
+        with queue.modal_input():
+            self.assertFalse(queue.post(('action', 92)))
+            self.assertEqual(list(queue.dispatch()), [])
+        queue.post(('action', 92))
+        queue.post(('initialize', None))
+        self.assertEqual(list(queue.dispatch()), [('initialize', None)])
+
+    def test_full_mailbox_does_not_shed_window_lifecycle(self):
+        queue = UiDispatcher()
+        for _ in range(128):
+            self.assertTrue(queue.post(('action', 92)))
+        self.assertTrue(queue.post(('initialize', None)))
+        self.assertEqual(list(queue.dispatch()), [('initialize', None)])

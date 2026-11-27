@@ -16,7 +16,8 @@ ACTION_KEYS = {'create': 'series_create', 'adopt': 'series_adopt', 'rename': 'se
 
 class SeriesManagerUI:
     def __init__(self, *, assert_owner, dialog, profile, config, selection, viewer,
-                 strings, default_no, source_scope, worker_factory=SeriesManagerWorker):
+                 strings, default_no, source_scope, worker_factory=SeriesManagerWorker,
+                 presentation_scope=lambda: None):
         self._owner, self._dialog, self._profile, self._config = assert_owner, dialog, profile, config
         self._selection, self._viewer, self.strings = selection, viewer, strings
         self._factory = worker_factory
@@ -30,6 +31,8 @@ class SeriesManagerUI:
         self._event = None
         self._generation = 0
         self._readers = {}
+        self._presentation_scope = presentation_scope
+        self._presentation = None
 
     def t(self, key, **values):
         return text(self.strings, key, **values)
@@ -106,6 +109,7 @@ class SeriesManagerUI:
             self._modal(generation, 'ok', self.t('series_manager'), self.t('pending_operation'))
             return False
         self._pending = True
+        self._presentation = self._presentation_scope()
         return True
 
     def request(self):
@@ -224,6 +228,11 @@ class SeriesManagerUI:
         if type(result) is not ManagerView:
             return
         self._pending = False
+        if self._presentation is not self._presentation_scope():
+            if result.operation == 'prepare':
+                self._queue(generation, 'abort')
+                self._event = None
+            return
         if result.error is not None:
             key = {'activity': 'series_activity', 'capacity': 'series_capacity', 'expired': 'error_expired'}.get(result.error, 'series_stopped')
             self._show(generation, self.t(key))

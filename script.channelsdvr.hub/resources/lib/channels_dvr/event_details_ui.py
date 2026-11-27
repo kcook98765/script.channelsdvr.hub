@@ -37,9 +37,9 @@ def event_text(event: Event, channel: Channel | None, source: str, strings=FALLB
         notice=text(strings, 'details_notice'))
 
 
-def show_scope(addon_path, heading, text, strings=FALLBACK, *, art_path=None):
+def show_scope(addon_path, heading, text, strings=FALLBACK, *, art_path=None, modal_owner=None):
     from .programme_scope_ui import show_scope as owned_scope
-    return owned_scope(addon_path, heading, text, strings=strings, art_path=art_path)
+    return owned_scope(addon_path, heading, text, strings=strings, art_path=art_path, modal_owner=modal_owner)
 
 
 def selected_text(window, event: Event) -> str:
@@ -62,7 +62,7 @@ def show_event_details(window, event: Event, dialog) -> None:
         art_ui = getattr(window, '_artwork_ui', None)
         art_path = art_ui.ready(event_key(event)) if art_ui is not None else None
         options = {'art_path': art_path} if art_path else {}
-        if show_scope(window.path, text(strings, 'event_details'), body, strings, **options) is not True:
+        if show_scope(window.path, text(strings, 'event_details'), body, strings, modal_owner=window, **options) is not True:
             raise RuntimeError('details_unavailable')
     except Exception:
         if body is not None:
@@ -78,7 +78,7 @@ def recording_scope(window, event: Event) -> bool:
     strings = getattr(window, 'strings', FALLBACK)
     body = selected_text(window, event) + '\n\n' + text(strings, 'recording_scope_title') + '\n' + text(strings, 'recording_scope')
     body += '\n' + text(strings, 'scope_confirmation')
-    return show_scope(window.path, text(strings, 'recording_scope_title'), body, strings)
+    return show_scope(window.path, text(strings, 'recording_scope_title'), body, strings, modal_owner=window)
 
 
 def frame_context(window):

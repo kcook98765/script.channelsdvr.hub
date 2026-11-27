@@ -13,6 +13,7 @@ from unittest.mock import patch
 from channels_dvr.live_loader import DevelopmentConfig
 from channels_dvr.metadata_http import MetadataError
 from channels_dvr.newbuild_compatibility import BASE_MINIMUM_DVR_BUILD
+from channels_dvr.ui_modal import dialog_for
 from channels_dvr.ui_navigation import execute_connection, settings
 
 
@@ -79,6 +80,7 @@ def adapter(dialog):
     namespace = {"DevelopmentConfig": DevelopmentConfig,
                  "MetadataError": MetadataError,
                  "BASE_MINIMUM_DVR_BUILD": BASE_MINIMUM_DVR_BUILD,
+                 "dialog_for": dialog_for,
                  "xbmcgui": SimpleNamespace(Dialog=lambda: dialog)}
     exec(compile(module, str(source), "exec"), namespace)
     return namespace["Adapter"]()

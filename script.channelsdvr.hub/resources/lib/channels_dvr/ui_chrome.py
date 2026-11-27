@@ -1,20 +1,27 @@
-"""Visible native buttons; owner resolves focus, callbacks post plain input only."""
-from .guide_render import RenderMemo
-from .ui_navigation import execute_command
-from .ui_activation import ButtonActivation
-from types import MappingProxyType
+"""Native navigation regions and immutable input publication for one owner."""
 from collections.abc import Mapping
+from types import MappingProxyType
 
-NAV = {200: ('view.dashboard', 'dashboard'), 201: ('view.guide', 'guide'),
-       202: ('view.recordings', 'recordings'), 203: ('view.scheduled', 'scheduled'),
-       204: ('series.manager', 'passes'), 205: ('view.search', 'search'),
-       206: ('connection.menu', 'connection')}
-ACTIONS = {300: ('selection.details', 'details'), 301: ('playback.play', 'play_short'),
-           302: ('recording.schedule', 'schedule_short'), 303: ('series.manager', 'passes'),
-           304: ('window.actions', 'actions'), 305: ('window.back', 'back'),
-           306: ('search.programmes', 'search'), 307: ('search.clear', 'search_clear'),
-           308: ('connection.configure', 'dashboard_configure'), 309: ('connection.connect', 'connect'),
-           310: ('dashboard.refresh', 'dashboard_refresh')}
+from .guide_render import RenderMemo
+from .ui_activation import ButtonActivation, ShortcutActivation
+from .ui_hits import ContentHits
+from .ui_navigation import DESTINATIONS, SELECTION_COMMANDS, command_label, execute_command
+
+CONTENT = 100
+NAV = dict(zip(range(200, 206), DESTINATIONS))
+ACTIONS = {
+    300: ('selection.open',), 301: ('playback.play',),
+    302: ('recording.schedule', 'search.guide'), 303: ('series.manager',),
+    304: ('window.actions',), 305: ('window.back',),
+    306: ('search.programmes',), 307: ('search.clear',),
+    308: ('connection.configure',), 309: ('connection.connect',), 310: ('dashboard.refresh',),
+}
+VIEW_ACTIONS = {('Guide', 306): ('guide.collection',), ('Recordings', 306): ('recording.tools',)}
+# Kodi Omega ActionIDs; Select is delivered by native onClick (including mouse).
+LEFT, RIGHT, UP, DOWN, PAGE_UP, PAGE_DOWN = 1, 2, 3, 4, 5, 6
+BACK, INFO, NAV_BACK, CONTEXT = 10, 11, 92, 117
+SHORTCUTS = {INFO: 'selection.info', CONTEXT: 'window.actions',
+             PAGE_UP: 'selection.page-up', PAGE_DOWN: 'selection.page-down'}
 
 
 class WindowChrome:
@@ -23,15 +30,22 @@ class WindowChrome:
         self.memo = RenderMemo()
         self.presented: Mapping[int, ButtonActivation] = MappingProxyType({})
         self.layout = object()
+        self.hits = ContentHits(window)
+        self.selection: ButtonActivation | None = None
 
     def reset(self):
         self.memo.reset()
         self.presented = MappingProxyType({})
+        self.selection = None
         self.layout = object()
+        self.hits.clear()
 
     def capture(self, ident):
-        # Callback reads one immutable owner-published map, never model/SDK state.
+        # Callbacks read already-published immutable values, never model/SDK state.
         return self.presented.get(ident)
+
+    def capture_action(self, action):
+        return ShortcutActivation(action, self.selection) if action in (INFO, CONTEXT) else action
 
     def _withdraw(self, ident):
         if ident in self.presented:
@@ -50,139 +64,141 @@ class WindowChrome:
         except Exception:
             return None
 
-    def _activation(self, ident: int, entry: tuple[str, str]):
+    def _scope(self):
         w = self.w
         session = w._live_session
-        scope: tuple = (self.layout, w._development_config,
-                 session.incarnation if session is not None else w._guide_runtime.incarnation,
-                 w._development_blocked, w._guide_runtime._mode)
-        if ident in NAV:
-            # Stable navigation is independent of data/stats/clock repaint.
-            return ButtonActivation(ident, entry[0], entry[1], scope)
-        scope += (w.view,)
+        scope: tuple = (self.layout, w._route, w._development_config,
+                session.incarnation if session is not None else w._guide_runtime.incarnation,
+                w._development_blocked, w._guide_runtime._mode)
         if w.view == 'Recordings':
-            library = w.library
-            scope += (library._context(), library._paths.get(library._context(), ()),)
-        if ident not in (300, 301, 302):
-            return ButtonActivation(ident, entry[0], entry[1], scope)
+            context = w.library._context()
+            scope += (context, w.library._paths.get(context, ()),)
+        return scope
+
+    def _activation(self, ident, code, label, target=None):
+        w = self.w
+        scope = self._scope()
+        session = w._live_session
+        if w.view in ('Dashboard', 'Settings') or (code not in SELECTION_COMMANDS and target is None
+                                                   and code != 'selection.anchor'):
+            if w.view == 'Settings' and (code in SELECTION_COMMANDS or code == 'selection.anchor'):
+                scope += (w.positions.get('Settings', 0),)
+            return ButtonActivation(ident, code, label, scope, target=target)
         data = w._current_data()
-        selection: tuple
-        if w.view == 'Recordings':
-            row = w.library.selected
-            selection = (row.id if row else None, w.library.selected_recording())
-        elif w.view == 'Guide':
-            selection = (w.guide.selection, w.guide.group)
-        else:
-            selection = (w.positions.get(w._position_key(), 0), w.search_selection, w.search_query, w.guide.group)
-        product = w.guide.current_product
-        snapshot = (id(data.items), data.updated_at, w._guide_runtime.revision,
+        if target is None:
+            if w.view == 'Recordings':
+                row = w.library.selected
+                scope += (row.id if row else None,)
+            elif w.view == 'Guide':
+                scope += (w.guide.selection, w.guide.group)
+            elif w.view == 'Search':
+                scope += (w.search_selection, w.search_query, w.guide.group)
+            else:
+                scope += (w._dvr_selected,)
+        product = getattr(w.guide, 'current_product', None) if w.view in ('Guide', 'Search') else None
+        snapshot = (id(data.items), data.updated_at, data.can_browse, data.loading, w._guide_runtime.revision,
                     product.source.ticket if product is not None else None,
                     session._generation if session is not None else None,
                     session._catalog_epoch if session is not None else w._guide_runtime.synthetic_owner)
-        return ButtonActivation(ident, entry[0], entry[1], scope + (selection,), snapshot, id(w.repository.channels))
+        return ButtonActivation(ident, code, label, scope, snapshot, id(w.repository.channels), target)
+
+    def command_activation(self, code, label):
+        return self._activation(0, code, label)
+
+    def command_current(self, activation):
+        label = command_label(self.w, activation.command)
+        return label is not None and activation.matches(self.command_activation(activation.command, label))
 
     def focus(self):
-        """Known parent control only; SDK uncertainty is never content100."""
         self.w._dispatcher.assert_owner()
         try:
             ident = self.w.getFocusId()
         except Exception:
             return None
-        return ident if type(ident) is int and ident in (100, *NAV, *ACTIONS) else None
+        if type(ident) is not int:
+            return None
+        return ident if ident in (CONTENT, *NAV, *ACTIONS) else CONTENT if ident in self.presented else None
 
-    def _set_focus(self, target, *, initial=False):
-        """One bounded explicit focus attempt, never recursive repair/input."""
+    def _set_focus(self, target):
         self.w._dispatcher.assert_owner()
-        if (self.w._closed or type(target) is not int
-                or (target != 100 and target not in self.presented
-                    and not (initial and target == 201))):
-            return False
+        if self.w._closed or (target != CONTENT and target not in self.presented):
+            return
         try:
-            self.w.setFocusId(target)
-            return True
+            current = self.w.getFocusId()
         except Exception:
-            return False
+            current = None
+        try:
+            if current != target:
+                self.w.setFocusId(target)
+        except Exception:
+            pass  # Unknown native/child focus is not permission for retries.
 
-    def initialize_focus(self):
-        # onInit is an explicit owned lifecycle, not passive paint recovery.
-        self._set_focus(201 if self.w.view == 'Dashboard' else 100, initial=True)
+    def entry_target(self, preferred=None):
+        if preferred in self.presented:
+            return preferred
+        if CONTENT in self.presented:
+            return CONTENT
+        if self.w.view == 'Guide' and 304 in self.presented:
+            return 304  # Search/Settings remain reachable without a channel.
+        active = next((i for i in NAV if i in self.presented and DESTINATIONS[NAV[i]] == self.w.view), None)
+        return active if active is not None else next(iter(self.presented), None)
+
+    def initialize_focus(self, preferred=None):
+        target = self.entry_target(preferred)
+        if target is not None:
+            self._set_focus(target)
+
+    def restore(self, origin):
+        if not self.w._closed and self.focus() is not None:
+            self.initialize_focus(origin)
 
     def available(self):
         w = self.w
-        buttons = dict(NAV)
-        buttons.update({304: ACTIONS[304], 305: ACTIONS[305]})
-        if w.view == 'Dashboard':
-            buttons.update({i: ACTIONS[i] for i in (308, 309, 310)})
-            return buttons
-        if w.view == 'Search':
-            buttons.update({i: ACTIONS[i] for i in (306, 307)})
-        data = w._current_data()
-        if w.view == 'Guide':
-            if data.can_browse or (w._guide_runtime.ready and w.guide.channel(w.guide.selection.channel)):
-                buttons[300] = ACTIONS[300]
-            event = w.selected_indexed_event()
-            if event is not None and event.start > w.utc_now() and data.can_browse and not data.loading:
-                buttons[302] = ACTIONS[302]
-            buttons[303] = ACTIONS[303]
-            if data.can_browse and not data.loading and w._guide_runtime.ready:
-                buttons[301] = ('playback.play', 'watch_short')
-        elif w.view == 'Recordings':
-            row = w.library.selected
-            if row is not None and data.can_browse:
-                buttons[300] = ('selection.details', 'open' if row.children else 'details')
-                if not row.children and w.library.selected_recording() is not None:
-                    buttons[301] = ACTIONS[301]
-        elif w.view in ('Scheduled', 'Search') and data.can_browse and w._rows():
-            buttons[300] = ACTIONS[300]
-            if w.view == 'Search':
-                buttons[302] = ('search.guide', 'show_in_guide')
-        return buttons
+        visible = {ident: (code, label) for ident, code in NAV.items() if w.view != 'Guide'
+                   if (label := command_label(w, code)) is not None}
+        slots = {
+            'Dashboard': (304, 305, 308, 309, 310),
+            'Guide': (300, 301, 302, 303, 306, 304, 305),
+            'Recordings': (300, 301, 306, 304, 305),
+            'DVR': (300, 303, 304, 305),
+            'Search': (306, 307, 300, 302, 304, 305),
+            'Settings': (300, 304, 305),
+        }[w.view]
+        for ident in slots:
+            for code in VIEW_ACTIONS.get((w.view, ident), ACTIONS[ident]):
+                label = command_label(w, code)
+                if label is not None:
+                    visible[ident] = code, label
+                    break
+        return visible
 
-    def restore(self, origin):
-        if self.w._closed or type(origin) is not int or origin not in (100, *NAV, *ACTIONS):
-            return
-        current = self.focus()
-        if current is None:
-            # No proof of parent focus: defer rather than steal child/modal focus.
-            return
-        if origin == 100 and self.w.view != 'Dashboard':
-            if current != 100:
-                self._set_focus(100)
-            return
-        valid = self.presented
-        target = origin if origin in valid else next(iter(valid), None)
-        if target is not None and current != target:
-            self._set_focus(target)
-
-    def render(self):
+    def render(self, gui=None, plan=()):
         w = self.w
         available = self.available()
+        rail = tuple(ident for ident in available if ident in ACTIONS)
+        spacing, width = (290, 280) if len(rail) <= 6 else (252, 242)
         for ident in (*NAV, *ACTIONS):
             control = self.control(ident)
             if control is None:
                 self._withdraw(ident)
+                available.pop(ident, None)
                 continue
             shown = ident in available
             required: list[tuple[str, tuple]] = [('setVisible', (shown,)), ('setEnabled', (shown,))]
             if shown:
                 if ident in ACTIONS:
-                    position = [i for i in ACTIONS if i in available].index(ident)
-                    required.append(('setPosition', (80+position*290, 1000)))
-                key = available[ident][1]
-                required.append(('setLabel', (w.t(key),)))
+                    required.extend((('setPosition', (80 + rail.index(ident)*spacing, 1000)), ('setWidth', (width,))))
+                required.append(('setLabel', (w.t(available[ident][1]),)))
             if not shown or any(self.memo.values.get((control, method)) != args for method, args in required):
-                self._withdraw(ident)  # BEFORE potentially reentrant SDK setters
+                self._withdraw(ident)
             committed = True
             for method, args in required:
                 committed = self.memo.best_effort(control, method, *args) and committed
             if shown and committed:
-                current = dict(self.presented)
-                current[ident] = self._activation(ident, available[ident])
-                self.presented = MappingProxyType(current)
-                active = available[ident][0] == 'view.'+w.view.lower()
+                active = NAV.get(ident) == 'view.' + w.view.lower()
                 self.memo.best_effort(control, 'setTextColor', 'FFDEB560' if active else 'FFFFFFFF')
             else:
-                self._withdraw(ident)
+                available.pop(ident, None)
                 if shown:
                     self.memo.best_effort(control, 'setEnabled', False)
                     self.memo.best_effort(control, 'setVisible', False)
@@ -190,78 +206,81 @@ class WindowChrome:
             control = self.control(ident)
             if control is not None:
                 self.memo.best_effort(control, 'setVisible', w.view == 'Dashboard' and ident in w._dashboard_ui.ready_cards)
-        # Only repair revoked controls; passive metadata/art/status never steals focus.
-        focus = self.focus()
-        if focus in (*NAV, *ACTIONS) and focus not in self.presented:
-            self.restore(304)
+        state = {ident: self._activation(ident, *entry) for ident, entry in available.items()}
+        if (label := command_label(w, 'selection.activate')) is not None:
+            state[CONTENT] = self._activation(CONTENT, 'selection.activate', label)
+        anchor = self._activation(0, 'selection.anchor', '')
+        # Withdraw before SDK removals; do not let an old ID resolve to a new row.
+        self.presented = MappingProxyType(dict(state))
+        if gui is not None:
+            scope = self._scope()
+            for ident, hit in self.hits.sync(gui, (*scope, anchor.snapshot, anchor.channels), plan):
+                state[ident] = ButtonActivation(ident, 'selection.hit', '', scope, anchor.snapshot, anchor.channels, hit.key)
+        self.presented = MappingProxyType(state)
+        self.selection = anchor
+        # Passive paint never sets focus (even if a control just disappeared).
 
     def click(self, activation, gui):
-        if type(activation) is not ButtonActivation:
+        if (self.w._closed or self.focus() is None or type(activation) is not ButtonActivation
+                or not activation.matches(self.presented.get(activation.control_id))):
             return False
-        ident = activation.control_id
-        entry = self.available().get(ident)
-        if (entry is None or not activation.matches(self.presented.get(ident))
-                or not activation.matches(self._activation(ident, entry))):
+        ident, code = activation.control_id, activation.command
+        if code == 'selection.hit':
+            if (activation.target is None or
+                    not activation.matches(self._activation(ident, code, '', activation.target))
+                    or not self.w._select_hit(activation.target)):
+                return False
+            self._set_focus(CONTENT)
+            # This is intentionally a new selection. Only normal read/open is
+            # dispatched, never the former selection's toolbar intent.
+            return execute_command(self.w, gui, 'selection.open')
+        label = command_label(self.w, code)
+        if label is None or not activation.matches(self._activation(ident, code, label)):
             return False
-        command = activation.command
-        if command == 'window.back':
-            self.back(content=False)
-        elif command == 'selection.details':
-            self.w._details()
-            self.restore(ident)
-        else:
-            execute_command(self.w, gui, command, origin=ident)
-        return True
+        return execute_command(self.w, gui, code, origin=ident)
 
-    def back(self, *, content):
-        w = self.w
-        if w.view == 'Dashboard':
-            w.close()
-        elif content:
-            target = next((i for i in sorted(self.presented) if i >= 300), None)
-            if target is not None:
-                self._set_focus(target)
-        elif w.view == 'Recordings' and w.library.back():
-            w.render()
-            self.restore(305)
-        elif w.view == 'Recordings' and w.library.mode == 'Search':
-            w._set_library_mode(w.library_return_mode)
-            w.render()
-            self.restore(305)
-        else:
-            w.view = 'Dashboard'
-            w._guide_runtime.invalidate_view()
-            w._playback_ui.cancel()
-            w.render()
-            self.restore(201)
-
-    def action(self, action):
+    def action(self, activation, gui=None):
+        action = activation.action if type(activation) is ShortcutActivation else activation
+        if action in (BACK, NAV_BACK):
+            return execute_command(self.w, gui, 'window.back')
         focus = self.focus()
         if focus is None:
-            # Consume/defer focus-dependent input. In particular, do not let
-            # directions fall through to the Guide behind an unknown overlay.
+            # Explicit travel can recover native focus after a hovered hit was
+            # retired; a passive repaint and a stale Select cannot.
+            if action in (LEFT, RIGHT, UP, DOWN):
+                self.initialize_focus()
             return True
-        if action in (10, 92):
-            if focus in NAV and self.w.view != 'Dashboard':
-                self.w.view = 'Dashboard'
-                self.w._guide_runtime.invalidate_view()
-                self.w.render()
-                self.restore(201)
-            else:
-                self.back(content=focus == 100)
+        if action in SHORTCUTS:
+            if action in (INFO, CONTEXT):
+                anchor = activation.selection if type(activation) is ShortcutActivation else None
+                if anchor is None or not anchor.matches(self._activation(0, 'selection.anchor', '')):
+                    return True
+            if action not in (PAGE_UP, PAGE_DOWN) or focus == CONTENT:
+                execute_command(self.w, gui, SHORTCUTS[action], origin=focus)
             return True
-        if action not in (1, 2, 3, 4) or focus == 100:
+        if action not in (LEFT, RIGHT, UP, DOWN):
             return False
-        available = self.presented
-        row = sorted(i for i in available if (i in NAV) == (focus in NAV))
-        if focus not in row:
+        if focus not in self.presented:
+            self.initialize_focus()
             return True
-        if action in (1, 2):
-            target = row[(row.index(focus)+(-1 if action == 1 else 1)) % len(row)]
-        elif focus in NAV:
-            target = next((i for i in sorted(available) if i >= 300), focus) if action == 3 or self.w.view == 'Dashboard' else 100
+        nav = tuple(i for i in self.presented if i in NAV)
+        rail = tuple(i for i in self.presented if i in ACTIONS)
+        active = next((i for i in nav if DESTINATIONS[NAV[i]] == self.w.view), CONTENT)
+        if focus in nav or focus in rail:
+            siblings = nav if focus in nav else rail
+            if action in (LEFT, RIGHT):
+                target = siblings[(siblings.index(focus) + (-1 if action == LEFT else 1)) % len(siblings)]
+            else:
+                if focus in nav:
+                    target = CONTENT if CONTENT in self.presented else rail[0] if rail and action == DOWN else focus
+                else:
+                    target = CONTENT if action == UP and CONTENT in self.presented else active if nav else focus
+        elif action == UP and nav and self.w._content_edge(UP):
+            target = active
+        elif action == DOWN and rail and self.w._content_edge(DOWN):
+            target = rail[0]
         else:
-            target = 100 if action == 3 and self.w.view != 'Dashboard' else next((i for i in sorted(available) if i in NAV), focus)
+            return False
         self.w._playback_ui.cancel()
         self._set_focus(target)
         return True

@@ -63,10 +63,10 @@ class PlaybackUI:
             self._epoch += 1
         return config
 
-    def selection(self):
+    def selection(self, *, rebind=True):
         w = self.window
         w._dispatcher.assert_owner()
-        config = self._source()
+        config = self._source() if rebind else self._config()
         if config is None:
             return None
         data = w._current_data()

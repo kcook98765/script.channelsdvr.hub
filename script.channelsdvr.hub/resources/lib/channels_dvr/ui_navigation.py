@@ -1,46 +1,181 @@
 """Owner-only menu orchestration, extracted from the bounded WindowXML adapter."""
-from .ui_menu import CONNECTION, DEVELOPER, command, group_label, main_entries, select
+from types import MappingProxyType
+
+from .ui_menu import CONNECTION, DEVELOPER, command, group_label, select
+from .ui_modal import ModalGui, dialog_for, modal_call
+from .ui_routes import VIEW_KEYS, back, enter, route_fence
+
+DESTINATIONS = MappingProxyType({'view.' + view.lower(): view for view in VIEW_KEYS})
+LABELS = MappingProxyType({
+    **{code: VIEW_KEYS[view] for code, view in DESTINATIONS.items()},
+    'selection.activate': 'details', 'selection.open': 'details', 'selection.info': 'details',
+    'selection.page-up': 'previous_page', 'selection.page-down': 'next_page',
+    'search.programmes': 'search_programmes', 'search.clear': 'search_clear', 'search.guide': 'show_in_guide',
+    'recording.tools': 'recording_tools', 'guide.collection': 'collection',
+    'guide.now': 'now', 'guide.time': 'date_time', 'guide.previous': 'previous_hour', 'guide.next': 'next_hour',
+    'playback.play': 'play_short', 'recording.schedule': 'schedule', 'recording.status': 'recording_status',
+    'programme.tools': 'programme_tools', 'series.manager': 'series_manager',
+    'connection.menu': 'connection', 'addon.settings': 'connection_settings', **dict(CONNECTION),
+    'dashboard.refresh': 'dashboard_refresh', 'developer.menu': 'developer',
+    'window.actions': 'more', 'window.back': 'back', 'window.exit': 'exit',
+})
+CONNECTION_ACTIONS = frozenset(code for code, _ in CONNECTION)
+MORE_COMMANDS = {
+    'Dashboard': ('connection.status', 'developer.menu'),
+    'Guide': ('search.programmes', 'view.search', 'view.settings', 'guide.now', 'guide.time',
+              'guide.previous', 'guide.next', 'recording.status', 'programme.tools', 'developer.menu'),
+    'Recordings': (),
+    'DVR': ('connection.refresh',),
+    'Search': ('playback.play',),
+    'Settings': ('connection.menu', 'developer.menu'),
+}
+
+SELECTION_COMMANDS = frozenset(('selection.activate', 'selection.open', 'selection.info', 'window.actions',
+                               'playback.play', 'recording.schedule', 'recording.status', 'programme.tools',
+                               'search.guide', 'series.manager'))
 
 
-def main_menu(w, gui):
-    entries = main_entries(w.developer_enabled(), w._playback_ui.menu_label())
-    selected = select(gui.Dialog(), w.strings, 'brand', entries)
-    if selected is None:
+def more_entries(w):
+    direct = {intent.command for intent in w._chrome.presented.values()
+              if intent.context[0] is w._chrome.layout}
+    disconnected = w._live_session is None or w._development_blocked is not None
+    for code in MORE_COMMANDS[w.view]:
+        if code in direct or (code == 'view.settings' and not disconnected):
+            continue
+        if code == 'view.search' and command_label(w, 'search.programmes') is not None:
+            continue
+        if code == 'connection.refresh' and disconnected:
+            continue
+        if (label := command_label(w, code)) is not None:
+            yield code, label
+
+
+def command_label(w, code):
+    """One ordered, closed registry for visible and executable command intent."""
+    label = LABELS.get(code)
+    if label is None or w._closed:
+        return None
+    view = w.view
+    if code == 'window.actions':
+        return label if next(more_entries(w), None) is not None else None
+    if code == 'developer.menu':
+        return label if view in ('Dashboard', 'Guide', 'Settings') and w.developer_enabled() else None
+    if code == 'connection.menu' and view != 'Settings':
+        return None
+    if code in ('recording.status', 'programme.tools'):
+        session = w._live_session
+        if (view != 'Guide' or session is None or w._recording_ui._current_config() is None):
+            return None
+        if code == 'recording.status' and (session.loading or not w._current_data().can_browse
+                                           or w.selected_indexed_event() is None):
+            return None
+    if code == 'search.programmes':
+        if view == 'Search':
+            return 'search'
+        if view != 'Guide' or w._development_blocked is not None or (w._live_session is None and not w.demo_allowed()):
+            return None
+    if code == 'recording.tools' and view != 'Recordings':
+        return None
+    if code == 'dashboard.refresh':
+        return label if view == 'Dashboard' else None
+    if code == 'connection.configure' and view == 'Dashboard':
+        return 'dashboard_configure'
+    if code in ('search.clear', 'search.guide') and view != 'Search':
+        return None
+    if code.startswith('guide.'):
+        if view != 'Guide' or w._development_blocked is not None or (w._live_session is None and not w.demo_allowed()):
+            return None
+    if code in ('selection.page-up', 'selection.page-down'):
+        return label if view != 'Dashboard' else None
+    if code == 'selection.activate':
+        return command_label(w, 'selection.open')
+    if code in ('selection.open', 'selection.info', 'playback.play', 'recording.schedule', 'search.guide'):
+        if view == 'Dashboard':
+            return None
+        if view == 'Settings':
+            return 'open' if code == 'selection.open' else None
+        if code == 'playback.play':
+            if view not in ('Guide', 'Search', 'Recordings') or w._playback_ui.selection(rebind=False) is None:
+                return None
+            return 'watch_short' if view in ('Guide', 'Search') else label
+        if code in ('recording.schedule', 'search.guide'):
+            if code == 'search.guide':
+                return label if w._selected_search_event() is not None else None
+            if view != 'Guide' or w._live_session is None or w.demo_allowed():
+                return None
+            data, event = w._current_data(), w.selected_indexed_event()
+            return 'schedule_short' if (data.can_browse and not data.loading and event is not None
+                                        and event.start > w.utc_now()) else None
+        data = w._current_data()
+        if view == 'Recordings' and data.can_browse and w.library.selected is not None:
+            return 'open' if code == 'selection.open' and w.library.selected.children else label
+        if view == 'Guide' and (data.can_browse or w._guide_runtime.ready) and w.guide.channel(w.guide.selection.channel):
+            return label
+        if view in ('DVR', 'Search') and data.can_browse and w._rows():
+            return label
+        return None
+    return label
+
+
+def main_menu(w, gui, origin):
+    captured = tuple((code, label, w._chrome.command_activation(code, label)) for code, label in more_entries(w))
+    if not captured:
         return
-    execute_command(w, gui, selected, origin=w._chrome.focus())
+    selected = select(dialog_for(w, gui), w.strings, 'more', ((code, label) for code, label, _ in captured))
+    if selected is not None:
+        intent = next(intent for code, _, intent in captured if code == selected)
+        if selected in dict(more_entries(w)) and w._chrome.command_current(intent):
+            execute_command(w, gui, selected, origin=origin)
 
 
 def execute_command(w, gui, selected, *, origin=100):
-    """Closed common command handler shared by buttons and optional chooser."""
-    allowed = {key for key, _ in main_entries(True)} | {
-        'view.dashboard', 'view.search', 'connection.configure', 'connection.connect',
-        'dashboard.refresh', 'search.clear', 'search.guide', 'window.actions'}
-    if selected not in allowed:
-        return
-    w._playback_ui.cancel()
+    """Owner rechecks eligibility even after a matched immutable activation."""
+    w._dispatcher.assert_owner()
+    if selected == 'view.scheduled':
+        selected = 'view.dvr'
+    if command_label(w, selected) is None:
+        return False
+    if selected in DESTINATIONS:
+        enter(w, DESTINATIONS[selected])
+        return True
+    if selected == 'window.back':
+        back(w)
+        return True
     if selected == 'window.exit':
         w.close()
-        return
-    if selected.startswith('view.'):
-        target = {'view.dashboard': 'Dashboard', 'view.guide': 'Guide', 'view.recordings': 'Recordings',
-                  'view.scheduled': 'Scheduled', 'view.search': 'Search'}[selected]
-        if target != w.view or target != 'Dashboard':
-            w._dashboard_ui.suspend()
-            w.view = target
-            w._guide_runtime.invalidate_view()
-    elif selected == 'window.actions':
-        main_menu(w, gui)
-        return
-    elif selected == 'dashboard.refresh':
+        return True
+    w._playback_ui.cancel()
+    if selected == 'window.actions':
+        main_menu(w, gui, origin)
+        return True
+    if selected in ('selection.page-up', 'selection.page-down'):
+        w._navigate(3 if selected == 'selection.page-up' else 4, page=True)
+        return True
+    if selected == 'search.guide':
+        w._show_search_in_guide(origin=origin)
+        return True
+    layout = w._chrome.layout
+    route = w._route
+    if selected == 'dashboard.refresh':
         w._dashboard_ui.refresh()
     elif selected == 'search.clear':
         w._set_search_query('')
-    elif selected == 'search.guide':
-        event = w._selected_search_event()
-        if event is not None and w.guide.focus_event(event):
-            w.view = 'Guide'
-            w._guide_runtime.invalidate_view()
-    elif selected in ('connection.configure', 'connection.connect'):
+    else:
+        _execute_workflow(w, gui, selected, origin)
+    if not w._closed and layout is w._chrome.layout:
+        w.render()
+        w._chrome.restore(origin)
+    elif not w._closed and route is w._route:
+        # Child paths and collection changes can invalidate without painting.
+        w.render()
+        w._chrome.initialize_focus()
+    return True
+
+
+def _execute_workflow(w, gui, selected, origin):
+    if selected in ('selection.activate', 'selection.open', 'selection.info'):
+        w._details(allow_search_action=selected != 'selection.info', origin=origin)
+    elif selected in CONNECTION_ACTIONS:
         execute_connection(w, gui, selected)
     elif selected == 'connection.menu':
         connection_menu(w, gui)
@@ -51,18 +186,18 @@ def execute_command(w, gui, selected, *, origin=100):
     elif selected == 'series.manager':
         w._series_manager_request(gui)
     elif selected == 'playback.play':
-        w._playback_ui.request(gui)
+        w._playback_ui.request(ModalGui(w, gui))
     elif selected in ('recording.status', 'programme.tools'):
         if (w._live_session is None or w.demo_allowed() or w._development_blocked is not None
                 or w._saved_config() != w._development_config
                 or w.get_setting('development_metadata_enabled') is not True):
-            gui.Dialog().ok(w.t('connection'), w.t('connect_first'))
+            dialog_for(w, gui).ok(w.t('connection'), w.t('connect_first'))
         elif selected == 'programme.tools':
             w._recording_ui.preview.request()
         else:
             w._recording_ui.request(schedule=False)
     elif w._development_blocked is not None or (w._live_session is None and not w.demo_allowed()):
-        gui.Dialog().ok(w.t('connection'), w.t('connect_first'))
+        dialog_for(w, gui).ok(w.t('connection'), w.t('connect_first'))
     elif selected == 'search.programmes':
         w._search_menu()
     elif selected == 'recording.tools':
@@ -70,12 +205,11 @@ def execute_command(w, gui, selected, *, origin=100):
     elif selected == 'guide.collection':
         groups = tuple(w.repository.groups)
         # Captured immutable keys: provider group names are data, not translated.
-        answer = gui.Dialog().select(w.t('collection'), [group_label(w.strings, group) for group in groups])
+        answer = dialog_for(w, gui).select(w.t('collection'), [group_label(w.strings, group) for group in groups])
         chosen = command(tuple((group, '') for group in groups), answer)
-        if chosen is not None:
+        if chosen is not None and not w._closed and chosen in w.repository.groups:
             w.guide.set_group(chosen)
-            w._guide_runtime.invalidate_view()
-            w.view = 'Guide'
+            route_fence(w)
     elif selected == 'guide.now':
         w._jump_time(w.utc_now() if w._live_session is not None else w.repository.now)
     elif selected == 'guide.time':
@@ -83,23 +217,15 @@ def execute_command(w, gui, selected, *, origin=100):
     elif selected in ('guide.previous', 'guide.next'):
         anchor = w._intended_anchor if w._intended_anchor is not None else w.guide.selection.anchor
         w._jump_time(anchor + (-3600 if selected == 'guide.previous' else 3600))
-    elif selected in ('recording.schedule', 'recording.status', 'programme.tools'):
-        if w._live_session is None or w.demo_allowed():
-            gui.Dialog().ok(w.t('connection'), w.t('connect_first'))
-        elif selected == 'programme.tools':
-            w._recording_ui.preview.request()
-        else:
-            w._recording_ui.request(schedule=selected == 'recording.schedule')
-    if not w._closed:
-        w.render()
-        w._chrome.restore(100 if selected.startswith('view.') or selected == 'search.guide' else origin)
+    elif selected == 'recording.schedule':
+        w._recording_ui.request(schedule=True)
 
 
 def settings(w):
     if w._addon is None:
         return
     w._guide_runtime.latest_status = None
-    w._addon.openSettings()
+    modal_call(w, w._addon.openSettings)
     w._revoke_demo()
     if w._live_session is not None:
         config = w._saved_config()
@@ -112,7 +238,7 @@ def settings(w):
 
 
 def connection_menu(w, gui):
-    selected = select(gui.Dialog(), w.strings, 'connection', CONNECTION)
+    selected = select(dialog_for(w, gui), w.strings, 'connection', CONNECTION)
     execute_connection(w, gui, selected)
 
 
@@ -123,7 +249,7 @@ def execute_connection(w, gui, selected):
     elif selected == 'connection.connect':
         config = w._saved_config()
         if config is None or w._addon is None:
-            gui.Dialog().ok(w.t('connection'), w.t('configure_first'))
+            dialog_for(w, gui).ok(w.t('connection'), w.t('configure_first'))
             return
         if w._save_development(enabled=True):
             w.transient_demo_mode = False
@@ -133,7 +259,7 @@ def execute_connection(w, gui, selected):
         config = w._saved_config()
         if (w._live_session is None or config is None or w._development_config is None
                 or w._development_blocked is not None):
-            gui.Dialog().ok(w.t('connection'), w.t('connect_first'))
+            dialog_for(w, gui).ok(w.t('connection'), w.t('connect_first'))
             return
         anchor = w._intended_anchor if w._intended_anchor is not None else w.guide.selection.anchor
         same_scope = config == w._development_config
@@ -146,7 +272,7 @@ def execute_connection(w, gui, selected):
         session = w._live_session
         body = w.t('not_connected')
         if session is not None:
-            body = w._current_data().banner
+            body = session.guide().banner if w.view in ('Settings', 'Dashboard') else w._current_data().banner
             if session.guide().updated_at is not None:
                 body += '\n' + w.t('connection_counts', channels=len(w.repository.channels) if w.repository.channels else w.t('unknown'),
                     events=len(w.repository.events),
@@ -163,7 +289,8 @@ def execute_connection(w, gui, selected):
         body += '\n\n' + w._playback_ui.diagnostic_text()
         from .pass_ui import _programme_scope
         _programme_scope(w.path, w.t('connection_status'),
-                         body + '\n\n' + status_text(w) + '\n\n' + w.t('disconnect_help'), w.strings)
+                          body + '\n\n' + status_text(w) + '\n\n' + w.t('disconnect_help'), w.strings,
+                          modal_owner=w)
     elif selected == 'connection.disconnect':
         # Explicit connection action only. Demo never alters this saved preference.
         if w._addon is not None and not w._save_development(enabled=False):
@@ -178,7 +305,7 @@ def execute_connection(w, gui, selected):
 def developer_menu(w, gui):
     if not w.developer_enabled():
         return
-    selected = select(gui.Dialog(), w.strings, 'developer', DEVELOPER)
+    selected = select(dialog_for(w, gui), w.strings, 'developer', DEVELOPER)
     # Recheck after modal: a hidden tool is not an admission boundary.
     if not w.developer_enabled():
         w._revoke_demo()
@@ -188,7 +315,7 @@ def developer_menu(w, gui):
     elif selected == 'demo.close':
         w._close_demo()
     elif selected == 'diagnostic.index':
-        gui.Dialog().textviewer(w.t('index_status'), w._guide_runtime.diagnostic())
+        dialog_for(w, gui).textviewer(w.t('index_status'), w._guide_runtime.diagnostic())
     elif selected == 'diagnostic.timing':
         w._diagnostics()
     elif selected == 'diagnostic.connection':
@@ -196,16 +323,16 @@ def developer_menu(w, gui):
         detail = (f'blocked={w._development_blocked}; loading={session.loading}; '
                   f'error={session.last_error}; reads={session.last_request_count}; '
                   f'warnings={session.snapshot_warning_codes}' if session is not None else 'No live session')
-        gui.Dialog().textviewer(w.t('connection_diagnostics'), detail)
+        dialog_for(w, gui).textviewer(w.t('connection_diagnostics'), detail)
     elif selected is not None:
         if not w.demo_allowed():
-            gui.Dialog().ok(w.t('developer'), w.t('demo_first'))
+            dialog_for(w, gui).ok(w.t('developer'), w.t('demo_first'))
             return
         if selected == 'demo.stress':
             w._toggle_stress_fixture()
         elif selected == 'demo.status':
             scenarios = w.data_session.scenario_entries()
-            index = gui.Dialog().select(w.t('demo_status'), [label for _, label in scenarios])
+            index = dialog_for(w, gui).select(w.t('demo_status'), [label for _, label in scenarios])
             scenario = command(scenarios, index)
             if scenario is not None and w.demo_allowed():
                 w.data_session.choose(scenario)
@@ -214,7 +341,7 @@ def developer_menu(w, gui):
             from .guide_fixtures import large_menu, traverse_large
             entries = (('steps60', 'steps_60'), ('steps600', 'steps_600'), ('large', 'demo_500'),
                        ('traverse', 'demo_traverse'), ('dense', 'demo_dense'))
-            action = select(gui.Dialog(), w.strings, 'demo_exercise', entries)
+            action = select(dialog_for(w, gui), w.strings, 'demo_exercise', entries)
             if not w.demo_allowed():
                 return
             if action in ('steps60', 'steps600'):

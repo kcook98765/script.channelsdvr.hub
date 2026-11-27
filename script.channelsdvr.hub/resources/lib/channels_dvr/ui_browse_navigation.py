@@ -4,11 +4,13 @@ from bisect import bisect_right
 from .guide import time_label
 from .search import normalize_query
 from .ui_menu import SEARCH, command, select
+from .ui_modal import dialog_for
+from .ui_routes import enter, route_fence
 
 
 def admitted(w, gui):
     if w._closed or w._development_blocked is not None or (w._live_session is None and not w.demo_allowed()):
-        gui.Dialog().ok(w.t('connection'), w.t('connect_first'))
+        dialog_for(w, gui).ok(w.t('connection'), w.t('connect_first'))
         return False
     return True
 
@@ -23,12 +25,12 @@ def search_menu(w, gui, *, recordings=False):
         entries += tuple((f'preset.{i}', w.t('demo_preset', query=query)) for i, query in enumerate(presets))
     captured = tuple(entries)
     title = w.t('search_recordings' if recordings else 'search_programmes')
-    chosen = command(captured, gui.Dialog().select(title, [label for _, label in captured]))
+    chosen = command(captured, dialog_for(w, gui).select(title, [label for _, label in captured]))
     if chosen is None or not admitted(w, gui):
         return
     value = None
     if chosen == 'search.enter':
-        candidate = gui.Dialog().input(w.t('recording_search_input' if recordings else 'search_input'),
+        candidate = dialog_for(w, gui).input(w.t('recording_search_input' if recordings else 'search_input'),
             defaultt=w.library.query if recordings else w.search_query, type=gui.INPUT_ALPHANUM)
         if candidate:
             value = candidate
@@ -37,21 +39,27 @@ def search_menu(w, gui, *, recordings=False):
     elif chosen == 'search.previous':
         if recordings:
             w._set_library_mode('Search')
-        w.view = 'Recordings' if recordings else 'Search'
+        target = 'Recordings' if recordings else 'Search'
+        if w.view != target:
+            enter(w, target)
     elif chosen is not None and chosen.startswith('preset.') and w.demo_allowed():
         value = presets[int(chosen.removeprefix('preset.'))]
     if value is not None and admitted(w, gui):
         try:
             normalize_query(value)
             if recordings:
-                if w.library.mode != 'Search':
-                    w.library_return_mode = w.library.mode
+                context = w.library._context()
                 w.library.set_query(value)
-                w.view = 'Recordings'
+                if w.view != 'Recordings':
+                    enter(w, 'Recordings')
+                elif w.library._context() != context:
+                    route_fence(w)
             else:
                 w._set_search_query(value)
+                if w.view != 'Search':
+                    enter(w, 'Search')
         except ValueError:
-            gui.Dialog().ok(title, w.t('search_limit'))
+            dialog_for(w, gui).ok(title, w.t('search_limit'))
 
 
 def recording_tools(w, gui):
@@ -59,34 +67,39 @@ def recording_tools(w, gui):
         return
     entries = (('recording.search', 'search_recordings'), ('recording.source', 'recording_source'),
                ('recording.shows', 'browse_shows'), ('recording.recent', 'recent'), ('recording.movies', 'movies'))
-    chosen = select(gui.Dialog(), w.strings, 'recording_tools', entries)
+    chosen = select(dialog_for(w, gui), w.strings, 'recording_tools', entries)
     if chosen is None or not admitted(w, gui):
         return
     if chosen == 'recording.search':
         search_menu(w, gui, recordings=True)
     elif chosen == 'recording.source':
         sources = (('all', 'all_sources'), ('dvr', 'dvr_recordings'), ('import', 'imported_media'), ('unknown', 'unknown_source'))
-        selected = command(sources, gui.Dialog().select(w.t('recording_source'), [w.t(key) for _, key in sources],
+        selected = command(sources, dialog_for(w, gui).select(w.t('recording_source'), [w.t(key) for _, key in sources],
             preselect=next(i for i, row in enumerate(sources) if row[0] == w.library.provenance_filter)))
         if selected is not None and admitted(w, gui):
-            w.library.set_provenance_filter(selected)
-            w.view = 'Recordings'
+            changed = selected != w.library.provenance_filter
+            if changed:
+                w.library.set_provenance_filter(selected)
+            if w.view != 'Recordings':
+                enter(w, 'Recordings')
+            elif changed:
+                route_fence(w)
     elif chosen in ('recording.shows', 'recording.recent', 'recording.movies'):
         w._set_library_mode({'recording.shows': 'Shows', 'recording.recent': 'Recent', 'recording.movies': 'Movies'}[chosen])
-        w.view = 'Recordings'
+        if w.view != 'Recordings':
+            enter(w, 'Recordings')
 
 
 def time_navigation(w, gui):
     if not admitted(w, gui):
         return
     entries = (('time.choose', 'choose_date'), ('time.first', 'earliest'), ('time.last', 'latest'))
-    chosen = select(gui.Dialog(), w.strings, 'date_time', entries)
+    chosen = select(dialog_for(w, gui), w.strings, 'date_time', entries)
     if chosen is None or not admitted(w, gui):
         return
     start, end = w.repository.horizon
     if chosen in ('time.first', 'time.last'):
         w._jump_time(start if chosen == 'time.first' else end - 1)
-        w.view = 'Guide'
     elif chosen == 'time.choose':
         if w._live_session is not None:
             now = max(0, w.utc_now())
@@ -97,7 +110,6 @@ def time_navigation(w, gui):
         preselect = max(0, min(len(hours) - 1, bisect_right(hours, w.guide.selection.anchor) - 1))
         # The selected UTC instant is data, never a localized caption.
         captured = tuple((hour, '') for hour in hours)
-        instant = command(captured, gui.Dialog().select(w.t('date_offset'), [time_label(hour) for hour in hours], preselect=preselect))
+        instant = command(captured, dialog_for(w, gui).select(w.t('date_offset'), [time_label(hour) for hour in hours], preselect=preselect))
         if instant is not None and admitted(w, gui):
             w._jump_time(instant)
-            w.view = 'Guide'

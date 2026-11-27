@@ -12,9 +12,16 @@ class ButtonActivation:
     # Never retain the collection: its final release belongs to the CPU worker.
     snapshot: tuple | None = None
     channels: int | None = None
+    target: tuple | None = None
 
     def matches(self, other):
         return (type(other) is ButtonActivation and self.control_id == other.control_id
                 and self.command == other.command and self.label_key == other.label_key
                 and self.context == other.context and self.snapshot == other.snapshot
-                and self.channels == other.channels)
+                 and self.channels == other.channels and self.target == other.target)
+
+
+@dataclass(frozen=True)
+class ShortcutActivation:
+    action: int
+    selection: ButtonActivation | None

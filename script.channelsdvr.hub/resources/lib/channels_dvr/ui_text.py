@@ -53,7 +53,7 @@ _ROWS = (
     ('connect_first', 30127, 'Connect to your DVR first.'),
     ('configure_first', 30128, 'In Settings or Connection > Configure DVR address, set a numeric IP, then Connect. Uses HTTP port 8089; no hostnames.'),
     ('not_connected', 30129, 'Not connected'),
-    ('connection_prompt', 30130, 'Connect to your DVR to load listings. Open Connection to configure an approved DVR address and connect.'),
+    ('connection_prompt', 30130, 'Connect to your DVR to load listings. Use Settings or Configure to enter an approved DVR address, then choose Connect.'),
     ('disconnect_help', 30131, 'Disconnecting this guide does not stop DVR recordings or remove saved passes.'),
     ('header', 30132, 'Channels DVR Hub | {view}'),
     ('demo_guide', 30133, 'Demo guide'),

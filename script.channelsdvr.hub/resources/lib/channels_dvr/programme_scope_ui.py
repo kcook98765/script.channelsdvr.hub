@@ -7,6 +7,7 @@ Callback errors latch because Kodi need not propagate them through doModal.
 """
 import xbmcgui
 from channels_dvr.ui_text import FALLBACK, text as ui_text
+from channels_dvr.ui_modal import modal_call
 
 
 class ProgrammeScopeDialog(xbmcgui.WindowXMLDialog):
@@ -92,14 +93,14 @@ class ProgrammeScopeDialog(xbmcgui.WindowXMLDialog):
             self._failed = True
 
 
-def show_scope(addon_path, heading, text, strings=FALLBACK, *, art_path=None):
+def show_scope(addon_path, heading, text, strings=FALLBACK, *, art_path=None, modal_owner=None):
     """True means successful display/dismissal ONLY; caller separately asks Save."""
     if type(text) is not str or not text or len(text.encode('utf-8')) > 32768:
         raise ValueError('scope text unavailable')
     dialog = ProgrammeScopeDialog('ProgrammePassScope.xml', addon_path, 'Default', '1080i',
                                   heading=heading, text=text, strings=strings, art_path=art_path)
     try:
-        dialog.doModal()
+        modal_call(modal_owner, dialog.doModal)
         if dialog._failed or not dialog._initialized or not dialog._dismissed:
             raise RuntimeError('scope display failed')
         return True

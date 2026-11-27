@@ -6,11 +6,13 @@ import xbmcvfs
 from .event_details_ui import event_start, frame_context, recording_scope
 from .pass_browser import display_text
 from .pass_ui import PassPreviewUI, _programme_scope
-from .recording_worker import RecordingWorker
+from .recording_worker import RecordingResult, RecordingWorker
 from .operation_storage import normalize_profile
 from .ui_text import FALLBACK, text
 from .ui_operation_errors import error_message, state_label, uncertainty
 from .ui_menu import command
+from .ui_modal import dialog_for
+from .ui_routes import presentation_scope
 
 
 class RecordingUI:
@@ -19,6 +21,7 @@ class RecordingUI:
         self.worker: RecordingWorker | None = None
         self.control_touched = False  # conservative for the rest of this window
         self._prepare_context = None
+        self._presentation = None
         self.preview = PassPreviewUI(self)
 
     def t(self, key, **values):
@@ -26,15 +29,15 @@ class RecordingUI:
 
     def _choose(self, heading, entries):
         captured = tuple(entries)
-        return command(captured, xbmcgui.Dialog().select(heading, [label for _, label in captured]))
+        return command(captured, dialog_for(self.window, xbmcgui).select(heading, [label for _, label in captured]))
 
     def _show(self, heading, body):
         try:
             return _programme_scope(self.window.path, heading, body,
-                                    getattr(self.window, 'strings', FALLBACK)) is True
+                                     getattr(self.window, 'strings', FALLBACK), modal_owner=self.window) is True
         except Exception:
             self.close()
-            xbmcgui.Dialog().ok(self.t('recording'), self.t('message_failed') + '\n' + self.t('controls_blocked'))
+            dialog_for(self.window, xbmcgui).ok(self.t('recording'), self.t('message_failed') + '\n' + self.t('controls_blocked'))
             return False
 
     def close(self) -> None:
@@ -60,7 +63,7 @@ class RecordingUI:
         if self.worker is not None and config != self.worker.config:
             self.close()
         if config is None:
-            xbmcgui.Dialog().ok(self.t('recording'), self.t('connect_first'))
+            dialog_for(self.window, xbmcgui).ok(self.t('recording'), self.t('connect_first'))
             return None
         if self.worker is None:
             self.control_touched = True
@@ -70,7 +73,7 @@ class RecordingUI:
                 profile = normalize_profile(xbmcvfs.translatePath(self.window._addon.getAddonInfo("profile")))
                 self.worker = RecordingWorker(config, profile)
             except Exception:
-                xbmcgui.Dialog().ok(self.t('recording'), self.t('profile_blocked'))
+                dialog_for(self.window, xbmcgui).ok(self.t('recording'), self.t('profile_blocked'))
                 return None
         return self.worker
 
@@ -87,20 +90,22 @@ class RecordingUI:
         self.window._dispatcher.assert_owner()
         event = self.window.selected_indexed_event() if self.window.view == "Guide" else None
         if schedule and event is None:
-            xbmcgui.Dialog().ok(self.t('recording'), self.t('future_selection'))
+            dialog_for(self.window, xbmcgui).ok(self.t('recording'), self.t('future_selection'))
             return
         worker = self._get_worker()
         if worker is None:
             return
         if schedule and (event is None or not self.window._current_data().can_browse
                          or self.window._live_session.loading):
-            xbmcgui.Dialog().ok(self.t('recording'), self.t('future_selection'))
+            dialog_for(self.window, xbmcgui).ok(self.t('recording'), self.t('future_selection'))
             return
         context = frame_context(self.window) if schedule else None
         if not worker.submit("prepare" if schedule else "status", event=event):
-            xbmcgui.Dialog().ok(self.t('recording'), self.t('pending_operation'))
-        elif schedule:
-            self._prepare_context = context
+            dialog_for(self.window, xbmcgui).ok(self.t('recording'), self.t('pending_operation'))
+        else:
+            self._presentation = presentation_scope(self.window)
+            if schedule:
+                self._prepare_context = context
 
     def _prepared_current(self, worker: RecordingWorker | None, event) -> bool:
         if worker is None:
@@ -124,11 +129,18 @@ class RecordingUI:
         result = worker.poll()
         if result is None or result.operation == "abort":
             return
+        if self._presentation is not presentation_scope(self.window):
+            if result.state == 'prepared' and not worker.submit('abort'):
+                self.close()
+            return
+        self._present(worker, result)
+
+    def _present(self, worker: RecordingWorker, result: RecordingResult) -> None:
         if result.state == "prepared" and result.error is None:
             if not self._prepared_current(worker, result.event):
                 if not worker.submit("abort"):
                     self.close()
-                xbmcgui.Dialog().ok(self.t('recording'), self.t('recording_selection_changed'))
+                dialog_for(self.window, xbmcgui).ok(self.t('recording'), self.t('recording_selection_changed'))
                 return
             assert result.event is not None
             try:
@@ -136,13 +148,13 @@ class RecordingUI:
                     raise RuntimeError('scope_unavailable')
             except Exception:
                 self.close()
-                xbmcgui.Dialog().ok(self.t('recording'), self.t('recording_scope_failed'))
+                dialog_for(self.window, xbmcgui).ok(self.t('recording'), self.t('recording_scope_failed'))
                 return
             if not self._prepared_current(worker, result.event):
                 self.close()
                 return
             try:
-                confirmed = xbmcgui.Dialog().yesno(
+                confirmed = dialog_for(self.window, xbmcgui).yesno(
                     self.t('schedule_question'), self.t('schedule_confirm',
                         title=display_text(result.event.title, 80, getattr(self.window, 'strings', FALLBACK)) or self.t('untitled'), start=event_start(result.event)))
             except Exception:
@@ -160,7 +172,7 @@ class RecordingUI:
             return
         if result.error is not None:
             strings = getattr(self.window, 'strings', FALLBACK)
-            xbmcgui.Dialog().ok(self.t('recording'), self.t('error_status',
+            dialog_for(self.window, xbmcgui).ok(self.t('recording'), self.t('error_status',
                 message=error_message(result.error, strings, 'recording'), state=state_label(result.state, strings)))
             if result.error == "checkpoint_failed":
                 return  # storage uncertainty never offers read/write follow-up actions
@@ -178,7 +190,7 @@ class RecordingUI:
             choice = self._choose(self.t('recording_owned_heading'),
                                   (('cancel', self.t('cancel_this')), ('status', self.t('status_read'))))
             if choice == 'cancel':
-                confirmed = xbmcgui.Dialog().yesno(self.t('cancel_question'), self.t('cancel_confirm'))
+                confirmed = dialog_for(self.window, xbmcgui).yesno(self.t('cancel_question'), self.t('cancel_confirm'))
                 if confirmed is True and self.worker is worker and self._current_config() == worker.config:
                     worker.submit("cancel", token=result.token, confirmed=True)
                 elif self._current_config() != worker.config:
@@ -189,7 +201,7 @@ class RecordingUI:
             choice = self._choose(self.t('cancelled_saved'),
                 (('rollover', self.t('rollover')), ('history', self.t('archived_count', count=result.history_count))))
             if choice == 'rollover' and self.worker is worker and self._current_config() == worker.config:
-                confirmed = xbmcgui.Dialog().yesno(
+                confirmed = dialog_for(self.window, xbmcgui).yesno(
                     self.t('rollover_question'), self.t('rollover_confirm'))
                 if self._current_config() != worker.config:
                     self.close()

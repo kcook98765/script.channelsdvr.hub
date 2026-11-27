@@ -17,7 +17,7 @@ ROWS = (
     ('dashboard_sources', 30905, 'Sources: {sources}\nReported tuners: {tuners}\nReporting sources: {reporting} · Unknown: {unknown}\nAvailability is unknown\n{status}'),
     ('dashboard_passes', 30906, 'Pass list: {total}\nPaused: {paused} · Active: {active}\nPause state unknown: {unknown}\nIncludes advanced passes\n{status}'),
     ('dashboard_loaded', 30907, 'Independently loaded listings (cache)\nChannels: {channels} · Hidden: {hidden}\nGuide programmes: {events}\nWindow: {start} — {end}\nRecordings (complete scan): {recordings}'),
-    ('dashboard_hint', 30908, 'Back: actions / Dashboard / exit · Down: content · Actions: more options'),
+    ('dashboard_hint', 30908, 'Left/Right: destinations · Down: actions · Back: exit'),
     ('dashboard_interval', 30918, 'Automatic statistics refresh'),
     ('dashboard_interval_help', 30919, 'Refresh statistics on Dashboard only. Initial/manual reads work when disabled. Listings and connection permission are unchanged.'),
     ('dashboard_disabled', 30920, 'Disabled'),
@@ -50,4 +50,6 @@ ROWS = (
     ('dashboard_activity_summary', 30945, 'Reported activity\nStreams: {streams} · Recordings: {recordings}\nWorkers: {workers} · Other: {other}\nNot a free-tuner check'),
     ('dashboard_updated', 30946, 'Last updated: {timestamp}'),
     ('dashboard_warning', 30947, 'Statistics are partial, failed or stale; values may be retained or unavailable.'),
+    ('dvr_view', 30948, 'DVR'),
+    ('more', 30949, 'More'),
 )
