@@ -20,7 +20,7 @@ from .guide_gap import show_station_gap
 from .guide_render import RenderMemo, draw
 from .guide_screen import hide_guide, paint_clock, paint_guide, station_rows
 from .guide_fixtures import cancel_large, install_fixture, tick_large
-from .library import LibraryBrowser
+from .library import LibraryBrowser, PAGE_ROWS
 from .metrics import GuiMetrics
 from .live_loader import DevelopmentConfig, MetadataLoader
 from .live_session import DevelopmentRepository, LiveDataSession
@@ -37,17 +37,17 @@ from .ui_dispatch import UiDispatcher
 from .ui_text import capture, text
 from .ui_menu import CONNECTION, group_label, select
 from .ui_navigation import execute_command
-from .ui_routes import Route, SearchReturn, VIEW_KEYS, enter, launch_view, presentation_scope, route_fence
+from .ui_routes import Route, SearchReturn, VIEW_KEYS, enter, launch_view, presentation_scope
 from .ui_hits import Hit
 from .ui_modal import ModalGui, dialog_for, modal_input
-from .ui_browse_navigation import recording_tools, search_menu
+from .ui_browse_navigation import search_menu
+from .ui_recordings import rows_status
 from .ui_status import STATUS_KEYS
 from .artwork_ui import ArtworkUI, show_media_details
 from .playback_ui import PlaybackUI
 from .dashboard_ui import DashboardUI, format_timestamp
 from .ui_chrome import BACK, CONTEXT, DOWN, LEFT, NAV_BACK, RIGHT, UP, WindowChrome
 
-PAGE_ROWS = 6
 
 
 class SettingsProtocol(Protocol):
@@ -552,7 +552,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
             return self._guide_runtime.presentation(guide)
         if self.view == "Recordings":
             recordings = self.data_session.recordings()
-            if recordings.can_browse:
+            if recordings.can_browse or (recordings.state == DataState.EMPTY and recordings.updated_at is not None):
                 self.repository.recordings = recordings.items
                 self.library.update(recordings.items)
             return recordings
@@ -633,7 +633,11 @@ class ChannelsWindow(xbmcgui.WindowXML):
                 state = 'guide_unavailable' if self._guide_runtime.error else 'preparing_guide'
             else:
                 state = 'no_listings'
-            self._label(112, self.t('empty_view', view=view_label, status=self.t(state)))
+            # Deferred source retirement can leave the old breadcrumb in memory.
+            accepted_empty = (self.view == 'Recordings' and state == 'empty_update'
+                              and self._guide_runtime._mode is None)
+            self._label(112, self.library.breadcrumb if accepted_empty else
+                        self.t('empty_view', view=view_label, status=self.t(state)))
             self._label(113, self.t('refresh_hint') if self._live_session is not None else
                         self.t('demo_hint') if self.demo_allowed() else self.t('connection_prompt'))
             return
@@ -654,25 +658,20 @@ class ChannelsWindow(xbmcgui.WindowXML):
                 self._label(113, status)
             elif self.view == "Recordings":
                 self._label(112, self.library.breadcrumb)
-                status = self.t('recording_rows_status', position=selected + 1 if rows else 0, count=len(rows))
-                if not rows:
-                    status = self.t('recording_no_matches')
-                if self.library.mode == "Search" and not normalize_query(self.library.query):
-                    status = self.t('recording_search_hint')
-                if self.library.truncated or self.library.coverage_limited:
-                    status += self.t('results_limited')
-                self._label(113, status)
+                self._label(113, rows_status(self, rows, selected))
             else:
                 self._label(112, self.t('demo_scheduled_readonly' if self.demo_allowed() else 'scheduled_readonly'))
                 self._label(113, self.t('details_rows_status', position=selected + 1 if rows else 0, count=len(rows)))
 
     def _render_rows(self, rows):
         selected = self._selected_position(rows)
-        first = selected // PAGE_ROWS * PAGE_ROWS
+        recordings = self.view == 'Recordings'
+        first = self.library.top if recordings else selected // PAGE_ROWS * PAGE_ROWS
+        y, stride, height = (311, 82, 72) if recordings else (250, 95, 85)
         visible = rows[first:first + PAGE_ROWS]
         self._ensure_pool(len(visible))
         for index, row in enumerate(visible):
-            rect = (80, 250 + index * 95, 1760, 85)
+            rect = (80, y + index * stride, 1760, height)
             self._draw(index, *rect, row.label, first + index == selected)
             self._hit_plan.append(Hit(rect, ('row', row.id)))
         return selected
@@ -720,11 +719,8 @@ class ChannelsWindow(xbmcgui.WindowXML):
             if row is None:
                 dialog_for(self, xbmcgui).ok(self.t('recordings'), self.t('recording_select_item'))
                 return
-            if allow_search_action and self.library.open_selected():
-                route_fence(self)
-            else:
-                if not self._artwork_ui.ready() or show_media_details(self, row) is not True:
-                    dialog_for(self, xbmcgui).textviewer(row.label, self._detail_text(row.detail))
+            if not self._artwork_ui.ready() or show_media_details(self, row) is not True:
+                dialog_for(self, xbmcgui).textviewer(row.label, self._detail_text(row.detail))
         else:
             rows = self._rows()
             if not rows:
@@ -800,14 +796,6 @@ class ChannelsWindow(xbmcgui.WindowXML):
     def _search_menu(self) -> None:
         search_menu(self, xbmcgui)
 
-    def _set_library_mode(self, mode: str) -> None:
-        if mode != self.library.mode:
-            self.library.set_mode(mode)
-            route_fence(self)
-
-    def _recording_tools(self) -> None:
-        recording_tools(self, xbmcgui)
-
     def _diagnostics(self) -> None:
         if not self.developer_enabled():
             return
@@ -871,14 +859,7 @@ class ChannelsWindow(xbmcgui.WindowXML):
                     self.guide.page(-1 if action_id == UP else 1)
                 else:
                     self.guide.vertical(-1 if action_id == UP else 1)
-            elif self.view == "Recordings":
-                if action_id in (3, 4):
-                    self.library.move((PAGE_ROWS if page else 1) * (-1 if action_id == UP else 1))
-                else:
-                    modes = ("Shows", "Recent", "Movies", "Search")
-                    self._set_library_mode(modes[(modes.index(self.library.mode)
-                                                  + (-1 if action_id == 1 else 1)) % 4])
-            elif action_id in (3, 4):
+            elif action_id in (UP, DOWN):
                 rows = self._rows()
                 self._select_list(rows, self._selected_position(rows) + (PAGE_ROWS if page else 1) * (-1 if action_id == UP else 1))
             self.render()

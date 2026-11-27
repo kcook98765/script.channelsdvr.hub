@@ -4,6 +4,7 @@ from types import MappingProxyType
 from .guide_screen import choose_group, choose_time
 from .ui_menu import CONNECTION, DEVELOPER, command, select
 from .ui_modal import ModalGui, dialog_for, modal_call
+from . import ui_recordings
 from .ui_routes import VIEW_KEYS, back, enter, route_fence
 
 DESTINATIONS = MappingProxyType({'view.' + view.lower(): view for view in VIEW_KEYS})
@@ -12,7 +13,7 @@ LABELS = MappingProxyType({
     'selection.activate': 'details', 'selection.open': 'details', 'selection.info': 'details',
     'selection.page-up': 'previous_page', 'selection.page-down': 'next_page',
     'search.programmes': 'search_programmes', 'search.clear': 'search_clear', 'search.guide': 'show_in_guide',
-    'recording.tools': 'recording_tools', 'guide.collection': 'collection',
+    **ui_recordings.LABELS, 'guide.collection': 'collection',
     'guide.controls': 'guide_controls',
     'guide.now': 'now', 'guide.time': 'date_time', 'guide.previous': 'previous_hour', 'guide.next': 'next_hour',
     'playback.play': 'play_short', 'recording.schedule': 'schedule', 'recording.status': 'recording_status',
@@ -77,8 +78,8 @@ def command_label(w, code):
             return 'search'
         if view != 'Guide' or w._development_blocked is not None or (w._live_session is None and not w.demo_allowed()):
             return None
-    if code == 'recording.tools' and view != 'Recordings':
-        return None
+    if code in ui_recordings.LABELS:
+        return label if ui_recordings.available(w, code) else None
     if code == 'dashboard.refresh':
         return label if view == 'Dashboard' else None
     if code == 'connection.configure' and view == 'Dashboard':
@@ -153,6 +154,12 @@ def execute_command(w, gui, selected, *, origin=100):
     if selected == 'window.exit':
         w.close()
         return True
+    if selected in ui_recordings.LABELS:
+        ui_recordings.execute(w, gui, selected, origin)
+        return True
+    if (w.view == 'Recordings' and selected in ('selection.open', 'selection.activate')
+            and ui_recordings.open_folder(w)):
+        return True
     w._playback_ui.cancel()
     if selected == 'window.actions':
         main_menu(w, gui, origin)
@@ -212,8 +219,6 @@ def _execute_workflow(w, gui, selected, origin):
         dialog_for(w, gui).ok(w.t('connection'), w.t('connect_first'))
     elif selected == 'search.programmes':
         w._search_menu()
-    elif selected == 'recording.tools':
-        w._recording_tools()
     elif selected == 'guide.collection':
         choose_group(w, gui)
     elif selected == 'guide.now':
